@@ -9,7 +9,7 @@ Sources reviewed:
 - `ARCHITECTURE.md` (authoritative design)
 - https://support.bytexl.app/ — Coding Abilities, Coding Tests, Project
   Evaluation & Submission, SafeExamBrowser Guide, Single Sign-On (Partner
-  Integration), FAQs
+  Integration), FAQs, Video Guides
 
 ---
 
@@ -48,6 +48,15 @@ Cross-cutting features their docs make explicit:
 
 Legend: **Done** = implemented and tested in this repo · **Partial** = scaffold
 or pure logic present, not wired end-to-end · **Missing** = not started.
+
+> **Verified live 2026-11-11:** the P1 loop runs end to end against the real
+> KubeLab backend on minikube — login → launch (`tier_3_vcluster`) → cold start
+> WARM→ACTIVE → "Open your lab environment" → the code-server IDE boots in a
+> real browser (Explorer + editor + terminal). The blocker was the gateway
+> forwarding the browser's `Origin` verbatim, which made code-server hang the
+> WebSocket handshake; fixed by rewriting `Origin` to the upstream ingress host
+> (`deploy/kubelab/ide-gateway.mjs`, regression-tested). The web client must be
+> reached at `/lab/<ingress-host>/` via the gateway, not the raw node-IP host.
 
 ### 2.1 Foundations
 
