@@ -91,10 +91,10 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Capability | Status | Gap |
 |---|---|---|
 | Coding + MCQ + fill + descriptive auto-grading | **Done** | `apps/api/src/assessments/grader.ts`, 21 tests |
-| Read-only stub sections | **Partial** | `read-only.ts` hashes whole marker files; ByteXL semantics are *in-file regions delimited by comment markers*. Needs a marker parser. |
+| Read-only stub sections | **Done** | `read-only.ts` — `parseSolutionRegion`/`checkSolutionRegion`/`checkSubmissionRegions` enforce in-file regions delimited by `#`/`//`/`--` `start your solution` … `end your solution` (one region per file), matching ByteXL; whole-file `checkReadOnly` remains for no-marker files. |
 | Proctoring event ingest + risk score | **Done** | `proctoring/proctoring.service.ts` |
 | SEB config generation | **Done** | `buildSebConfig` |
-| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; no browser capture, no timer enforcement. Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
+| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; authoritative server timer now in `assessments/exam-timer.ts` (deadline, auto-submit, grace). Browser event capture still to wire. Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
 | `.seb` download entry point | **Deferred** | No route serving the `.seb` file — full SEB integration is post-v1 (ADR-17) |
 | SEB quit password (test:edit gated) | **Deferred** | Post-v1 (ADR-17) |
 
@@ -198,13 +198,14 @@ This is the largest parity gap and the most-used surface.
 
 ByteXL's proctoring is their moat on exams; this is where we must match.
 
-- [ ] Read-only **regions**: replace whole-file hashing with a marker parser for
-      `#`/`//`/`--` `start your solution` / `end your solution`; enforce exactly
-      one editable region per exercise, matching ByteXL.
+- [x] Read-only **regions**: marker parser for `#`/`//`/`--`
+      `start your solution` / `end your solution`; one editable region per
+      exercise, matching ByteXL (`parseSolutionRegion`, `checkSubmissionRegions`).
 - [ ] Browser proctoring client: `visibilitychange` (tab switch), copy/paste
       interception, fullscreen-exit, display-count — feeding the existing
       `ProctorEvent` ingest. **This is the v1 exam path (ADR-17).**
-- [ ] Server-side timer: authoritative start/end, auto-submit at expiry.
+- [x] Server-side timer: authoritative start/end, auto-submit at expiry
+      (`assessments/exam-timer.ts`).
 - [ ] Full SEB integration: **deferred past v1 (ADR-17)** — serving the `.seb`
       file, kiosk/network filtering, quit password. The `buildSebConfig`
       generator stays in the codebase.

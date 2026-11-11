@@ -9,7 +9,21 @@ import {
   type Question,
   type CodeRunner,
 } from './assessments/grader';
-import { buildManifest, checkReadOnly, sha256 } from './assessments/read-only';
+import {
+  buildManifest,
+  checkReadOnly,
+  sha256,
+  parseSolutionRegion,
+  checkSolutionRegion,
+  checkSubmissionRegions,
+} from './assessments/read-only';
+import {
+  startExamWindow,
+  remainingSeconds,
+  isExpired,
+  shouldAutoSubmit,
+  evaluateSubmission,
+} from './assessments/exam-timer';
 import {
   summarizeEvents,
   buildSebConfig,
@@ -164,6 +178,182 @@ test('checkReadOnly detects a deleted marker file', () => {
   const manifest = buildManifest([{ path: 'tests/run.sh', content: 'echo hi' }]);
   const violations = checkReadOnly(manifest, []);
   assert.deepEqual(violations, [{ path: 'tests/run.sh', reason: 'deleted' }]);
+});
+
+// ------------------------------------------------- solution-region markers
+
+const PY_STUB = [
+  'def calculate_sum(xs):',
+  '    """Readonly signature."""',
+  '    # start your solution',
+  '    # Write your code here',
+  '    # end your solution',
+  '    return result',
+  '',
+].join('\n');
+
+test('parseSolutionRegion finds the marked region and its prefix', () => {
+  const parsed = parseSolutionRegion(PY_STUB);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.region.prefix, '#');
+  assert.equal(parsed.region.body, '    # Write your code here');
+});
+
+test('parseSolutionRegion accepts // and -- comment styles', () => {
+  const java = 'class S {\n// start your solution\n// code\n// end your solution\n}';
+  const sql = 'SELECT 1;\n-- start your solution\n-- query\n-- end your solution';
+  const j = parseSolutionRegion(java);
+  const s = parseSolutionRegion(sql);
+  assert.equal(j.ok && j.region.prefix, '//');
+  assert.equal(s.ok && s.region.prefix, '--');
+});
+
+test('parseSolutionRegion rejects missing, multiple and unbalanced markers', () => {
+  assert.deepEqual(parseSolutionRegion('print(1)'), {
+    ok: false,
+    reason: 'no_markers',
+  });
+  const twoRegions = [
+    '# start your solution',
+    'a',
+    '# end your solution',
+    '# start your solution',
+    'b',
+    '# end your solution',
+  ].join('\n');
+  assert.deepEqual(parseSolutionRegion(twoRegions), {
+    ok: false,
+    reason: 'multiple_regions',
+  });
+  const reversed = '# end your solution\nx\n# start your solution';
+  assert.deepEqual(parseSolutionRegion(reversed), {
+    ok: false,
+    reason: 'unbalanced',
+  });
+});
+
+test('parseSolutionRegion rejects mixed marker styles', () => {
+  const mixed = '# start your solution\nx\n// end your solution';
+  assert.deepEqual(parseSolutionRegion(mixed), {
+    ok: false,
+    reason: 'prefix_mismatch',
+  });
+});
+
+test('checkSolutionRegion allows edits inside the region only', () => {
+  const submitted = PY_STUB.replace(
+    '# Write your code here',
+    'return sum(xs)',
+  );
+  assert.equal(checkSolutionRegion('solution.py', PY_STUB, submitted), null);
+});
+
+test('checkSolutionRegion flags edits to the read-only prefix', () => {
+  const submitted = PY_STUB.replace(
+    'def calculate_sum(xs):',
+    'def calculate_sum(xs, y):',
+  );
+  assert.deepEqual(checkSolutionRegion('solution.py', PY_STUB, submitted), {
+    path: 'solution.py',
+    reason: 'readonly_before_modified',
+  });
+});
+
+test('checkSolutionRegion flags edits to the read-only suffix', () => {
+  const submitted = PY_STUB.replace('return result', 'return 0');
+  assert.deepEqual(checkSolutionRegion('solution.py', PY_STUB, submitted), {
+    path: 'solution.py',
+    reason: 'readonly_after_modified',
+  });
+});
+
+test('checkSolutionRegion flags a changed marker style', () => {
+  const submitted = PY_STUB.replace('# start your solution', '// start your solution')
+    .replace('# end your solution', '// end your solution');
+  assert.deepEqual(checkSolutionRegion('solution.py', PY_STUB, submitted), {
+    path: 'solution.py',
+    reason: 'marker_style_changed',
+  });
+});
+
+test('checkSolutionRegion flags a deleted marker', () => {
+  const submitted = PY_STUB.replace('# start your solution\n', '');
+  assert.deepEqual(checkSolutionRegion('solution.py', PY_STUB, submitted), {
+    path: 'solution.py',
+    reason: 'no_markers',
+  });
+});
+
+test('checkSubmissionRegions enforces region stubs and whole-file references', () => {
+  const references = [
+    { path: 'solution.py', content: PY_STUB },
+    { path: 'tests/run.sh', content: 'echo hi' },
+  ];
+  const good = checkSubmissionRegions(references, [
+    { path: 'solution.py', content: PY_STUB.replace('# Write your code here', 'return 42') },
+    { path: 'tests/run.sh', content: 'echo hi' },
+  ]);
+  assert.deepEqual(good, []);
+
+  const tamperedHarness = checkSubmissionRegions(references, [
+    { path: 'solution.py', content: PY_STUB },
+    { path: 'tests/run.sh', content: 'echo tampered' },
+  ]);
+  assert.deepEqual(tamperedHarness, [
+    { path: 'tests/run.sh', reason: 'modified' },
+  ]);
+});
+
+// -------------------------------------------------------------- exam timer
+
+/** A clock that returns a fixed time, or a settable one for step-throughs. */
+function fixedClock(iso: string): { now(): Date } {
+  return { now: () => new Date(iso) };
+}
+
+test('startExamWindow computes the deadline from the server clock', () => {
+  const w = startExamWindow('a1', 3600, fixedClock('2026-11-11T09:00:00Z'));
+  assert.equal(w.endsAt.toISOString(), '2026-11-11T10:00:00.000Z');
+});
+
+test('startExamWindow rejects a non-positive duration', () => {
+  assert.throws(() => startExamWindow('a1', 0), /positive/);
+  assert.throws(() => startExamWindow('a1', -5), /positive/);
+});
+
+test('remainingSeconds counts down and clamps at zero', () => {
+  const w = startExamWindow('a1', 600, fixedClock('2026-11-11T09:00:00Z'));
+  assert.equal(remainingSeconds(w, fixedClock('2026-11-11T09:05:00Z')), 300);
+  assert.equal(remainingSeconds(w, fixedClock('2026-11-11T09:10:00Z')), 0);
+  assert.equal(remainingSeconds(w, fixedClock('2026-11-11T09:20:00Z')), 0);
+});
+
+test('isExpired and shouldAutoSubmit flip at the deadline', () => {
+  const w = startExamWindow('a1', 60, fixedClock('2026-11-11T09:00:00Z'));
+  assert.equal(isExpired(w, fixedClock('2026-11-11T09:00:59Z')), false);
+  assert.equal(shouldAutoSubmit(w, fixedClock('2026-11-11T09:00:59Z')), false);
+  assert.equal(isExpired(w, fixedClock('2026-11-11T09:01:00Z')), true);
+  assert.equal(shouldAutoSubmit(w, fixedClock('2026-11-11T09:01:00Z')), true);
+});
+
+test('evaluateSubmission accepts in time, rejects after the deadline', () => {
+  const w = startExamWindow('a1', 60, fixedClock('2026-11-11T09:00:00Z'));
+  const inTime = evaluateSubmission(w, fixedClock('2026-11-11T09:00:30Z'));
+  assert.deepEqual(inTime, { accepted: true, remainingSeconds: 30 });
+
+  const late = evaluateSubmission(w, fixedClock('2026-11-11T09:02:00Z'));
+  assert.deepEqual(late, { accepted: false, reason: 'expired', remainingSeconds: 0 });
+});
+
+test('evaluateSubmission grace period admits a slightly late submit', () => {
+  const w = startExamWindow('a1', 60, fixedClock('2026-11-11T09:00:00Z'));
+  // 5s past the deadline, 10s grace: still accepted.
+  const withGrace = evaluateSubmission(w, fixedClock('2026-11-11T09:01:05Z'), 10);
+  assert.equal(withGrace.accepted, true);
+  // 11s past the deadline: rejected even with grace.
+  const beyond = evaluateSubmission(w, fixedClock('2026-11-11T09:01:11Z'), 10);
+  assert.equal(beyond.accepted, false);
 });
 
 // -------------------------------------------------------------- proctoring
