@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { proxyFetchInit } from './lms';
 
 const API_BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 
@@ -23,12 +24,14 @@ export async function proxy(
       ? await req.text()
       : undefined;
 
-  const upstream = await fetch(`${API_BASE}${path}`, {
-    method: init.method ?? req.method,
-    headers,
-    body,
-    redirect: 'manual',
-  });
+  const upstream = await fetch(
+    `${API_BASE}${path}`,
+    proxyFetchInit({
+      method: init.method ?? req.method,
+      headers,
+      body,
+    }),
+  );
 
   const responseHeaders = new Headers();
   const setCookie = upstream.headers.get('set-cookie');

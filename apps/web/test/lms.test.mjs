@@ -5,6 +5,7 @@ import {
   labLaunchState,
   lessonStatusLabel,
   courseProgress,
+  proxyFetchInit,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -50,4 +51,13 @@ test('courseProgress computes a clamped percentage', () => {
     courseProgress([{ status: 'complete' }, { status: 'complete' }]),
     100,
   );
+});
+
+test('proxyFetchInit disables caching so session polls see fresh status', () => {
+  const init = proxyFetchInit({
+    method: 'GET',
+    headers: new Headers({ cookie: 'a=b' }),
+  });
+  assert.equal(init.cache, 'no-store');
+  assert.equal(init.redirect, 'manual');
 });

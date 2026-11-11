@@ -27,6 +27,21 @@ export function ssoErrorMessage(reason: string | null | undefined): string | nul
 }
 
 /**
+ * Init for the web proxy's upstream fetch to the LMS API.
+ *
+ * Next.js patches global fetch and caches route-handler responses by URL. Lab
+ * session polls hit the same URL while the status changes underneath, so the
+ * read must be uncached or the poll replays the first (WARM) response forever.
+ */
+export function proxyFetchInit(input: {
+  method: string;
+  headers: Headers;
+  body?: string;
+}): RequestInit {
+  return { ...input, redirect: 'manual', cache: 'no-store' };
+}
+
+/**
  * Whether a launched lab is ready for the student, still starting, or broken.
  * Drives the launch button's polling loop.
  */

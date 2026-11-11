@@ -96,6 +96,9 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   `<Suspense>` boundary or `next build` fails prerendering.
 - The web app proxies API calls through `apps/web/src/app/api/**` to stay
   same-origin (session cookie, no CORS).
+- Next.js patches global `fetch` and caches route-handler responses by URL. The
+  proxy must pass `cache: 'no-store'` (see `proxyFetchInit`), or a lab session
+  poll replays the first `WARM` response forever and the launch never completes.
 - Lab launch is async (KubeLab cold start is minutes). Never block the request
   on provisioning; return the session id and let the UI poll.
 - Inbound lab webhooks are signed with HMAC-SHA256 over the **raw** body and the
