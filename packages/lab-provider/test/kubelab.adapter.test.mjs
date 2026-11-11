@@ -45,6 +45,14 @@ function fakeKubeLab(options = {}) {
     if (createMatch && method === 'POST') {
       const collection = createMatch[1];
       const data = JSON.parse(init.body);
+      // KubeLab's `users.role` is a select restricted to user/admin; emulate the
+      // 400 so a forwarded LMS role is caught here rather than in production.
+      if (collection === 'users' && data.role && !['user', 'admin'].includes(data.role)) {
+        return jsonResponse(400, {
+          message: 'Something went wrong while processing your request.',
+          data: { role: { code: 'validation_invalid_value' } },
+        });
+      }
       const row = { id: nextId(collection.slice(0, 2)), ...data };
       store[collection][row.id] = row;
       return jsonResponse(200, row);
@@ -174,6 +182,33 @@ test('provision authenticates as admin, ensures records, and returns a handle', 
     (c) => c.method === 'PATCH' && c.url.includes('/exercise_sessions/'),
   );
   assert.equal(JSON.parse(exercisePatch.body).agentRunning, true);
+});
+
+test('provision maps an LMS role onto a KubeLab-valid role', async () => {
+  // KubeLab's users.role select accepts only user/admin. A student/instructor
+  // role forwarded verbatim is rejected with a 400 (fakeKubeLab emulates this).
+  const fake = fakeKubeLab();
+  const adapter = makeAdapter(fake, {
+    resolveUser: () => ({ email: 'student@tenxlab.local', name: 'S', role: 'student' }),
+  });
+  const handle = await adapter.provision(spec);
+  assert.equal(handle.status, 'ACTIVE');
+  const create = fake.calls.find(
+    (c) => c.method === 'POST' && c.url.endsWith('/api/collections/users/records'),
+  );
+  assert.equal(JSON.parse(create.body).role, 'user');
+});
+
+test('provision preserves the admin role for KubeLab', async () => {
+  const fake = fakeKubeLab();
+  const adapter = makeAdapter(fake, {
+    resolveUser: () => ({ email: 'admin@tenxlab.local', name: 'A', role: 'admin' }),
+  });
+  await adapter.provision(spec);
+  const create = fake.calls.find(
+    (c) => c.method === 'POST' && c.url.endsWith('/api/collections/users/records'),
+  );
+  assert.equal(JSON.parse(create.body).role, 'admin');
 });
 
 test('provision retries the agent start until the cluster accepts it', async () => {

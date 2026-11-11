@@ -99,6 +99,9 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
 - Next.js patches global `fetch` and caches route-handler responses by URL. The
   proxy must pass `cache: 'no-store'` (see `proxyFetchInit`), or a lab session
   poll replays the first `WARM` response forever and the launch never completes.
+- KubeLab's `users.role` select accepts only `user`/`admin`. LMS roles
+  (`student`/`instructor`) must be mapped before create or KubeLab 400s; see
+  `kubelabRole` in the adapter.
 - Lab launch is async (KubeLab cold start is minutes). Never block the request
   on provisioning; return the session id and let the UI poll.
 - Inbound lab webhooks are signed with HMAC-SHA256 over the **raw** body and the

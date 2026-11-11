@@ -301,7 +301,7 @@ export class KubeLabAdapter implements LabProvider {
       password,
       passwordConfirm: password,
       name: descriptor.name,
-      role: descriptor.role ?? 'user',
+      role: kubelabRole(descriptor.role),
     });
   }
 
@@ -443,6 +443,15 @@ export class KubeLabAdapter implements LabProvider {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * KubeLab's `users.role` is a select restricted to `user`/`admin`; anything else
+ * is rejected with a 400. LMS roles (student/instructor) are not meaningful to
+ * KubeLab, so map every non-admin role to `user`.
+ */
+function kubelabRole(role: string | undefined): 'user' | 'admin' {
+  return role === 'admin' ? 'admin' : 'user';
 }
 
 function toIso(value: unknown): string | undefined {
