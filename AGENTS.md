@@ -127,6 +127,12 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
 - Clean `dist/` before trusting a test count; stale compiled tests inflate it.
 - Next.js: any client component calling `useSearchParams()` must sit inside a
   `<Suspense>` boundary or `next build` fails prerendering.
+- The web shell (`AppShell`) lives in the root layout and persists across
+  routes, so it re-reads the session on `pathname` change; without that the top
+  bar stays "Sign in" after a client-side login. The nav itself is data, not
+  JSX: edit `apps/web/src/lib/nav.ts`, and keep `nav.test.mjs` in sync. A menu
+  entry with a `phase` badge is a placeholder — it must render through
+  `SurfacePage` rather than a blank route.
 - The web app proxies API calls through `apps/web/src/app/api/**` to stay
   same-origin (session cookie, no CORS). The browser client must therefore use
   relative `/api/*` paths: never set `NEXT_PUBLIC_API_BASE_URL` (or add an `env`

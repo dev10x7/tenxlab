@@ -68,7 +68,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Partner HS256 SSO | **Done** | `identity/partner-sso.service.ts` + jti replay guard |
 | Idempotent gradebook webhook | **Done** | `gradebook/gradebook-webhook.service.ts` |
 | Copyleft license gate | **Done** | `scripts/check-licenses.mjs` (175 pkgs, clean) |
-| Next.js web client | **Partial** | builds; home/login/dashboard/catalog/course pages |
+| Next.js web client | **Partial** | ByteXL-style shell: role-aware sidebar (Dashboard/Learn/Catalog; Editor/Assessments/Nimbus; Labs+More), plus Lab launch, catalog, and course pages |
 
 ### 2.2 Editor (ByteXL "Editor")
 
