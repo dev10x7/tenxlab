@@ -1,0 +1,26 @@
+{
+  "name": "@tenxlab/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TenXLab web client (Next.js App Router)",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec \"test/*.test.mjs\"",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tenxlab/contracts": "0.1.0",
+    "next": "^14.2.18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@tenxlab/lab-operator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Warm-pool reconciler and idle-session sweeper for the lab execution plane",
+  "type": "commonjs",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test --test-reporter=spec test/*.test.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tenxlab/contracts": "0.1.0",
+    "@tenxlab/lab-provider": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}

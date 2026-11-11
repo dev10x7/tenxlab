@@ -89,7 +89,7 @@ for artifacts.
 | ADR-5 | **Postgres Row-Level Security + `tenant_id`** for isolation | Scales better than schema-per-tenant; single migration path. | Accepted |
 | ADR-6 | **RS256 JWTs** for internal service-to-service auth; **HS256** for partner SSO | RS256 lets KubeLab/AI verify without the signing secret; HS256 matches partner ergonomics. | Accepted |
 | ADR-7 | **No AGPL/GPL dependencies** in product image | Avoids network-copyleft source-disclosure obligation. | Accepted |
-| ADR-8 | **KubeLab integrated behind a `LabProvider` interface; forked for tier-1/2 + warm pool** | KubeLab is vcluster-only with no warm pool; our tier router and pool operator are extensions, so isolate via interface. | Accepted |
+| ADR-8 | **KubeLab integrated behind a `LabProvider` interface, adapter-only — no fork** | KubeLab is vcluster-only with no warm pool; tier-1 (Judge0) is a request/response provider and tier-2 is a pod, both added beside KubeLab rather than inside it. Keeps the Apache-2.0 dependency pristine so upstream pulls always apply. Revisit at Phase E (projects) if one exercise format across tiers is worth a fork. | Accepted (2026-11-11) |
 | ADR-9 | **Redis Streams + BullMQ** for jobs/events (Kafka deferred) | Simplicity at current scale; revisit at >10k concurrent labs. | Accepted |
 | ADR-10 | **S3-compatible object storage (S3/MinIO)** for snapshots | Portability; cost. | Accepted |
 | ADR-11 | **KubeLab keeps its own PocketBase DB and auth; LMS is the system of record** | Avoids a dual-write mess; sync via SSO-in and webhook-out only. | Accepted |
@@ -434,11 +434,30 @@ LabSpec:
    the LMS JWT and upserts the PocketBase user, so KubeLab never becomes a second
    source of truth for identity.
 
-**Fork vs. extend decision (P0 spike):** prefer **extending KubeLab via its
-hooks + our adapter** over forking its Go core. Fork only the provisioning
-controller if tier-2 support requires changes inside `HandleLabSessions`.
-Track upstream (`main` tracks PocketBase v0.22.x, vcluster chart 0.16.x) and keep
-our changes in a thin layer to ease rebases.
+**Fork vs. extend decision — resolved 2026-11-11: extend only, no fork.**
+
+Verified against `natrontech/kubelab` `main`: provisioning is record-driven and
+binary. `main.go` hooks `OnRecordBeforeUpdateRequest` on `lab_sessions`, and
+`HandleLabSessions` does one thing — `clusterRunning=true` Helm-installs a
+vcluster, `false` deletes it. There is no tier field or branch, no SSO/JWT code
+upstream, and the exercise agent is vcluster-coupled (it waits on `vcluster-0`
+and reads the `vc-vcluster` kubeconfig secret).
+
+Decision: **KubeLab serves tier-3 only, unmodified.** Tier-1 is a separate
+request/response provider (Judge0/Firecracker) — a session model does not fit
+it. Tier-2 is a separate pod-based provider. Both are additional `LabProvider`
+implementations beside KubeLab, never patches inside it. This keeps upstream
+pulls frictionless and confines the `LabProvider` seam to our code.
+
+The cost is deliberate: tier-2 authors a lab in our format rather than
+KubeLab's `bootstrap.sh`/`check.sh` format, and tier-2 students see our IDE
+surface. We accept that now to avoid the rebase tax while KubeLab's API is still
+moving (PocketBase 0.22.x). If Phase E (projects/Nimbus) shows that one exercise
+format across tiers is worth more than a clean upstream, revisit: the patch
+would be ~4 files (`handler.go` dispatch, `deployPod` in `lab.go`, a tier-2
+branch in `exercise.go`, one JS migration), vendored as a tracked patch series
+on a `tenxlab` branch so rebases stay mechanical. Apache-2.0 permits the fork;
+LICENSE/NOTICE would be retained and changed files documented.
 
 **Lab sandboxing:** KubeLab's default vcluster values enable isolation
 (`isolation.enabled=true`) but ship `resourceQuota`, `limitRange`, and
@@ -676,7 +695,7 @@ Redis clustering, queue-based async for heavy AI jobs.
 
 | Phase | Weeks | Deliverables | Exit criterion |
 |---|---|---|---|
-| **P0 — Foundations** | 0–1 | Repo, CI with license/SBOM gates, IaC, Postgres/Redis/S3, contracts frozen, **KubeLab fork + `LabProvider` adapter spike** | Environments up; KubeLab SSO-in/webhook-out proven; contracts signed off |
+| **P0 — Foundations** | 0–1 | Repo, CI with license/SBOM gates, IaC, Postgres/Redis/S3, contracts frozen, **KubeLab deployed upstream + `LabProvider` adapter spike** | Environments up; KubeLab SSO-in/webhook-out proven; contracts signed off |
 | **P1 — Core LMS + SSO** | 2–4 | Tenancy, catalog, batches, partner SSO + internal RS256, lab launch + gradebook webhook | Admin provisions batch; student SSO-links, launches lab, grade lands |
 | **P2 — Editor, Labs & Assessments** | 5–8 | Multi-language editor (STDIN, persistence), labs+hints, assessments (coding/MCQ/fill/descriptive), read-only stubs, proctoring + SEB | Proctored exam runs end-to-end |
 | **P3 — Hybrid Runtime + Warm Pool** | 9–11 | Tier router, warm-pool operator, quotas, idle termination, cost telemetry | 500-student simultaneous launch, tier-1 < 2s |
@@ -693,9 +712,9 @@ by ~P6 (week 20).
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| KubeLab is vcluster-only (no tier-1/2, no warm pool) | Cost/latency vs. competitors | `LabProvider` adapter adds tiers 1–2 + warm pool; only tier-3 uses KubeLab core |
-| KubeLab is early-stage (its own README: "early stages, bugs might appear") | Stability | Pin a known-good version; run contract tests against it; keep fork thin |
-| KubeLab upgrades (PocketBase v0.22.x, vcluster chart 0.16.x) drift from our fork | Maintenance | Extend via hooks/adapter; minimize core patches; track upstream releases |
+| KubeLab is vcluster-only (no tier-1/2, no warm pool) | Cost/latency vs. competitors | `LabProvider` providers add tiers 1–2 + warm pool; only tier-3 uses KubeLab |
+| KubeLab is early-stage (its own README: "early stages, bugs might appear") | Stability | Pin a known-good version; run contract tests against it; keep the integration to documented surfaces (hooks + record-driven provisioning) |
+| KubeLab upstream moves (PocketBase v0.22.x, vcluster chart 0.16.x) | Maintenance | Adapter-only (ADR-8): no fork, so upstream pulls apply cleanly; tier-1/2 live beside KubeLab behind `LabProvider` |
 | Warm vcluster cost | Unit economics | Tier router, pool caps, predictive scaling, idle termination |
 | AI answer leakage | Product credibility | Guardrail evals, output filters, red-team prompts |
 | Tenant data cross-leak | Trust/legal | RLS + Prisma middleware + tests; pen-test |
@@ -709,8 +728,9 @@ by ~P6 (week 20).
 
 ## 18. Open Questions
 
-1. **KubeLab:** extend via hooks + adapter (recommended) or fork the Go
-   provisioning controller for native tier-2 support? (P0 spike.)
+1. ~~**KubeLab:** extend via hooks + adapter or fork the Go provisioning
+   controller for native tier-2?~~ **Resolved (ADR-8): adapter-only, no fork.**
+   Revisit at Phase E.
 2. **KubeLab user sync:** add SSO verification inside KubeLab (Go hook) or keep a
    separate adapter service that owns the JWKS check + user upsert?
 3. **Code quality gating:** SonarQube/Semgrep (LGPL) vs. permissive custom rules —
@@ -732,19 +752,21 @@ tenxlab/
 │  └─ api/            # NestJS LMS API (modular monolith)
 ├─ services/
 │  ├─ ai/             # FastAPI (tutor, plagiarism, quality, speech)
-│  ├─ lab-adapter/    # LabProvider adapter: KubeLab + tier-1/2 runtimes
-│  └─ warm-pool/      # Go Kubernetes operator
-├─ vendor/
-│  └─ kubelab/        # Fork of natrontech/kubelab (Apache-2.0); thin patches only
+│  └─ lab-operator/   # Warm-pool reconciler + idle sweeper
+├─ packages/
+│  ├─ contracts/      # Shared schemas: JWT, webhooks, events
+│  ├─ lab-provider/   # LabProvider interface + KubeLabAdapter
+│  └─ runtime-policy/ # Tier routing, warm-pool planning, quotas, cost
 ├─ platform/
 │  ├─ helm/           # K8s manifests / charts (incl. vcluster values overrides)
 │  └─ terraform/      # Cloud IaC
-├─ packages/
-│  ├─ contracts/      # Shared types: JWT, webhooks, events
-│  └─ ui/             # Shared React component library
+├─ scripts/           # License gate, CI helpers
 ├─ ARCHITECTURE.md    # This document
-└─ docs/              # ADRs, runbooks
+└─ docs/              # Parity analysis, ADRs, runbooks
 ```
+
+There is deliberately **no `vendor/kubelab`**: ADR-8 is adapter-only, so KubeLab
+runs as an unmodified upstream deployment and our code never patches it.
 
 ## Appendix B — Glossary
 

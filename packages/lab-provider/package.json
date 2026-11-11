@@ -1,0 +1,31 @@
+{
+  "name": "@tenxlab/lab-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LabProvider adapter interface + KubeLab adapter (P0 spike)",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test --test-reporter=spec test/*.test.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tenxlab/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
