@@ -1,0 +1,28 @@
+# Dependencies (reinstalled inside the image with npm ci)
+node_modules
+**/node_modules
+
+# Build output (rebuilt inside the image)
+dist
+**/dist
+.next
+**/.next
+**/*.tsbuildinfo
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+
+# Local data volumes and secrets
+data
+.volumes
+.env
+.env.*
+*.log
+
+# VCS / editor / docs not needed at build time
+.git
+.gitignore
+**/.DS_Store

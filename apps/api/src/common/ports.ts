@@ -85,6 +85,8 @@ export interface MembershipRepository {
 
 export interface LessonRepository {
   findById(id: string): Promise<LessonRecord | null>;
+  /** Resolve a lesson from its lab exercise slug (gradebook webhook routing). */
+  findByExerciseSlug?(exerciseSlug: string): Promise<LessonRecord | null>;
 }
 
 export interface LabSessionRepository {

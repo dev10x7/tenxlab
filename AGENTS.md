@@ -33,8 +33,31 @@ packages/lab-provider    LabProvider interface + KubeLabAdapter
 packages/runtime-policy  pure policy: tier routing, warm pool, quotas, cost
 services/ai              FastAPI: plagiarism, quality, speech, webhook signer
 services/lab-operator    warm-pool reconciler + idle sweeper
+deploy/kubelab           KubeLab manifests + IDE gateway
+deploy/stack             full-stack compose wiring + its tests
 scripts/check-licenses.mjs  CI license gate
 ```
+
+## Full stack (docker compose)
+
+`docker compose up --build` brings up the whole system; see the README for the
+service/port table. Points worth remembering:
+
+- One Dockerfile per service (`apps/api`, `apps/web`, `services/ai`), each built
+  from the **repo root** as context (so workspace deps resolve). Build with
+  `docker compose build`, not `docker build .` from a subdirectory.
+- Persistence is opt-in at run time: `USE_DATABASE=true` + `DATABASE_URL` makes
+  the API use the Prisma/Postgres adapters (`common/prisma-repositories.ts`);
+  otherwise it uses the in-memory store. Both satisfy `common/ports.ts`, so no
+  service code branches on it.
+- The API container's entrypoint runs `prisma migrate deploy` then the compiled
+  seed (`dist/seed.js`) before starting, so the stack self-seeds. The seed is
+  idempotent (upserts on stable ids).
+- `schema.prisma` pins `binaryTargets = ["native", "debian-openssl-3.0.x"]` so
+  the query engine matches `node:22-slim`. Dropping the debian target breaks the
+  container with "could not locate the Query Engine".
+- MinIO is behind the `storage` compose profile (opt-in) because it is not yet
+  wired into the API. The default stack is postgres/redis/api/web/ai.
 
 ## Conventions
 
@@ -44,7 +67,9 @@ scripts/check-licenses.mjs  CI license gate
 - Each TS workspace has `pretest` -> `build`; tests run against `dist/`.
 - Test runner is `node --test` (node:test). `.mjs` tests import from `dist/`.
 - Business logic depends on interfaces in `apps/api/src/common/ports.ts`, never
-  on Prisma directly; in-memory adapters live in `common/in-memory.ts`.
+  on Prisma directly; in-memory adapters live in `common/in-memory.ts` and the
+  Postgres ones in `common/prisma-repositories.ts`. Both satisfy the same ports,
+  selected by `USE_DATABASE`.
 - Keep policy pure and side-effect-free (see `packages/runtime-policy`); put
   I/O behind injected ports so it stays unit-testable.
 

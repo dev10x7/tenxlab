@@ -1,3 +1,4 @@
+import type { PrismaClient } from '@prisma/client';
 import {
   InMemoryEventLedger,
   InMemoryLabSessionRepository,
@@ -8,17 +9,27 @@ import {
   InMemoryTenantRepository,
   InMemoryUserRepository,
 } from '../common/in-memory';
+import {
+  PrismaEventLedger,
+  PrismaLabSessionRepository,
+  PrismaLessonRepository,
+  PrismaMembershipRepository,
+  PrismaProgressRepository,
+  PrismaReplayGuard,
+  PrismaTenantRepository,
+  PrismaUserRepository,
+} from '../common/prisma-repositories';
+import type { Repositories } from '../common/repositories';
 import { DEMO_COURSES } from '../catalog/demo-data';
 import { DEMO_USERS } from '../identity/demo-users';
 
 /**
- * One process-wide set of in-memory repositories, seeded from the demo catalog.
- *
- * These are shared singletons so the catalog, lab launch, and gradebook all see
- * the same rows — a lesson launched by the student is the lesson the gradebook
- * later marks complete. Production replaces this with Prisma-backed adapters.
+ * In-memory repository set, seeded from the demo catalog. Used by unit tests and
+ * catalog-only deployments. These are shared singletons so the catalog, lab
+ * launch, and gradebook all see the same rows — a lesson launched by the student
+ * is the lesson the gradebook later marks complete.
  */
-export interface DemoState {
+export interface DemoState extends Repositories {
   tenants: InMemoryTenantRepository;
   users: InMemoryUserRepository;
   memberships: InMemoryMembershipRepository;
@@ -81,7 +92,24 @@ export function createDemoState(): DemoState {
   };
 }
 
-/** Map an LMS exercise slug to the demo lesson id (gradebook resolution). */
+/** Prisma/Postgres-backed repository set — the production system of record. */
+export function createPrismaState(db: PrismaClient): Repositories {
+  return {
+    tenants: new PrismaTenantRepository(db),
+    users: new PrismaUserRepository(db),
+    memberships: new PrismaMembershipRepository(db),
+    lessons: new PrismaLessonRepository(db),
+    sessions: new PrismaLabSessionRepository(db),
+    progress: new PrismaProgressRepository(db),
+    ledger: new PrismaEventLedger(db),
+    replay: new PrismaReplayGuard(db),
+  };
+}
+
+/**
+ * Map an LMS exercise slug to a lesson id within a tenant. In-memory builds use
+ * the demo corpus; the Prisma build resolves through the lesson repository.
+ */
 export function resolveLessonId(slug: string, tenantId: string): string | null {
   if (tenantId !== 'demo-tenant') return null;
   for (const course of DEMO_COURSES) {

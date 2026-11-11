@@ -83,6 +83,9 @@ export class InMemoryLessonRepository implements LessonRepository {
   async findById(id: string) {
     return this.rows.find((l) => l.id === id) ?? null;
   }
+  async findByExerciseSlug(exerciseSlug: string) {
+    return this.rows.find((l) => l.exerciseSlug === exerciseSlug) ?? null;
+  }
   seed(l: LessonRecord) {
     this.rows.push(l);
   }

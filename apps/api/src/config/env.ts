@@ -68,6 +68,13 @@ const EnvSchema = z.object({
     .string()
     .default('false')
     .transform((s) => s === 'true' || s === '1'),
+
+  // When true, the API persists to Postgres via Prisma (the system of record).
+  // Off by default so tests and catalog-only deployments use the in-memory store.
+  USE_DATABASE: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

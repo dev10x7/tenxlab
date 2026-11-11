@@ -672,7 +672,11 @@ proctoring event ingest (append-only, high volume → batched).
 
 ## 14. Deployment Topology & Environments
 
-- **Environments:** `dev` → `staging` → `prod` (per-region).
+- **Environments:** `dev` → `staging` → `prod` (per-region). The local `dev`
+  environment is the whole system in one `docker compose up` (`docker-compose.yml`):
+  Postgres, Redis, API, web, and AI plane, with the API container applying Prisma
+  migrations and seeding the demo catalog on boot. MinIO is an opt-in `storage`
+  profile until object storage is wired into the API.
 - **Compute:** managed Kubernetes for execution plane; LMS/AI as containerized
   services (HPA on CPU/RPS + queue depth).
 - **Regions:** **single region for v1 — `ap-south-1` (ADR-18)**, matching the

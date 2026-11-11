@@ -1,3 +1,15 @@
+# TenXLab — full stack for local development and integration testing.
+#
+#   docker compose up --build
+#
+# Brings up the LMS system of record (Postgres), its supporting services
+# (Redis, MinIO), the API, the web client, and the AI plane. The API applies
+# Prisma migrations and seeds the demo catalog on first boot.
+#
+# Ports: web 3000, api 4000, ai 8000, postgres 5432, redis 6379, minio 9000/9001.
+
+name: tenxlab
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -33,6 +45,10 @@ services:
   minio:
     image: minio/minio:latest
     container_name: tenxlab-minio
+    # Opt-in: `docker compose --profile storage up`. Object storage is not wired
+    # into the API yet, and the image is not always reachable from a given
+    # registry mirror, so it is excluded from the default stack.
+    profiles: ['storage']
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: tenxlab
@@ -50,6 +66,8 @@ services:
 
   minio-init:
     image: minio/mc:latest
+    container_name: tenxlab-minio-init
+    profiles: ['storage']
     depends_on:
       minio:
         condition: service_started
@@ -60,3 +78,76 @@ services:
       mc mb --ignore-existing local/tenxlab-recordings;
       echo 'MinIO buckets ready';
       "
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: tenxlab-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: '4000'
+      # Persist to Postgres (the system of record) rather than the in-memory store.
+      USE_DATABASE: 'true'
+      DATABASE_URL: postgresql://tenxlab:tenxlab@postgres:5432/tenxlab?schema=public
+      SESSION_SECRET: dev-session-secret-change-me
+      WEBHOOK_SECRET: dev-webhook-secret
+      API_PUBLIC_URL: http://localhost:4000
+      LAB_ASSET_BASE_URL: http://api:4000
+      # KubeLab is an external execution plane; point these at a reachable
+      # instance and set KUBELAB_ENABLED=true to provision real sandboxes.
+      KUBELAB_ENABLED: 'false'
+      KUBELAB_BASE_URL: http://kubelab.local
+    ports:
+      - '4000:4000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:4000/.well-known/jwks.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: tenxlab-web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # Server-side proxy target for the browser's same-origin /api/* calls.
+      API_BASE_URL: http://api:4000
+    ports:
+      - '3000:3000'
+
+  ai:
+    build:
+      context: .
+      dockerfile: services/ai/Dockerfile
+    container_name: tenxlab-ai
+    environment:
+      # Where the AI plane posts signed result webhooks. Left empty: the LMS has
+      # no AI ingest route yet, so delivery is disabled rather than posting to a
+      # 404. Set it once that route exists.
+      LMS_WEBHOOK_URL: ''
+      WEBHOOK_SECRET: dev-webhook-secret
+    ports:
+      - '8000:8000'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8000/healthz']
+      interval: 10s
+      timeout: 3s
+      retries: 5

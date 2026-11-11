@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { generateKeyPairSync } from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
 import { KubeLabAdapter } from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
 import { JwtService } from '../crypto/jwt.service';
@@ -10,7 +11,8 @@ import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
-import { createDemoState, resolveLessonId, type DemoState } from '../demo/state';
+import { createDemoState, createPrismaState, resolveLessonId } from '../demo/state';
+import type { Repositories } from '../common/repositories';
 import {
   AuthController,
   CatalogController,
@@ -20,18 +22,32 @@ import {
   PartnerSsoController,
   WebhookController,
 } from './controllers';
-import { CATALOG, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, SESSION, SSO } from './tokens';
+import { CATALOG, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, SESSION, SSO, STORE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE };
 
 const DEMO_STATE = createDemoState();
 
 /**
- * Local development wiring: in-memory repositories seeded with the demo course,
- * plus a real KubeLab provider when `KUBELAB_ENABLED` is set.
- *
- * Production replaces the repositories with Prisma-backed adapters (see
- * prisma/schema.prisma) and always runs with the provider enabled.
+ * Repository wiring. `USE_DATABASE=true` selects the Prisma/Postgres system of
+ * record; otherwise the in-memory demo store is used (tests, catalog-only
+ * deploys). Both satisfy the same ports, so the services below are unchanged.
+ */
+const STORE_PROVIDER = {
+  provide: STORE,
+  inject: [ENV],
+  useFactory: (env: Env): Repositories => {
+    if (env.USE_DATABASE) {
+      const db = new PrismaClient();
+      return createPrismaState(db);
+    }
+    return DEMO_STATE;
+  },
+};
+
+/**
+ * LMS API wiring: repositories from the selected store, plus a real KubeLab
+ * provider when `KUBELAB_ENABLED` is set.
  */
 @Module({
   controllers: [
@@ -45,7 +61,7 @@ const DEMO_STATE = createDemoState();
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
-    { provide: 'DEMO_STATE', useValue: DEMO_STATE },
+    STORE_PROVIDER,
     {
       provide: JWT,
       inject: [ENV],
@@ -64,15 +80,15 @@ const DEMO_STATE = createDemoState();
     },
     {
       provide: CATALOG,
-      inject: ['DEMO_STATE'],
-      useFactory: (state: DemoState) =>
-        new CatalogService(state.progress, DEMO_COURSES),
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new CatalogService(store.progress, DEMO_COURSES),
     },
     {
       provide: SSO,
-      inject: [ENV, 'DEMO_STATE'],
-      useFactory: (env: Env, state: DemoState) =>
-        new PartnerSsoService(state.tenants, state.users, state.memberships, state.replay, {
+      inject: [ENV, STORE],
+      useFactory: (env: Env, store: Repositories) =>
+        new PartnerSsoService(store.tenants, store.users, store.memberships, store.replay, {
           secrets: env.PARTNER_SSO_SECRETS,
           jitProvisioning: true,
         }),
@@ -94,31 +110,48 @@ const DEMO_STATE = createDemoState();
     },
     {
       provide: LAUNCH,
-      inject: [ENV, 'DEMO_STATE', PROVIDER],
-      useFactory: (env: Env, state: DemoState, provider: KubeLabAdapter | null) =>
+      inject: [ENV, STORE, PROVIDER],
+      useFactory: (env: Env, store: Repositories, provider: KubeLabAdapter | null) =>
         new LabLaunchService({
-          lessons: state.lessons,
-          memberships: state.memberships,
-          tenants: state.tenants,
-          sessions: state.sessions,
+          lessons: store.lessons,
+          memberships: store.memberships,
+          tenants: store.tenants,
+          sessions: store.sessions,
           provider: env.KUBELAB_ENABLED ? provider : null,
         }),
     },
     {
       provide: GRADEBOOK,
-      inject: [ENV, 'DEMO_STATE'],
-      useFactory: (env: Env, state: DemoState) =>
+      inject: [ENV, STORE],
+      useFactory: (env: Env, store: Repositories) =>
         new GradebookWebhookService({
           webhookSecret: env.WEBHOOK_SECRET,
-          ledger: state.ledger,
-          sessions: state.sessions,
-          progress: state.progress,
-          resolveLessonId: async (slug, tenantId) => resolveLessonId(slug, tenantId),
+          ledger: store.ledger,
+          sessions: store.sessions,
+          progress: store.progress,
+          resolveLessonId: async (slug, tenantId) =>
+            resolveLessonForSlug(store, slug, tenantId),
         }),
     },
   ],
 })
 export class AppModule {}
+
+/**
+ * Resolve an exercise slug to a lesson id. The Prisma store answers from the
+ * lessons table; the in-memory store uses the demo corpus mapping.
+ */
+async function resolveLessonForSlug(
+  store: Repositories,
+  slug: string,
+  tenantId: string,
+): Promise<string | null> {
+  if (store.lessons.findByExerciseSlug) {
+    const lesson = await store.lessons.findByExerciseSlug(slug);
+    return lesson?.id ?? null;
+  }
+  return resolveLessonId(slug, tenantId);
+}
 
 function resolveKubeLabUser(userId: string): {
   email: string;

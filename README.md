@@ -22,26 +22,61 @@ execution plane for hands-on labs.
 
 - Node.js >= 22.6 (the web tests use `--experimental-strip-types`)
 - Python 3.11+ (for `services/ai`)
+- Docker with Compose v2 (for the full stack)
 
 ## Getting started
 
+### Full stack (recommended)
+
+```bash
+docker compose up --build
+```
+
+This builds and starts everything, in dependency order:
+
+| Service | URL | What |
+|---|---|---|
+| web | http://localhost:3000 | Next.js client |
+| api | http://localhost:4000 | NestJS LMS API (applies migrations + seeds on boot) |
+| ai | http://localhost:8000 | FastAPI AI plane (`/healthz`) |
+| postgres | localhost:5432 | System of record (`tenxlab`/`tenxlab`) |
+| redis | localhost:6379 | Cache / queue backing store |
+
+The API container runs `prisma migrate deploy` and then seeds the demo tenant,
+users, and course catalog (idempotent), so the stack is usable the moment it is
+healthy. Sign in at http://localhost:3000/login with `student@tenxlab.local` /
+`demo1234` (or `instructor@tenxlab.local` / `demo1234`).
+
+Object storage (MinIO) is opt-in because it is not yet wired into the API:
+
+```bash
+docker compose --profile storage up --build
+```
+
+Tear down with `docker compose down` (add `-v` to drop the Postgres volume).
+
+### Run the services individually
+
 ```bash
 npm install
+docker compose up -d postgres redis   # infra only
 ```
 
-### Local infrastructure
-
-```bash
-docker compose up -d        # Postgres, Redis, MinIO
-```
-
-### Run the API
+#### Run the API
 
 ```bash
 cd apps/api
 npm run prisma:generate     # once
 npm run build
 npm start                   # http://localhost:4000
+```
+
+With no `DATABASE_URL` the API uses an in-memory store seeded with the demo
+catalog. To persist to Postgres (the system of record) set both:
+
+```bash
+DATABASE_URL=postgresql://tenxlab:tenxlab@localhost:5432/tenxlab \
+USE_DATABASE=true npm start
 ```
 
 The API serves its JWKS at `/.well-known/jwks.json`.
