@@ -95,7 +95,11 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
 - Next.js: any client component calling `useSearchParams()` must sit inside a
   `<Suspense>` boundary or `next build` fails prerendering.
 - The web app proxies API calls through `apps/web/src/app/api/**` to stay
-  same-origin (session cookie, no CORS).
+  same-origin (session cookie, no CORS). The browser client must therefore use
+  relative `/api/*` paths: never set `NEXT_PUBLIC_API_BASE_URL` (or add an `env`
+  entry for it) in `next.config.mjs` — it is inlined into the client bundle at
+  build time, so the browser would call that host directly and login/launch fail
+  with "Something went wrong" while `curl` against the proxy still works.
 - Next.js patches global `fetch` and caches route-handler responses by URL. The
   proxy must pass `cache: 'no-store'` (see `proxyFetchInit`), or a lab session
   poll replays the first `WARM` response forever and the launch never completes.
