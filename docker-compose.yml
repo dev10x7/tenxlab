@@ -7,6 +7,10 @@
 # Prisma migrations and seeds the demo catalog on first boot.
 #
 # Ports: web 3000, api 4000, ai 8000, postgres 5432, redis 6379, minio 9000/9001.
+#
+# services/lab-operator is intentionally not here yet: it exits until a
+# deployment bootstrap injects OperatorPorts (a KubeLab-backed provider plus a
+# session store), which does not exist. Adding it now would crash-loop.
 
 name: tenxlab
 
