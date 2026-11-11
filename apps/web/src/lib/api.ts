@@ -53,6 +53,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface LabSession {
+  sessionId: string;
+  status: 'WARM' | 'ACTIVE' | 'IDLE' | 'TERMINATED' | 'FAILED';
+  tier: string;
+  ideUrl: string | null;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -64,8 +71,10 @@ export const api = {
   courses: () => request<CourseSummary[]>('/api/catalog/courses'),
   course: (slug: string) => request<CourseSummary>(`/api/catalog/courses/${slug}`),
   launchLab: (lessonId: string) =>
-    request<{ launchUrl: string }>('/api/labs/launch', {
+    request<LabSession>('/api/labs/launch', {
       method: 'POST',
       body: JSON.stringify({ lessonId }),
     }),
+  labSession: (sessionId: string) =>
+    request<LabSession>(`/api/labs/sessions/${encodeURIComponent(sessionId)}`),
 };

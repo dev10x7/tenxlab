@@ -41,10 +41,13 @@ docker compose up -d        # Postgres, Redis, MinIO
 cd apps/api
 npm run prisma:generate     # once
 npm run build
-npm start                   # http://localhost:3000
+npm start                   # http://localhost:4000
 ```
 
 The API serves its JWKS at `/.well-known/jwks.json`.
+
+Seeded demo identities (local only): `student@tenxlab.local` / `demo1234`
+and `instructor@tenxlab.local` / `demo1234`.
 
 ### Run the web app
 
@@ -70,6 +73,41 @@ cd services/lab-operator
 npm run build
 npm start
 ```
+
+### Run labs against KubeLab (minikube)
+
+The execution plane is the real KubeLab backend (`natrontech/kubelab`), reached
+through a `LabProvider` adapter — no fork. To exercise a lab locally:
+
+```bash
+minikube start --cpus 4 --memory 8g
+minikube addons enable ingress
+kubectl apply -f deploy/kubelab/kubelab.yaml        # KubeLab control plane
+kubectl port-forward -n kubelab svc/kubelab-service 8090:8090 &
+```
+
+Create the KubeLab admin the API authenticates as (once), via the PocketBase
+admin API at `http://localhost:8090/_/`, using an email/password that matches
+`KUBELAB_ADMIN_EMAIL` / `KUBELAB_ADMIN_PASSWORD` below.
+
+Then run the API with KubeLab enabled. `LAB_ASSET_BASE_URL` is the address the
+in-cluster agent uses to fetch bootstrap/check scripts, so it must be reachable
+from inside the cluster (`host.minikube.internal` on minikube):
+
+```bash
+cd apps/api
+KUBELAB_ENABLED=true \
+KUBELAB_BASE_URL=http://localhost:8090 \
+KUBELAB_ADMIN_EMAIL=tenxlab@tenxlab.local \
+KUBELAB_ADMIN_PASSWORD=tenxlab-dev-admin \
+KUBELAB_ALLOWED_HOSTS=192.168.49.2.nip.io \
+LAB_ASSET_BASE_URL=http://host.minikube.internal:4000 \
+npm start
+```
+
+A vcluster cold start takes one to several minutes, so `POST /api/labs/launch`
+returns immediately with a session id and the UI polls
+`GET /api/labs/sessions/:id` until the session is `ACTIVE` with an `ideUrl`.
 
 ## Quality gates
 

@@ -20,6 +20,7 @@
     "@nestjs/platform-express": "^10.4.15",
     "@prisma/client": "^5.22.0",
     "@tenxlab/contracts": "0.1.0",
+    "@tenxlab/lab-provider": "0.1.0",
     "@tenxlab/runtime-policy": "0.1.0",
     "jsonwebtoken": "^9.0.2",
     "reflect-metadata": "^0.2.2",

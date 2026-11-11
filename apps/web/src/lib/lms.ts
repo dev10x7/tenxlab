@@ -3,15 +3,9 @@
  * unit-tested with plain node:test.
  */
 
-export interface LabLaunchResponse {
-  launchUrl: string;
-  sessionId: string;
-  tier: string;
-}
-
-export interface ApiError {
-  status: number;
-  message: string;
+export interface LabSessionStatus {
+  status: 'WARM' | 'ACTIVE' | 'IDLE' | 'TERMINATED' | 'FAILED';
+  ideUrl?: string | null;
 }
 
 /** Map a partner-SSO failure reason to a human-readable login message. */
@@ -32,10 +26,20 @@ export function ssoErrorMessage(reason: string | null | undefined): string | nul
   }
 }
 
-/** Build the lab launch URL the browser should follow (KubeLab SSO-in). */
-export function buildLaunchRedirect(apiBaseUrl: string, lessonId: string): string {
-  const base = apiBaseUrl.replace(/\/$/, '');
-  return `${base}/api/labs/launch?lessonId=${encodeURIComponent(lessonId)}`;
+/**
+ * Whether a launched lab is ready for the student, still starting, or broken.
+ * Drives the launch button's polling loop.
+ */
+export function labLaunchState(session: LabSessionStatus): {
+  ready: boolean;
+  failed: boolean;
+  ideUrl: string | null;
+} {
+  if (session.status === 'FAILED') return { ready: false, failed: true, ideUrl: null };
+  if (session.status === 'ACTIVE' && session.ideUrl) {
+    return { ready: true, failed: false, ideUrl: session.ideUrl };
+  }
+  return { ready: false, failed: false, ideUrl: null };
 }
 
 /** A lesson's display state given the student's progress record. */

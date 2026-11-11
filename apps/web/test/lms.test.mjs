@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ssoErrorMessage,
-  buildLaunchRedirect,
+  labLaunchState,
   lessonStatusLabel,
   courseProgress,
 } from '../src/lib/lms.ts';
@@ -20,11 +20,20 @@ test('ssoErrorMessage returns null for unknown or absent reasons', () => {
   assert.equal(ssoErrorMessage('something_else'), null);
 });
 
-test('buildLaunchRedirect trims a trailing slash and encodes the lesson id', () => {
-  assert.equal(
-    buildLaunchRedirect('http://localhost:3000/', 'lesson/1'),
-    'http://localhost:3000/api/labs/launch?lessonId=lesson%2F1',
-  );
+test('labLaunchState reports readiness, pending, and failure', () => {
+  assert.deepEqual(labLaunchState({ status: 'WARM' }), {
+    ready: false,
+    failed: false,
+    ideUrl: null,
+  });
+  assert.deepEqual(labLaunchState({ status: 'ACTIVE', ideUrl: 'https://ide' }), {
+    ready: true,
+    failed: false,
+    ideUrl: 'https://ide',
+  });
+  // ACTIVE without a URL is not yet usable.
+  assert.equal(labLaunchState({ status: 'ACTIVE', ideUrl: null }).ready, false);
+  assert.equal(labLaunchState({ status: 'FAILED' }).failed, true);
 });
 
 test('lessonStatusLabel reflects progress and score', () => {

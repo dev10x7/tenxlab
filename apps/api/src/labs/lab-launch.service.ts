@@ -1,4 +1,5 @@
 import type { RuntimeTier } from '@tenxlab/contracts';
+import type { LabProvider } from '@tenxlab/lab-provider';
 import { routeTier } from '@tenxlab/runtime-policy';
 import type {
   LabSessionRepository,
@@ -7,7 +8,6 @@ import type {
   MembershipRepository,
   TenantRepository,
 } from '../common/ports';
-import type { JwtService } from '../crypto/jwt.service';
 
 export interface LaunchRequest {
   userId: string;
@@ -20,9 +20,10 @@ export interface LaunchRequest {
 export type LaunchResult =
   | {
       ok: true;
-      launchUrl: string;
-      token: string;
-      session: LabSessionRecord;
+      sessionId: string;
+      status: string;
+      tier: RuntimeTier;
+      ideUrl?: string | null;
     }
   | { ok: false; reason: LaunchFailureReason; message: string };
 
@@ -33,20 +34,23 @@ export type LaunchFailureReason =
   | 'tenant_quota_exceeded';
 
 export interface LaunchDeps {
-  jwt: JwtService;
   lessons: LessonRepository;
   memberships: MembershipRepository;
   tenants: TenantRepository;
   sessions: LabSessionRepository;
-  callbackUrl: string;
-  kubelabBaseUrl: string;
+  /** Null disables real provisioning (unit tests, catalog-only deployments). */
+  provider?: LabProvider | null;
   /** Seconds an idle session may live before termination. */
   idleTtlSeconds?: number;
 }
 
 /**
- * Mints a launch JWT and creates a lab session record. Enforces the tenant's
- * concurrent-lab quota before allowing a new session.
+ * Owns the lab session lifecycle.
+ *
+ * `launch` validates access and creates a session record, then provisions the
+ * sandbox **asynchronously**: a KubeLab vcluster cold start takes minutes, far
+ * longer than an HTTP request should block. The caller polls `getSession`
+ * until the session reports `ACTIVE` and an `ide_url`.
  */
 export class LabLaunchService {
   constructor(private readonly deps: LaunchDeps) {}
@@ -99,22 +103,55 @@ export class LabLaunchService {
       ttlSeconds: this.deps.idleTtlSeconds ?? 1800,
     });
 
-    const token = this.deps.jwt.issueLaunchToken(
-      {
-        userId: req.userId,
-        tenantId: req.tenantId,
-        membershipRole: membership.role as never,
-        exerciseId: lesson.exerciseSlug,
-        runtimeTier: tier,
-        sessionId: session.id,
-        callbackUrl: this.deps.callbackUrl,
-        batchId: req.batchId,
-        courseId: req.courseId,
-      },
-      now,
-    );
+    if (this.deps.provider) {
+      void this.provision(session, tier).catch(() => {
+        // provision() records the failure on the session row.
+      });
+    }
 
-    const launchUrl = `${this.deps.kubelabBaseUrl}/launch?token=${encodeURIComponent(token)}`;
-    return { ok: true, launchUrl, token, session };
+    return {
+      ok: true,
+      sessionId: session.id,
+      status: session.status,
+      tier,
+      ideUrl: session.ideUrl ?? null,
+    };
+  }
+
+  async getSession(sessionId: string): Promise<LabSessionRecord | null> {
+    return this.deps.sessions.findById(sessionId);
+  }
+
+  private async provision(session: LabSessionRecord, tier: RuntimeTier): Promise<void> {
+    const provider = this.deps.provider;
+    if (!provider) return;
+    try {
+      const handle = await provider.provision({
+        exercise_id: session.exerciseSlug,
+        runtime_tier: tier,
+        tenant_id: session.tenantId,
+        user_id: session.userId,
+        session_id: session.id,
+        ttl_seconds: session.ttlSeconds,
+        network_policy: 'allowlist',
+      });
+      await this.deps.sessions.update(session.id, {
+        status: handle.status,
+        ideUrl: handle.ide_url ?? null,
+        kubelabRef: handle.provider_ref ?? null,
+        lastActivityAt: new Date(),
+      });
+    } catch (err) {
+      // Surface the cause: a silent FAILED session is unactionable in ops.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[lab-launch] provisioning failed for session ${session.id}:`,
+        err instanceof Error ? `${err.name}: ${err.message}` : err,
+      );
+      await this.deps.sessions.update(session.id, {
+        status: 'FAILED',
+        lastActivityAt: new Date(),
+      });
+    }
   }
 }

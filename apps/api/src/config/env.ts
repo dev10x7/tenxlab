@@ -6,7 +6,7 @@ import { z } from 'zod';
  */
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(3000),
+  PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z
     .string()
     .default('postgresql://tenxlab:tenxlab@localhost:5432/tenxlab'),
@@ -37,8 +37,32 @@ const EnvSchema = z.object({
 
   LAB_CALLBACK_URL: z
     .string()
-    .default('http://localhost:3000/api/webhooks/lab'),
+    .default('http://localhost:4000/api/webhooks/lab'),
   KUBELAB_BASE_URL: z.string().default('http://localhost:8090'),
+
+  // KubeLab control-plane credentials. KubeLab is PocketBase, whose management
+  // API is admin-only, so the adapter authenticates as a KubeLab admin.
+  KUBELAB_ADMIN_EMAIL: z.string().default('tenxlab@tenxlab.local'),
+  KUBELAB_ADMIN_PASSWORD: z.string().default('tenxlab-dev-admin'),
+  // Wildcard base for per-exercise IDE ingress hosts (ALLOWED_HOSTS in KubeLab).
+  KUBELAB_ALLOWED_HOSTS: z.string().default('192.168.49.2.nip.io'),
+  KUBELAB_IDE_SCHEME: z.enum(['https', 'http']).default('https'),
+  // Base URL KubeLab agent pods use to fetch exercise bootstrap/check scripts.
+  // Must be reachable from inside the cluster, which is not the same as the
+  // browser-facing API URL on minikube.
+  LAB_ASSET_BASE_URL: z.string().default('http://host.minikube.internal:4000'),
+
+  // HMAC secret for the LMS session cookie.
+  SESSION_SECRET: z.string().default('dev-session-secret'),
+  // Public URL of this API, used to build links the browser follows.
+  API_PUBLIC_URL: z.string().default('http://localhost:4000'),
+
+  // When true, lab launches provision real KubeLab sandboxes. Off by default so
+  // tests and catalog-only deployments never touch a cluster.
+  KUBELAB_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

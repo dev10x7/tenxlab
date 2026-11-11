@@ -254,19 +254,17 @@ function labFixture(maxConcurrentLabs = 10) {
   });
   const sessions = new InMemoryLabSessionRepository();
   const svc = new LabLaunchService({
-    jwt: makeJwt(),
     lessons,
     memberships,
     tenants,
     sessions,
-    callbackUrl: 'https://lms.example.com/hook',
-    kubelabBaseUrl: 'https://kubelab.example.com',
+    provider: null,
   });
   return { svc, sessions, memberships };
 }
 
-test('lab launch mints a token and creates a session', async () => {
-  const { svc } = labFixture();
+test('lab launch creates a session and routes it to the vcluster tier', async () => {
+  const { svc, sessions } = labFixture();
   const res = await svc.launch({
     userId: 'user_1',
     tenantId: 'tenant_1',
@@ -274,10 +272,126 @@ test('lab launch mints a token and creates a session', async () => {
   });
   assert.equal(res.ok, true);
   if (res.ok) {
-    assert.match(res.launchUrl, /^https:\/\/kubelab\.example\.com\/launch\?token=/);
-    assert.equal(res.session.tier, 'tier_3_vcluster');
+    assert.equal(res.tier, 'tier_3_vcluster');
+    assert.equal(res.status, 'WARM');
+    const row = await sessions.findById(res.sessionId);
+    assert.equal(row?.exerciseSlug, 'create-simple-pod');
+    assert.equal(row?.userId, 'user_1');
   }
 });
+
+test('lab launch provisions through the provider and records the IDE URL', async () => {
+  const { sessions } = labFixture();
+  const provisioned: Array<Record<string, unknown>> = [];
+  const provider = {
+    name: 'fake',
+    async provision(spec: Record<string, unknown>) {
+      provisioned.push(spec);
+      return {
+        session_id: String(spec['session_id']),
+        status: 'ACTIVE' as const,
+        tier: 'tier_3_vcluster' as const,
+        ide_url: 'https://ide.example.com/session',
+        provider_ref: 'kl-1',
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: 1800,
+      };
+    },
+  };
+  const svc = new LabLaunchService({
+    lessons: new InMemoryLessonRepository([
+      {
+        id: 'lesson_1',
+        moduleId: 'mod_1',
+        title: 'Create a Pod',
+        type: 'interactive_lab',
+        exerciseSlug: 'create-simple-pod',
+        runtimeTier: 'tier_3_vcluster',
+        maxScore: 100,
+      },
+    ]),
+    memberships: new InMemoryMembershipRepository([
+      { id: 'm1', userId: 'user_1', tenantId: 'tenant_1', role: 'student', status: 'active' },
+    ]),
+    tenants: new InMemoryTenantRepository([
+      {
+        id: 'tenant_1',
+        name: 'Acme',
+        domain: 'acme',
+        maxConcurrentLabs: 10,
+        plan: 'standard',
+        status: 'active',
+      },
+    ]),
+    sessions,
+    provider: provider as never,
+  });
+
+  const res = await svc.launch({ userId: 'user_1', tenantId: 'tenant_1', lessonId: 'lesson_1' });
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  // Provisioning runs in the background; wait for the session to settle.
+  await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'ACTIVE');
+  const row = await sessions.findById(res.sessionId);
+  assert.equal(row?.status, 'ACTIVE');
+  assert.equal(row?.ideUrl, 'https://ide.example.com/session');
+  assert.equal(row?.kubelabRef, 'kl-1');
+  assert.equal(provisioned.length, 1);
+  assert.equal(provisioned[0]?.['exercise_id'], 'create-simple-pod');
+});
+
+test('lab launch records FAILED when provisioning throws', async () => {
+  const { sessions } = labFixture();
+  const svc = new LabLaunchService({
+    lessons: new InMemoryLessonRepository([
+      {
+        id: 'lesson_1',
+        moduleId: 'mod_1',
+        title: 'Create a Pod',
+        type: 'interactive_lab',
+        exerciseSlug: 'create-simple-pod',
+        runtimeTier: 'tier_3_vcluster',
+        maxScore: 100,
+      },
+    ]),
+    memberships: new InMemoryMembershipRepository([
+      { id: 'm1', userId: 'user_1', tenantId: 'tenant_1', role: 'student', status: 'active' },
+    ]),
+    tenants: new InMemoryTenantRepository([
+      {
+        id: 'tenant_1',
+        name: 'Acme',
+        domain: 'acme',
+        maxConcurrentLabs: 10,
+        plan: 'standard',
+        status: 'active',
+      },
+    ]),
+    sessions,
+    provider: {
+      name: 'boom',
+      async provision() {
+        throw new Error('cluster exploded');
+      },
+    } as never,
+  });
+
+  const res = await svc.launch({ userId: 'user_1', tenantId: 'tenant_1', lessonId: 'lesson_1' });
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'FAILED');
+  assert.equal((await sessions.findById(res.sessionId))?.status, 'FAILED');
+});
+
+async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error('waitFor timed out');
+}
 
 test('lab launch rejects a non-lab lesson', async () => {
   const { svc } = labFixture();
