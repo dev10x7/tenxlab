@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --test-reporter=spec \"test/*.test.mjs\"",
+    "test": "node --experimental-strip-types --test --test-reporter=spec \"test/*.test.mjs\"",
     "lint": "next lint"
   },
   "dependencies": {

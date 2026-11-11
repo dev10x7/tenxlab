@@ -20,7 +20,7 @@ execution plane for hands-on labs.
 
 ## Prerequisites
 
-- Node.js >= 20
+- Node.js >= 22.6 (the web tests use `--experimental-strip-types`)
 - Python 3.11+ (for `services/ai`)
 
 ## Getting started
