@@ -94,9 +94,9 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Read-only stub sections | **Partial** | `read-only.ts` hashes whole marker files; ByteXL semantics are *in-file regions delimited by comment markers*. Needs a marker parser. |
 | Proctoring event ingest + risk score | **Done** | `proctoring/proctoring.service.ts` |
 | SEB config generation | **Done** | `buildSebConfig` |
-| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; no browser capture, no timer enforcement. Video/webcam is **out of v1** (ADR-15). |
-| `.seb` download entry point | **Missing** | No route serving the `.seb` file |
-| SEB quit password (test:edit gated) | **Missing** | — |
+| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; no browser capture, no timer enforcement. Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
+| `.seb` download entry point | **Deferred** | No route serving the `.seb` file — full SEB integration is post-v1 (ADR-17) |
+| SEB quit password (test:edit gated) | **Deferred** | Post-v1 (ADR-17) |
 
 ### 2.5 Projects (ByteXL "Nimbus")
 
@@ -203,14 +203,14 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
       one editable region per exercise, matching ByteXL.
 - [ ] Browser proctoring client: `visibilitychange` (tab switch), copy/paste
       interception, fullscreen-exit, display-count — feeding the existing
-      `ProctorEvent` ingest.
+      `ProctorEvent` ingest. **This is the v1 exam path (ADR-17).**
 - [ ] Server-side timer: authoritative start/end, auto-submit at expiry.
-- [ ] SEB: serve the generated `.seb` file at a route; store a per-test quit
-      password gated to `test:edit`; verify the `browserExamKey`.
-- [ ] Optional video proctoring: **deferred past v1 (ADR-15)** — browser events
-      + SEB only for now.
-- [ ] Exit criterion: a proctored exam runs under SEB with timers, read-only
-      stubs, and a risk score visible to the instructor.
+- [ ] Full SEB integration: **deferred past v1 (ADR-17)** — serving the `.seb`
+      file, kiosk/network filtering, quit password. The `buildSebConfig`
+      generator stays in the codebase.
+- [ ] Video proctoring: **deferred past v1 (ADR-15)** — browser events only.
+- [ ] Exit criterion: a proctored exam runs in the browser with timers,
+      read-only stubs, and a risk score visible to the instructor.
 
 ### Phase D — Runtime scale-out (3 ew)
 
@@ -299,7 +299,7 @@ All previously open items now have an owner decision. Recorded as ADRs in
    keeps the product image permissive-only and the license gate clean.
 2. **Tier-1 backend → Judge0 (ADR-12).** Mature, Apache-2.0, and a natural
    request/response fit; not Firecracker.
-3. **Video proctoring → deferred past v1 (ADR-15).** Browser signals + SEB ship
+3. **Video proctoring → deferred past v1 (ADR-15).** Browser signals ship
    first; webcam recording/face-presence is a later phase.
 4. **LLM strategy → hosted providers only (ADR-14).** OpenAI/Anthropic/Bedrock
    behind the provider abstraction; no self-hosted vLLM in v1.
@@ -308,7 +308,10 @@ All previously open items now have an owner decision. Recorded as ADRs in
    Phase E if one exercise format across tiers outweighs a clean upstream.
 6. **First segment → both (ADR-16).** Degree colleges and bootcamps from one
    platform, differentiated by plan/tenancy depth rather than a separate build.
+7. **SEB depth → browser proctoring for v1 (ADR-17).** Full Safe Exam Browser
+   integration (`.seb` delivery, kiosk, network filtering, quit password) is
+   deferred; the `buildSebConfig` generator stays in the codebase.
+8. **Data residency → single India region for v1 (ADR-18).** `ap-south-1` only;
+   IaC stays region-parameterised so multi-region is a later addition.
 
-Still open: **SEB depth** (full integration vs. browser proctoring for v1) and
-**data residency** (single India region vs. multi-region at launch) — see
-`ARCHITECTURE.md` §18.
+All previously open decisions are now closed.

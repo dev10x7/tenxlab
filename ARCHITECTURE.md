@@ -41,8 +41,8 @@ for artifacts.
 - Multi-tenant LMS (institutions, departments, batches, courses, lessons).
 - Interactive coding labs and cloud project workspaces.
 - Auto-graded assessments (coding + MCQ + fill-in-blank + descriptive).
-- Proctoring (browser-level signals + Safe Exam Browser integration; webcam
-  video proctoring is deferred — see ADR-15).
+- Proctoring (browser-level signals; webcam video and full Safe Exam Browser
+  integration are deferred — see ADR-15 and ADR-17).
 - Real-time contests and hackathons with leaderboards.
 - AI tutor, soft-skills evaluator, plagiarism + code-quality gating.
 - Recruiter talent-discovery portal.
@@ -99,6 +99,8 @@ for artifacts.
 | ADR-14 | **LLM access is hosted providers only** (OpenAI/Anthropic/Bedrock) | No self-hosted vLLM in v1 — avoids GPU fleet cost/ops. Data residency handled by provider/region choice and PII redaction before calls. | Accepted (2026-11-11) |
 | ADR-15 | **Video proctoring is deferred past v1** | Browser-level signals (tab switch, copy/paste, fullscreen, display count) ship first; webcam recording/face-presence is a later phase. Keeps v1 scope and cost down. | Accepted (2026-11-11) |
 | ADR-16 | **Serve degree colleges and bootcamps from one platform** | Same core, differentiated by plan/tenancy depth rather than a separate product. College tenancy is the superset; bootcamps use a lighter plan. | Accepted (2026-11-11) |
+| ADR-17 | **v1 proctoring is browser-level only; full Safe Exam Browser integration is deferred** | Browser signals (tab switch, copy/paste, fullscreen, display count) + authoritative server timer ship in P2. The `.seb` config generator stays in the codebase but is not the v1 exam path; SEB kiosk/network-filtering/quit-password integration is a later phase. | Accepted (2026-11-11) |
+| ADR-18 | **Single India region for v1** (ap-south-1) | One region matches the first customer base and keeps ops cost down; the design stays multi-region-ready (region-parameterised IaC, data residency options) but multi-region is deferred. | Accepted (2026-11-11) |
 
 > **KubeLab reality (verified 2026-11-11 from `natrontech/kubelab`, `main`):**
 > - **License:** Apache-2.0 — permissive, no copyleft concern.
@@ -537,10 +539,11 @@ API + Redis streams).
   faculty review.
 - **Webcam (deferred — ADR-15):** not in v1. The interface leaves room for
   optional stream recording (MediaRecorder) → S3 and face-presence checks in a
-  later phase; v1 relies on browser signals + SEB.
-- **Safe Exam Browser (SEB):** generate `.seb` config per exam; kiosk mode,
-  network filtering to allowlisted domains, quit password controlled by
-  instructor. SEB launch detected and logged.
+  later phase; v1 relies on browser signals + the server timer.
+- **Safe Exam Browser (SEB) — deferred past v1 (ADR-17):** the `.seb` config
+  generator (`buildSebConfig`) stays in the codebase, but full SEB integration
+  (serving the `.seb` file, kiosk mode, network filtering, quit password) is a
+  later phase. v1 exams run on browser signals + the authoritative server timer.
 - **Code integrity:** read-only stub sections (annotated
   `// start your solution` … `// end your solution`) enforced server-side at
   grading; AST plagiarism post-submission.
@@ -672,8 +675,9 @@ proctoring event ingest (append-only, high volume → batched).
 - **Environments:** `dev` → `staging` → `prod` (per-region).
 - **Compute:** managed Kubernetes for execution plane; LMS/AI as containerized
   services (HPA on CPU/RPS + queue depth).
-- **Regions:** start single-region (ap-south-1 for India colleges); design for
-  multi-region later (data residency).
+- **Regions:** **single region for v1 — `ap-south-1` (ADR-18)**, matching the
+  India-first customer base. IaC stays region-parameterised so multi-region (for
+  data residency) is a later addition, not a rewrite.
 - **Data:** managed Postgres (Multi-AZ), Redis (HA), S3. Backups + PITR.
 - **Release:** trunk-based, CI (test + license + SBOM gates), CD via Argo CD,
   blue/green or canary for LMS API.
@@ -705,7 +709,7 @@ Redis clustering, queue-based async for heavy AI jobs.
 |---|---|---|---|
 | **P0 — Foundations** | 0–1 | Repo, CI with license/SBOM gates, IaC, Postgres/Redis/S3, contracts frozen, **KubeLab deployed upstream + `LabProvider` adapter spike** | Environments up; KubeLab SSO-in/webhook-out proven; contracts signed off |
 | **P1 — Core LMS + SSO** | 2–4 | Tenancy, catalog, batches, partner SSO + internal RS256, lab launch + gradebook webhook | Admin provisions batch; student SSO-links, launches lab, grade lands |
-| **P2 — Editor, Labs & Assessments** | 5–8 | Multi-language editor (STDIN, persistence), labs+hints, assessments (coding/MCQ/fill/descriptive), read-only stubs, proctoring + SEB | Proctored exam runs end-to-end |
+| **P2 — Editor, Labs & Assessments** | 5–8 | Multi-language editor (STDIN, persistence), labs+hints, assessments (coding/MCQ/fill/descriptive), read-only stubs, browser proctoring + server timer | Proctored exam runs end-to-end |
 | **P3 — Hybrid Runtime + Warm Pool** | 9–11 | Tier router, warm-pool operator, quotas, idle termination, cost telemetry | 500-student simultaneous launch, tier-1 < 2s |
 | **P4 — Projects (Nimbus-equiv)** | 12–14 | Cloud workspaces, template fork, hosting, GitHub publish, submissions, trainer evaluation, quality gating | Instructor creates project; student forks/submits; trainer scores |
 | **P5 — AI Differentiation** | 15–17 | Socratic tutor (anti-leak), speech/soft-skills scoring, plagiarism | Verified tutor guardrails + comm score live |
@@ -726,7 +730,7 @@ by ~P6 (week 20).
 | Warm vcluster cost | Unit economics | Tier router, pool caps, predictive scaling, idle termination |
 | AI answer leakage | Product credibility | Guardrail evals, output filters, red-team prompts |
 | Tenant data cross-leak | Trust/legal | RLS + Prisma middleware + tests; pen-test |
-| Proctoring weaker than SEB-based rivals | Win-rate on exams | Ship SEB integration in P2, not later |
+| Proctoring weaker than SEB-based rivals | Win-rate on exams | Browser signals + server timer in P2 (ADR-17); full SEB integration deferred, revisit if exams become a blocker |
 | LGPL tooling exposure | Legal | ~~Sonar/Semgrep~~ **Closed (ADR-13): in-house `quality.py`, no LGPL tooling** |
 | Grafana AGPL | Legal | Ops tool only; never bundled in product |
 | Python/Node/Go polyglot complexity | Velocity | Clear plane boundaries; contract tests between services |
@@ -745,10 +749,12 @@ by ~P6 (week 20).
    rules?~~ **Resolved (ADR-13): extend the in-house `quality.py`; no LGPL tooling.**
 4. ~~**LLM strategy:** hosted providers vs. self-hosted vLLM?~~ **Resolved
    (ADR-14): hosted providers only (OpenAI/Anthropic/Bedrock) in v1.**
-5. **SEB depth:** full SEB integration vs. browser proctoring for v1?
+5. ~~**SEB depth:** full SEB integration vs. browser proctoring for v1?~~
+   **Resolved (ADR-17): browser proctoring for v1; full SEB integration deferred.**
 6. ~~**First segment:** degree colleges (full tenancy) or bootcamps (lighter)?~~
    **Resolved (ADR-16): both — one platform, differentiated by plan.**
-7. **Data residency:** single India region for v1, or multi-region from launch?
+7. ~~**Data residency:** single India region for v1, or multi-region from
+   launch?~~ **Resolved (ADR-18): single region (`ap-south-1`) for v1.**
 
 > **Also resolved 2026-11-11:** tier-1 backend = **Judge0** (ADR-12); video
 > proctoring **deferred past v1** (ADR-15).
