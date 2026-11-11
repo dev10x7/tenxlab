@@ -88,6 +88,14 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   browser cannot route to. Set `KUBELAB_IDE_PUBLIC_URL` to a gateway that fronts
   those hosts (`deploy/kubelab/ide-gateway.mjs`, path `/lab/<ingress-host>/`);
   readiness still probes the ingress directly, not the gateway.
+- The gateway must **rewrite `Origin`** to the upstream ingress host before
+  forwarding (`upstreamHeaders`). The browser always sends
+  `Origin: https://<gateway-host>` on the WebSocket upgrade and on POSTs, and
+  code-server hangs the handshake when the Origin does not match its own host —
+  the IDE page loads (HTML + assets are fine) but the workbench stalls at
+  "Creating a socket" and renders blank. `curl` never sends `Origin`, so this
+  only reproduces in a real browser. Regression test:
+  `deploy/kubelab/test/ide-gateway.test.mjs`.
 
 ## Gotchas
 

@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test --test-reporter=spec \"deploy/**/*.test.mjs\"",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run build -w @tenxlab/contracts -w @tenxlab/runtime-policy -w @tenxlab/lab-provider && npm run typecheck --workspaces --if-present",
     "license:check": "node scripts/check-licenses.mjs"

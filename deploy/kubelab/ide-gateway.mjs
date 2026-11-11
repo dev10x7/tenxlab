@@ -12,12 +12,13 @@
 // prefix round-trips cleanly as long as it is stripped before forwarding.
 import http from 'node:http';
 import https from 'node:https';
+import { pathToFileURL } from 'node:url';
 
 const PORT = Number(process.env.IDE_PROXY_PORT || 12001);
 const PREFIX = '/lab/';
 const agent = new https.Agent({ rejectUnauthorized: false });
 
-function resolveTarget(url) {
+export function resolveTarget(url) {
   if (!url || !url.startsWith(PREFIX)) return null;
   const rest = url.slice(PREFIX.length);
   const slash = rest.indexOf('/');
@@ -27,6 +28,20 @@ function resolveTarget(url) {
   return { host, path };
 }
 
+/**
+ * Rewrite browser headers for the upstream ingress host.
+ *
+ * The browser sends `Origin: https://<gateway-host>` on every WebSocket upgrade
+ * and POST (it does not know it is talking through a path proxy). Forwarding
+ * that verbatim makes code-server hang the handshake instead of replying, so
+ * the IDE never boots. A reverse proxy must present the upstream's own origin.
+ */
+export function upstreamHeaders(reqHeaders, host) {
+  const headers = { ...reqHeaders, host };
+  if (headers.origin) headers.origin = `https://${host}`;
+  return headers;
+}
+
 function forward(req, res) {
   const target = resolveTarget(req.url);
   if (!target) {
@@ -34,7 +49,7 @@ function forward(req, res) {
     res.end('not found: expected /lab/<ingress-host>/...\n');
     return;
   }
-  const headers = { ...req.headers, host: target.host };
+  const headers = upstreamHeaders(req.headers, target.host);
   const upstream = https.request(
     {
       host: target.host,
@@ -61,7 +76,7 @@ const server = http.createServer(forward);
 server.on('upgrade', (req, socket, head) => {
   const target = resolveTarget(req.url);
   if (!target) return socket.destroy();
-  const headers = { ...req.headers, host: target.host };
+  const headers = upstreamHeaders(req.headers, target.host);
   const upstream = https.request(
     {
       host: target.host,
@@ -89,6 +104,11 @@ server.on('upgrade', (req, socket, head) => {
   upstream.end();
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`ide gateway :${PORT} serving /lab/<ingress-host>/...`);
-});
+// Only listen when run directly; importing for tests must not bind a port.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`ide gateway :${PORT} serving /lab/<ingress-host>/...`);
+  });
+}
