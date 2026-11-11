@@ -84,21 +84,29 @@ for artifacts.
 |---|---|---|---|
 | ADR-1 | **Node.js stack: Next.js (web) + NestJS (API)** | Per user directive; permissive licenses; single language across LMS tier; large talent pool. | Accepted |
 | ADR-2 | **Prisma + PostgreSQL** as ORM/DB | Apache-2.0 / permissive; type-safe; strong relational fit for LMS. | Accepted |
-| ADR-3 | **KubeLab as execution plane** (as described in overview) | Per user directive; reuse existing lab-provisioning component. | Accepted (see ADR-8) |
+| ADR-3 | **KubeLab (natrontech/kubelab) as execution plane** | Per user directive; Apache-2.0 (permissive); vcluster + code-server out of the box. | Accepted |
 | ADR-4 | **Python FastAPI for the AI plane** | Whisper, Tree-sitter, LLM SDKs are Python-native. | Accepted |
 | ADR-5 | **Postgres Row-Level Security + `tenant_id`** for isolation | Scales better than schema-per-tenant; single migration path. | Accepted |
 | ADR-6 | **RS256 JWTs** for internal service-to-service auth; **HS256** for partner SSO | RS256 lets KubeLab/AI verify without the signing secret; HS256 matches partner ergonomics. | Accepted |
 | ADR-7 | **No AGPL/GPL dependencies** in product image | Avoids network-copyleft source-disclosure obligation. | Accepted |
-| ADR-8 | **KubeLab integration behind a `LabProvider` interface** | There is no single canonical public "KubeLab" repo; the interface lets us swap/fork/build without touching LMS code. | Assumption |
+| ADR-8 | **KubeLab integrated behind a `LabProvider` interface; forked for tier-1/2 + warm pool** | KubeLab is vcluster-only with no warm pool; our tier router and pool operator are extensions, so isolate via interface. | Accepted |
 | ADR-9 | **Redis Streams + BullMQ** for jobs/events (Kafka deferred) | Simplicity at current scale; revisit at >10k concurrent labs. | Accepted |
 | ADR-10 | **S3-compatible object storage (S3/MinIO)** for snapshots | Portability; cost. | Accepted |
+| ADR-11 | **KubeLab keeps its own PocketBase DB and auth; LMS is the system of record** | Avoids a dual-write mess; sync via SSO-in and webhook-out only. | Accepted |
 
-> **Assumption ADR-8 (explicit):** The `TenXLab_Product_Overview.md` refers to
-> "KubeLab" as an existing lab-provisioning system (Go/TypeScript, vcluster-based).
-> No single canonical public repository matches that description exactly. We
-> therefore treat KubeLab as **a component we integrate with or fork**, defined
-> strictly by the `LabProvider` interface in §8.4. If the intended KubeLab differs,
-> only the adapter changes — not the platform.
+> **KubeLab reality (verified 2026-11-11 from `natrontech/kubelab`, `main`):**
+> - **License:** Apache-2.0 — permissive, no copyleft concern.
+> - **Stack:** Go backend built on **PocketBase** (bundled auth + SQLite); **SvelteKit** UI; **Helm** to deploy **vcluster**; `code-server` + `xterm.js` in the lab.
+> - **Provisioning model:** *record-driven.* A `lab_sessions` / `exercise_sessions`
+>   record flipping `clusterRunning=true` triggers the controller to Helm-install a
+>   vcluster; `agentRunning=true` sets up exercise resources. Idle/stop deletes them.
+> - **Lab format:** each exercise is a directory of `bootstrap.sh`, `check.sh`,
+>   `docs.md`, `hint.md`, `solution.md` — compatible with our exercise model.
+> - **Integration surface:** PocketBase's **table-driven "hooks"** can run a command
+>   **or POST a webhook** on record change — our clean completion-event path.
+> - **Gaps we must fill:** (a) vcluster-only — no microVM/container tiers;
+>   (b) no pre-warmed pool; (c) its own auth/DB. These map to our tier router,
+>   warm-pool operator, and SSO/sync bridge respectively.
 
 ---
 
@@ -125,11 +133,11 @@ for artifacts.
 | Layer | Technology | License |
 |---|---|---|
 | Orchestrator | **Kubernetes** (managed: EKS/GKE) | Apache-2.0 |
-| Lab provisioning | **KubeLab** (per ADR-8) | TBD (verify) |
-| Nested clusters | **vcluster** (Loft Labs) | Apache-2.0 (OSS core) |
-| MicroVM execution | **Firecracker** and/or **Judge0** worker pool | Apache-2.0 |
-| Warm-pool operator | Custom **Go** Kubernetes operator | ours |
-| Workspace IDE | VS Code (code-server / OpenVSCode Server) | MIT |
+| Lab provisioning | **KubeLab** (`natrontech/kubelab`) — Go on PocketBase + SvelteKit UI | Apache-2.0 |
+| Nested clusters | **vcluster** (Loft Labs) — Helm chart v0.16.x, k3s image | Apache-2.0 (OSS core) |
+| MicroVM execution | **Firecracker** and/or **Judge0** worker pool (our tier-1 addition) | Apache-2.0 |
+| Warm-pool operator | Custom **Go** Kubernetes operator (our addition) | ours |
+| Workspace IDE | VS Code (`code-server`, as used by KubeLab) + xterm.js terminal | MIT |
 
 ### 5.3 AI & Assessment Plane
 
@@ -208,12 +216,12 @@ for artifacts.
                 ▼                       │                       ▼
    ┌──────────────────────────┐        │            ┌───────────────────────────┐
    │  Execution Plane         │        │            │  AI & Assessment Plane    │
-   │  KubeLab Orchestrator    │        │            │  FastAPI                  │
+   │  Lab Adapter (LabProvider)│       │            │  FastAPI                  │
    │  ┌────────────────────┐  │        │            │  ┌─────────────────────┐  │
    │  │ Runtime Tier Router│  │        │            │  │ Socratic Tutor      │  │
    │  │ T1 microVM/Judge0  │  │        │            │  │ AST Plagiarism      │  │
    │  │ T2 single pod      │  │        │            │  │ Quality Gating      │  │
-   │  │ T3 vcluster        │  │        │            │  │ Whisper Soft-skills │  │
+   │  │ T3 KubeLab+vcluster│  │        │            │  │ Whisper Soft-skills │  │
    │  └────────────────────┘  │        │            │  └─────────────────────┘  │
    │  Warm Pool Operator (Go) │        │            │  LLM Provider Abstraction │
    └───────────┬──────────────┘        │            └─────────────┬─────────────┘
@@ -227,8 +235,9 @@ for artifacts.
 ```
 
 **Primary flows:**
-1. **Launch** — Student clicks "Start Lab" → LMS mints RS256 JWT → redirects to
-   KubeLab → KubeLab verifies public key, claims a warm session, returns IDE URL.
+1. **Launch** — Student clicks "Start Lab" → LMS mints RS256 JWT → KubeLab
+   verifies via JWKS, flips `clusterRunning=true`, provisions (or claims a warm)
+   vcluster → returns IDE URL.
 2. **Learn** — Student works in VS Code; optional "Ask AI Tutor" calls AI plane
    with workspace context.
 3. **Submit** — KubeLab `check.sh` runs → emits **signed completion webhook** to
@@ -273,7 +282,7 @@ for artifacts.
 
 ### 7.5 Execution (owned by KubeLab, mirrored in LMS)
 - `LabSession` — `session_id, user, exercise, tier, status (WARM/ACTIVE/IDLE/TERMINATED),
-  ide_url, started_at, last_activity_at, ttl`
+  ide_url, started_at, last_activity_at, ttl`, `kubelab_ref` (PocketBase record id)
 
 ---
 
@@ -353,9 +362,48 @@ Two distinct flows:
   `unknown_partner`, `user_not_found`.
 - Secrets stored in Vault/KMS; rotatable without code change.
 
-### 8.4 Execution Plane — KubeLab (behind `LabProvider`)
+### 8.4 Execution Plane — KubeLab (`natrontech/kubelab`)
 
-**Interface (language-agnostic contract):**
+**What KubeLab is (verified):** a Go backend built on **PocketBase**, with a
+**SvelteKit** frontend. It provisions **one isolated vcluster per lab session**
+via Helm, and serves a `code-server` IDE + `xterm.js` terminal to the student.
+Labs are directories of `bootstrap.sh`, `check.sh`, `docs.md`, `hint.md`,
+`solution.md`. It has its **own auth and SQLite (PocketBase) database**.
+
+**Integration strategy — "SSO in, webhook out":**
+
+```text
+  Student ──click "Start Lab"──► LMS (NestJS)
+                                    │  1. mint RS256 launch JWT
+                                    ▼
+                            KubeLab UI/API (PocketBase)
+                                    │  2. verify JWT (JWKS) → find/create user
+                                    │  3. mark lab_sessions.clusterRunning=true
+                                    ▼
+                            KubeLab controller (Go)
+                                    │  4. Helm-install vcluster + code-server
+                                    ▼
+                            Student works in IDE / terminal
+                                    │  5. run check.sh → exercise_sessions updated
+                                    ▼
+                            PocketBase "hooks" table
+                                    │  6. POST signed webhook → LMS
+                                    ▼
+                            LMS gradebook + Socket.IO refresh
+```
+
+**Concrete integration points:**
+
+| Concern | Mechanism |
+|---|---|
+| **Identity (in)** | LMS mints an RS256 launch JWT; KubeLab verifies via LMS JWKS and maps `sub`→PocketBase user. Avoids maintaining a second password. |
+| **Session start** | LMS (or a thin adapter) creates the `lab_sessions` / `exercise_sessions` records and sets `clusterRunning=true` — the trigger KubeLab's controller already reacts to. |
+| **Completion (out)** | Use KubeLab's config-driven **`hooks` table** (`action_type=post`, `action=<LMS webhook URL>`) to POST the changed record on `exercise_sessions` update. LMS validates HMAC and grades. |
+| **Exercise content** | Author labs in KubeLab's `bootstrap/check/docs/hint/solution` format; LMS references exercises by slug. |
+| **Idle cleanup** | KubeLab deletes vcluster resources when `clusterRunning=false`; our 30-min idle policy drives that flag. |
+
+**The `LabProvider` interface** (isolates KubeLab so tiers 1–2 and the warm pool
+can be added/replaced without touching LMS code):
 
 ```
 LabProvider:
@@ -369,7 +417,35 @@ LabSpec:
   image/stack, resource_limits, ttl_seconds, network_policy
 ```
 
-- KubeLab implements this; the LMS `labs` module depends only on the interface.
+**What we must build on top of KubeLab (not present upstream):**
+
+1. **Tier-1 and tier-2 runtimes.** KubeLab is **vcluster-only**. We add:
+   - `tier_1_microvm` → Firecracker/Judge0 pool (DSA, single-file code).
+   - `tier_2_container` → a plain pod (code-server + terminal, no nested control plane).
+   The `LabProvider` adapter routes by `runtime_tier`; only `tier_3` delegates to
+   KubeLab's vcluster path unchanged.
+2. **Pre-warmed pool.** KubeLab provisions on demand (cold). Our Go operator
+   maintains `N` WARM sessions/clusters and claims them instantly; it pre-creates
+   the underlying resources KubeLab would otherwise build at request time.
+3. **Multi-tenant mapping.** KubeLab's model is `user`/`company`/`workshop`;
+   map our `Tenant`→`company`, `Student`→`user`, and enforce per-tenant
+   `max_concurrent_labs` in the adapter.
+4. **SSO adapter + user sync.** A small service (or KubeLab hook) that verifies
+   the LMS JWT and upserts the PocketBase user, so KubeLab never becomes a second
+   source of truth for identity.
+
+**Fork vs. extend decision (P0 spike):** prefer **extending KubeLab via its
+hooks + our adapter** over forking its Go core. Fork only the provisioning
+controller if tier-2 support requires changes inside `HandleLabSessions`.
+Track upstream (`main` tracks PocketBase v0.22.x, vcluster chart 0.16.x) and keep
+our changes in a thin layer to ease rebases.
+
+**Lab sandboxing:** KubeLab's default vcluster values enable isolation
+(`isolation.enabled=true`) but ship `resourceQuota`, `limitRange`, and
+`networkPolicy` **disabled**. We must **enable** these per tenant/tier for cost
+control and exam integrity (egress allowlist), overriding the default
+`vcluster-values.yaml`.
+
 - **Network policy:** labs are egress-restricted by default (allowlist), critical
   for proctored exams and cost control.
 - **Lifecycle:** `WARM → ACTIVE → IDLE → TERMINATED`; idle termination at 30 min
@@ -600,7 +676,7 @@ Redis clustering, queue-based async for heavy AI jobs.
 
 | Phase | Weeks | Deliverables | Exit criterion |
 |---|---|---|---|
-| **P0 — Foundations** | 0–1 | Repo, CI with license/SBOM gates, IaC, Postgres/Redis/S3, contracts frozen, KubeLab `LabProvider` spike | Environments up; contracts signed off |
+| **P0 — Foundations** | 0–1 | Repo, CI with license/SBOM gates, IaC, Postgres/Redis/S3, contracts frozen, **KubeLab fork + `LabProvider` adapter spike** | Environments up; KubeLab SSO-in/webhook-out proven; contracts signed off |
 | **P1 — Core LMS + SSO** | 2–4 | Tenancy, catalog, batches, partner SSO + internal RS256, lab launch + gradebook webhook | Admin provisions batch; student SSO-links, launches lab, grade lands |
 | **P2 — Editor, Labs & Assessments** | 5–8 | Multi-language editor (STDIN, persistence), labs+hints, assessments (coding/MCQ/fill/descriptive), read-only stubs, proctoring + SEB | Proctored exam runs end-to-end |
 | **P3 — Hybrid Runtime + Warm Pool** | 9–11 | Tier router, warm-pool operator, quotas, idle termination, cost telemetry | 500-student simultaneous launch, tier-1 < 2s |
@@ -617,29 +693,33 @@ by ~P6 (week 20).
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| KubeLab is not a single canonical product (ADR-8) | Schedule/technical | `LabProvider` interface isolates it; fork/build decision in P0 |
+| KubeLab is vcluster-only (no tier-1/2, no warm pool) | Cost/latency vs. competitors | `LabProvider` adapter adds tiers 1–2 + warm pool; only tier-3 uses KubeLab core |
+| KubeLab is early-stage (its own README: "early stages, bugs might appear") | Stability | Pin a known-good version; run contract tests against it; keep fork thin |
+| KubeLab upgrades (PocketBase v0.22.x, vcluster chart 0.16.x) drift from our fork | Maintenance | Extend via hooks/adapter; minimize core patches; track upstream releases |
 | Warm vcluster cost | Unit economics | Tier router, pool caps, predictive scaling, idle termination |
 | AI answer leakage | Product credibility | Guardrail evals, output filters, red-team prompts |
 | Tenant data cross-leak | Trust/legal | RLS + Prisma middleware + tests; pen-test |
 | Proctoring weaker than SEB-based rivals | Win-rate on exams | Ship SEB integration in P2, not later |
 | LGPL tooling (Sonar/Semgrep) exposure | Legal | Run as external service or replace with permissive analyzers |
 | Grafana AGPL | Legal | Ops tool only; never bundled in product |
-| Python/Node polyglot complexity | Velocity | Clear plane boundaries; contract tests between services |
+| Python/Node/Go polyglot complexity | Velocity | Clear plane boundaries; contract tests between services |
 | Cold-start storms at class time | UX/SLO | Predictive warm pool; downgrade policy; load tests |
 
 ---
 
 ## 18. Open Questions
 
-1. **KubeLab:** fork the existing component, or build a thin orchestrator reusing
-   its provisioning pieces? (P0 spike.)
-2. **Code quality gating:** SonarQube/Semgrep (LGPL) vs. permissive custom rules —
+1. **KubeLab:** extend via hooks + adapter (recommended) or fork the Go
+   provisioning controller for native tier-2 support? (P0 spike.)
+2. **KubeLab user sync:** add SSO verification inside KubeLab (Go hook) or keep a
+   separate adapter service that owns the JWKS check + user upsert?
+3. **Code quality gating:** SonarQube/Semgrep (LGPL) vs. permissive custom rules —
    legal decision.
-3. **LLM strategy:** hosted providers vs. self-hosted vLLM for cost/data
+4. **LLM strategy:** hosted providers vs. self-hosted vLLM for cost/data
    residency?
-4. **SEB depth:** full SEB integration vs. browser proctoring for v1?
-5. **First segment:** degree colleges (full tenancy) or bootcamps (lighter)?
-6. **Data residency:** single India region for v1, or multi-region from launch?
+5. **SEB depth:** full SEB integration vs. browser proctoring for v1?
+6. **First segment:** degree colleges (full tenancy) or bootcamps (lighter)?
+7. **Data residency:** single India region for v1, or multi-region from launch?
 
 ---
 
@@ -652,9 +732,12 @@ tenxlab/
 │  └─ api/            # NestJS LMS API (modular monolith)
 ├─ services/
 │  ├─ ai/             # FastAPI (tutor, plagiarism, quality, speech)
+│  ├─ lab-adapter/    # LabProvider adapter: KubeLab + tier-1/2 runtimes
 │  └─ warm-pool/      # Go Kubernetes operator
+├─ vendor/
+│  └─ kubelab/        # Fork of natrontech/kubelab (Apache-2.0); thin patches only
 ├─ platform/
-│  ├─ helm/           # K8s manifests / charts
+│  ├─ helm/           # K8s manifests / charts (incl. vcluster values overrides)
 │  └─ terraform/      # Cloud IaC
 ├─ packages/
 │  ├─ contracts/      # Shared types: JWT, webhooks, events
