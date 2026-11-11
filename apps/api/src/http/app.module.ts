@@ -87,6 +87,7 @@ const DEMO_STATE = createDemoState();
           adminPassword: env.KUBELAB_ADMIN_PASSWORD,
           allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
           ideScheme: env.KUBELAB_IDE_SCHEME,
+          publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
           resolveExercise: (slug) => buildExerciseDescriptor(slug, env.LAB_ASSET_BASE_URL),
           resolveUser: (userId) => resolveKubeLabUser(userId),
         }),

@@ -136,6 +136,16 @@ test('ideUrlFor builds the code-server ingress host', () => {
   );
 });
 
+test('ideUrlFor routes through the public gateway when one is configured', () => {
+  const adapter = makeAdapter(fakeKubeLab(), {
+    publicIdeBaseUrl: 'https://labs.example.com',
+  });
+  assert.equal(
+    adapter.ideUrlFor('lab1', 'ex1', 'user1'),
+    'https://labs.example.com/lab/kubelab-lab1-ex1-user1.192.168.49.2.nip.io/',
+  );
+});
+
 test('provision authenticates as admin, ensures records, and returns a handle', async () => {
   const fake = fakeKubeLab();
   const adapter = makeAdapter(fake);

@@ -32,6 +32,14 @@ export interface KubeLabAdapterOptions {
   allowedHosts: string;
   /** Scheme for the IDE URL. minikube's nginx ingress terminates TLS itself. */
   ideScheme?: 'https' | 'http';
+  /**
+   * Optional public base URL that fronts the per-session ingress hosts, e.g. a
+   * gateway at `https://labs.example.com`. When set, browser-facing IDE URLs
+   * are emitted as `<base>/lab/<ingress-host>/`, which lets a remote browser
+   * reach a cluster whose node IP it cannot route to. Readiness still probes
+   * the ingress directly.
+   */
+  publicIdeBaseUrl?: string;
   /** Maps an LMS exercise slug to its KubeLab lab/exercise definition. */
   resolveExercise(exerciseId: string): KubeLabExerciseDescriptor;
   /** Maps an LMS user id to the KubeLab user to upsert. */
@@ -66,6 +74,7 @@ export class KubeLabAdapter implements LabProvider {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly scheme: string;
+  private readonly publicIdeBaseUrl: string | null;
   private readonly readinessTimeoutMs: number;
   private readonly readinessPollMs: number;
   private adminToken: string | null = null;
@@ -74,12 +83,22 @@ export class KubeLabAdapter implements LabProvider {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.scheme = opts.ideScheme ?? 'https';
+    this.publicIdeBaseUrl = opts.publicIdeBaseUrl?.replace(/\/$/, '') ?? null;
     this.readinessTimeoutMs = opts.readinessTimeoutMs ?? 180_000;
     this.readinessPollMs = opts.readinessPollMs ?? 3_000;
   }
 
   /** The browser-facing IDE URL for a lab session. */
   ideUrlFor(labId: string, exerciseId: string, userId: string): string {
+    const host = `kubelab-${labId}-${exerciseId}-${userId}.${this.opts.allowedHosts}`;
+    if (this.publicIdeBaseUrl) {
+      return `${this.publicIdeBaseUrl}/lab/${host}/`;
+    }
+    return `${this.scheme}://${host}/`;
+  }
+
+  /** The ingress URL the IDE is actually served on, for host-side readiness. */
+  private ingressUrlFor(labId: string, exerciseId: string, userId: string): string {
     const host = `kubelab-${labId}-${exerciseId}-${userId}.${this.opts.allowedHosts}`;
     return `${this.scheme}://${host}/`;
   }
@@ -139,13 +158,19 @@ export class KubeLabAdapter implements LabProvider {
     }
 
     // 3. Wait until the IDE actually answers, so the student never lands on a
-    //    502 while the ingress propagates.
+    //    502 while the ingress propagates. Probe the ingress directly; the
+    //    browser-facing URL may differ (see `publicIdeBaseUrl`).
     const ideUrl = this.ideUrlFor(
       String(lab['id']),
       String(exercise['id']),
       String(user['id']),
     );
-    const ready = await this.awaitIde(ideUrl);
+    const ingressUrl = this.ingressUrlFor(
+      String(lab['id']),
+      String(exercise['id']),
+      String(user['id']),
+    );
+    const ready = await this.awaitIde(ingressUrl);
 
     return {
       session_id: spec.session_id,

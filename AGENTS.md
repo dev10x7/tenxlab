@@ -84,6 +84,10 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   ingress URL and the LMS opens it.
 - Cold start is **minutes**, so launch must be async: `POST /api/labs/launch`
   returns a session id immediately; the UI polls `GET /api/labs/sessions/:id`.
+- The IDE ingress hosts resolve to the cluster **node IP**, which a remote
+  browser cannot route to. Set `KUBELAB_IDE_PUBLIC_URL` to a gateway that fronts
+  those hosts (`deploy/kubelab/ide-gateway.mjs`, path `/lab/<ingress-host>/`);
+  readiness still probes the ingress directly, not the gateway.
 
 ## Gotchas
 

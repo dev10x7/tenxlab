@@ -47,6 +47,11 @@ const EnvSchema = z.object({
   // Wildcard base for per-exercise IDE ingress hosts (ALLOWED_HOSTS in KubeLab).
   KUBELAB_ALLOWED_HOSTS: z.string().default('192.168.49.2.nip.io'),
   KUBELAB_IDE_SCHEME: z.enum(['https', 'http']).default('https'),
+  // Optional public base URL that fronts per-session IDE ingress hosts, so a
+  // remote browser can reach a lab whose node IP it cannot route to. When set,
+  // IDE URLs are emitted as <base>/lab/<ingress-host>/. Leave unset when the
+  // ingress hosts are already browser-reachable.
+  KUBELAB_IDE_PUBLIC_URL: z.string().optional(),
   // Base URL KubeLab agent pods use to fetch exercise bootstrap/check scripts.
   // Must be reachable from inside the cluster, which is not the same as the
   // browser-facing API URL on minikube.

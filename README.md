@@ -109,6 +109,24 @@ A vcluster cold start takes one to several minutes, so `POST /api/labs/launch`
 returns immediately with a session id and the UI polls
 `GET /api/labs/sessions/:id` until the session is `ACTIVE` with an `ideUrl`.
 
+The IDE is served on per-session ingress hostnames that resolve to the cluster
+node IP. A browser that can route to that IP opens the ingress URL directly. If
+it cannot (e.g. a remote browser reaching a local minikube), run the gateway
+that fronts those hosts on one public port:
+
+```bash
+IDE_PROXY_PORT=12001 node deploy/kubelab/ide-gateway.mjs &
+```
+
+and point the API at it so emitted IDE URLs route through the gateway:
+
+```bash
+KUBELAB_IDE_PUBLIC_URL=http://localhost:12001 npm start
+```
+
+The gateway maps `/<gateway>/lab/<ingress-host>/...` to
+`https://<ingress-host>/...`; readiness still probes the ingress directly.
+
 ## Quality gates
 
 ```bash
