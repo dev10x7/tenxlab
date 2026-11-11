@@ -94,7 +94,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Read-only stub sections | **Partial** | `read-only.ts` hashes whole marker files; ByteXL semantics are *in-file regions delimited by comment markers*. Needs a marker parser. |
 | Proctoring event ingest + risk score | **Done** | `proctoring/proctoring.service.ts` |
 | SEB config generation | **Done** | `buildSebConfig` |
-| Tab-switch / copy-paste / video / time limits | **Partial** | Events + weights exist; no browser capture, no video pipeline, no timer enforcement |
+| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; no browser capture, no timer enforcement. Video/webcam is **out of v1** (ADR-15). |
 | `.seb` download entry point | **Missing** | No route serving the `.seb` file |
 | SEB quit password (test:edit gated) | **Missing** | — |
 
@@ -105,7 +105,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Cloud workspace with VS Code | **Missing** | Tier-3 vcluster is the substrate; no project workspace model |
 | Template fork | **Missing** | — |
 | Hosting (frontend/backend/DB) | **Missing** | — |
-| SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is a permissive stand-in; **legal decision pending** (Sonar is LGPL) |
+| SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer — **decided (ADR-13): extend it, no SonarQube/Semgrep** |
 | Submissions: workspace + GitHub URL + demo URL | **Missing** | — |
 | Trainer evaluation + score | **Missing** | — |
 
@@ -118,7 +118,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Quotas + budget warnings | **Done** | `runtime-policy/quota.ts` |
 | Idle termination | **Done** | `findIdleSessions` + operator sweep |
 | Cost telemetry | **Done** | `runtime-policy/cost.ts` |
-| Judge0/Firecracker tier-1 worker | **Missing** | Router targets the tier; the backend does not exist |
+| Judge0 tier-1 worker | **Missing** | Router targets the tier; the backend does not exist — **decided (ADR-12): Judge0** |
 | Tier-2 pod provider | **Missing** | Same — targeted, not implemented |
 | Predictive scale-up before class | **Missing** | Operator is reactive only |
 
@@ -207,13 +207,14 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 - [ ] Server-side timer: authoritative start/end, auto-submit at expiry.
 - [ ] SEB: serve the generated `.seb` file at a route; store a per-test quit
       password gated to `test:edit`; verify the `browserExamKey`.
-- [ ] Optional video proctoring: consent flow + object storage (MinIO locally).
+- [ ] Optional video proctoring: **deferred past v1 (ADR-15)** — browser events
+      + SEB only for now.
 - [ ] Exit criterion: a proctored exam runs under SEB with timers, read-only
       stubs, and a risk score visible to the instructor.
 
 ### Phase D — Runtime scale-out (3 ew)
 
-- [ ] Implement the tier-1 backend (Judge0 or Firecracker pool) behind
+- [ ] Implement the tier-1 backend (**Judge0**, ADR-12) behind
       `LabProvider`; wire the router's `tier_1_microvm` to it. Tier-1 is a
       request/response provider — not a KubeLab session — per ADR-8.
 - [ ] Implement the tier-2 pod provider behind `LabProvider` (namespace +
@@ -232,8 +233,8 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 - [ ] Hosting: deploy a forked workspace to a subdomain (tier-3 vcluster).
 - [ ] Submissions: workspace link, GitHub URL, demo URL; trainer evaluation
       with a score.
-- [ ] Quality gate: decide SonarQube (LGPL, external service) vs. extending
-      `quality.py`; enforce the decision in the license gate.
+- [ ] Quality gate: extend the in-house `quality.py` (**decided, ADR-13**); no
+      SonarQube/Semgrep, so the license gate stays permissive-only.
 - [ ] Exit criterion: instructor creates a project; student forks, builds,
       submits; trainer scores it.
 
@@ -289,14 +290,25 @@ hiring) through F and G.
 
 ---
 
-## 6. Open decisions (need a human call)
+## 6. Decisions (resolved 2026-11-11)
 
-1. **SonarQube** — external LGPL service vs. permissive in-house analyzer.
-2. **Tier-1 backend** — Judge0 (easy, mature) vs. Firecracker (faster, more
-   work). Unaffected by ADR-8; tier-1 is external either way.
-3. **Video proctoring** — in scope for v1, or browser events only?
-4. **LLM strategy** — hosted vs. self-hosted (cost and data residency).
+All previously open items now have an owner decision. Recorded as ADRs in
+`ARCHITECTURE.md` §4.
+
+1. **SonarQube → extend in-house `quality.py` (ADR-13).** No SonarQube/Semgrep;
+   keeps the product image permissive-only and the license gate clean.
+2. **Tier-1 backend → Judge0 (ADR-12).** Mature, Apache-2.0, and a natural
+   request/response fit; not Firecracker.
+3. **Video proctoring → deferred past v1 (ADR-15).** Browser signals + SEB ship
+   first; webcam recording/face-presence is a later phase.
+4. **LLM strategy → hosted providers only (ADR-14).** OpenAI/Anthropic/Bedrock
+   behind the provider abstraction; no self-hosted vLLM in v1.
 5. ~~**KubeLab integration depth** — adapter-only vs. thin fork for native
    tier-2.~~ **Decided (ADR-8, 2026-11-11): adapter-only, no fork.** Revisit at
    Phase E if one exercise format across tiers outweighs a clean upstream.
-6. **First segment** — degree colleges (full tenancy) vs. bootcamps (lighter).
+6. **First segment → both (ADR-16).** Degree colleges and bootcamps from one
+   platform, differentiated by plan/tenancy depth rather than a separate build.
+
+Still open: **SEB depth** (full integration vs. browser proctoring for v1) and
+**data residency** (single India region vs. multi-region at launch) — see
+`ARCHITECTURE.md` §18.

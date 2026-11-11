@@ -18,8 +18,8 @@ Two deliberate deviations from the original overview:
 - **KubeLab is adapter-only — never fork it (ADR-8, decided 2026-11-11).**
   Upstream provisioning is record-driven and binary (`clusterRunning` → Helm
   vcluster), has no tier field, and has no SSO/JWT code. So KubeLab serves
-  **tier-3 only, unmodified**; tier-1 (Judge0/Firecracker, a request/response
-  provider) and tier-2 (a plain pod) are separate `LabProvider` implementations
+  **tier-3 only, unmodified**; tier-1 (Judge0, a request/response provider —
+  ADR-12) and tier-2 (a plain pod) are separate `LabProvider` implementations
   beside it. Do not patch KubeLab's Go controller. Revisit at Phase E only if
   one exercise format across tiers is worth a rebase tax.
 

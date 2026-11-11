@@ -6,9 +6,9 @@
  * build if any package carries a copyleft license that would impose source
  * disclosure on the product artifact.
  *
- * Denylist: AGPL, GPL, SSPL, BSL, and the LGPL family when *bundled*. Tools that
- * are run as separate services (e.g. SonarQube) are not installed as npm deps,
- * so they never reach this check.
+ * Denylist: AGPL, GPL, SSPL, BSL, and the LGPL family when *bundled*. No
+ * copyleft tool is used at all (ADR-13: quality gating is in-house, not
+ * SonarQube/Semgrep), so nothing LGPL is expected to reach this check.
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';

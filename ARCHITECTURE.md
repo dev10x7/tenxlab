@@ -41,7 +41,8 @@ for artifacts.
 - Multi-tenant LMS (institutions, departments, batches, courses, lessons).
 - Interactive coding labs and cloud project workspaces.
 - Auto-graded assessments (coding + MCQ + fill-in-blank + descriptive).
-- Proctoring (browser-level + Safe Exam Browser integration).
+- Proctoring (browser-level signals + Safe Exam Browser integration; webcam
+  video proctoring is deferred — see ADR-15).
 - Real-time contests and hackathons with leaderboards.
 - AI tutor, soft-skills evaluator, plagiarism + code-quality gating.
 - Recruiter talent-discovery portal.
@@ -93,6 +94,11 @@ for artifacts.
 | ADR-9 | **Redis Streams + BullMQ** for jobs/events (Kafka deferred) | Simplicity at current scale; revisit at >10k concurrent labs. | Accepted |
 | ADR-10 | **S3-compatible object storage (S3/MinIO)** for snapshots | Portability; cost. | Accepted |
 | ADR-11 | **KubeLab keeps its own PocketBase DB and auth; LMS is the system of record** | Avoids a dual-write mess; sync via SSO-in and webhook-out only. | Accepted |
+| ADR-12 | **Tier-1 runtime is Judge0** (not Firecracker) | Mature, permissive (Apache-2.0) code-execution service; a request/response provider that fits tier-1 without a session model. Faster to ship than a bespoke Firecracker pool. | Accepted (2026-11-11) |
+| ADR-13 | **Code-quality gating is in-house (`services/ai/app/quality.py`); no SonarQube/Semgrep** | Removes all LGPL exposure from the product artifact. ByteXL uses SonarQube; we match the capability with a permissive analyzer rather than an external copyleft service. | Accepted (2026-11-11) |
+| ADR-14 | **LLM access is hosted providers only** (OpenAI/Anthropic/Bedrock) | No self-hosted vLLM in v1 — avoids GPU fleet cost/ops. Data residency handled by provider/region choice and PII redaction before calls. | Accepted (2026-11-11) |
+| ADR-15 | **Video proctoring is deferred past v1** | Browser-level signals (tab switch, copy/paste, fullscreen, display count) ship first; webcam recording/face-presence is a later phase. Keeps v1 scope and cost down. | Accepted (2026-11-11) |
+| ADR-16 | **Serve degree colleges and bootcamps from one platform** | Same core, differentiated by plan/tenancy depth rather than a separate product. College tenancy is the superset; bootcamps use a lighter plan. | Accepted (2026-11-11) |
 
 > **KubeLab reality (verified 2026-11-11 from `natrontech/kubelab`, `main`):**
 > - **License:** Apache-2.0 — permissive, no copyleft concern.
@@ -135,7 +141,7 @@ for artifacts.
 | Orchestrator | **Kubernetes** (managed: EKS/GKE) | Apache-2.0 |
 | Lab provisioning | **KubeLab** (`natrontech/kubelab`) — Go on PocketBase + SvelteKit UI | Apache-2.0 |
 | Nested clusters | **vcluster** (Loft Labs) — Helm chart v0.16.x, k3s image | Apache-2.0 (OSS core) |
-| MicroVM execution | **Firecracker** and/or **Judge0** worker pool (our tier-1 addition) | Apache-2.0 |
+| MicroVM execution | **Judge0** worker pool (our tier-1 addition) | Apache-2.0 |
 | Warm-pool operator | Custom **Go** Kubernetes operator (our addition) | ours |
 | Workspace IDE | VS Code (`code-server`, as used by KubeLab) + xterm.js terminal | MIT |
 
@@ -144,18 +150,18 @@ for artifacts.
 | Layer | Technology | License |
 |---|---|---|
 | Service framework | **FastAPI + Uvicorn** | MIT |
-| LLM access | Provider abstraction (OpenAI/Anthropic/Bedrock/vLLM) | MIT (SDK) |
+| LLM access | Provider abstraction (OpenAI/Anthropic/Bedrock) | MIT (SDK) |
 | Speech-to-text | **faster-whisper** | MIT |
 | AST plagiarism | **Tree-sitter** parsers | MIT |
-| Code quality gating | **SonarQube** (or Semgrep OSS) | LGPL* / LGPL* |
+| Code quality gating | In-house analyzer in `services/ai/app/quality.py` | ours (permissive) |
 | Orchestration | Celery or Arq workers | BSD / MIT |
 
-> \* **SonarQube/Semgrep caution:** SonarQube Community is LGPL-3.0 and Semgrep
-> OSS is LGPL-2.1. Running them as **separate, unmodified services accessed over
-> HTTP** is generally safe (LGPL's "mere aggregation" / network use), but they
-> **must not be statically linked or embedded** in TenXLab binaries. If legal
-> wants zero LGPL exposure, use a permissive static analyzer (e.g. custom
-> Tree-sitter/ESLint/PMD rules). **Flag for legal review.**
+> **Code-quality gating — resolved (ADR-13, 2026-11-11):** no SonarQube/Semgrep.
+> Both are LGPL (SonarQube Community LGPL-3.0, Semgrep OSS LGPL-2.1), and the
+> product image is permissive-only. We keep the capability in-house: extend the
+> existing `services/ai/app/quality.py` (Tree-sitter/ESLint/PMD-style rules) so
+> the analyzer is ours and the license gate stays clean. ByteXL advertises
+> SonarQube; we match the outcome without the copyleft dependency.
 
 ### 5.4 Cross-cutting
 
@@ -219,7 +225,7 @@ for artifacts.
    │  Lab Adapter (LabProvider)│       │            │  FastAPI                  │
    │  ┌────────────────────┐  │        │            │  ┌─────────────────────┐  │
    │  │ Runtime Tier Router│  │        │            │  │ Socratic Tutor      │  │
-   │  │ T1 microVM/Judge0  │  │        │            │  │ AST Plagiarism      │  │
+   │  │ T1 Judge0          │  │        │            │  │ AST Plagiarism      │  │
    │  │ T2 single pod      │  │        │            │  │ Quality Gating      │  │
    │  │ T3 KubeLab+vcluster│  │        │            │  │ Whisper Soft-skills │  │
    │  └────────────────────┘  │        │            │  └─────────────────────┘  │
@@ -420,7 +426,7 @@ LabSpec:
 **What we must build on top of KubeLab (not present upstream):**
 
 1. **Tier-1 and tier-2 runtimes.** KubeLab is **vcluster-only**. We add:
-   - `tier_1_microvm` → Firecracker/Judge0 pool (DSA, single-file code).
+   - `tier_1_microvm` → Judge0 pool (DSA, single-file code).
    - `tier_2_container` → a plain pod (code-server + terminal, no nested control plane).
    The `LabProvider` adapter routes by `runtime_tier`; only `tier_3` delegates to
    KubeLab's vcluster path unchanged.
@@ -444,7 +450,7 @@ upstream, and the exercise agent is vcluster-coupled (it waits on `vcluster-0`
 and reads the `vc-vcluster` kubeconfig secret).
 
 Decision: **KubeLab serves tier-3 only, unmodified.** Tier-1 is a separate
-request/response provider (Judge0/Firecracker) — a session model does not fit
+request/response provider (Judge0) — a session model does not fit
 it. Tier-2 is a separate pod-based provider. Both are additional `LabProvider`
 implementations beside KubeLab, never patches inside it. This keeps upstream
 pulls frictionless and confines the `LabProvider` seam to our code.
@@ -476,7 +482,7 @@ Reads `runtime_tier` from the launch JWT and routes provisioning:
 
 | Tier | Use case | Runtime | Boot target | Memory |
 |---|---|---|---|---|
-| `tier_1_microvm` | DSA, single-file code | Firecracker microVM / Judge0 pool | < 2 s | < 128 MB |
+| `tier_1_microvm` | DSA, single-file code | Judge0 worker pool | < 2 s | < 128 MB |
 | `tier_2_container` | Web/DB apps, VS Code + terminal | Single isolated Pod | < 10 s | ≤ 2 GB |
 | `tier_3_vcluster` | Kubernetes/infra labs | vcluster (nested control plane) | < 60 s | ≤ 4 GB |
 
@@ -503,11 +509,12 @@ API + Redis streams).
 |---|---|---|
 | Socratic tutor | `POST /v1/tutor/hint` | Inputs: active file, last 20 lines stderr, rubric. Output streamed. Guardrail: never emit copy-pasteable solution. |
 | AST plagiarism | `POST /v1/plagiarism/scan` | Tree-sitter token/AST comparison across a batch; > 85% similarity flagged with diff links. |
-| Quality gating | `POST /v1/quality/scan` | SonarQube/Semgrep run as external service; results normalized. |
+| Quality gating | `POST /v1/quality/scan` | In-house analyzer (ADR-13): Tree-sitter/ESLint/PMD-style rules in `quality.py`; no SonarQube/Semgrep. |
 | Soft-skills scoring | `POST /v1/speech/evaluate` | WebM audio → faster-whisper → structured LLM rubric (grammar, vocab, fillers, technical accuracy) → 0–100. |
 
-- **LLM provider abstraction:** pluggable per tenant (cost, data residency,
-  model choice). Prompt templates versioned.
+- **LLM provider abstraction:** hosted providers only in v1 (ADR-14) —
+  OpenAI/Anthropic/Bedrock, pluggable per tenant for cost and data residency.
+  No self-hosted vLLM. Prompt templates versioned.
 - **Guardrails:** output filters to prevent solution leakage; token/rate limits;
   PII redaction before external LLM calls.
 - **Async jobs:** plagiarism and quality scans run via Celery/Arq, results pushed
@@ -528,8 +535,9 @@ API + Redis streams).
 - **Browser-level:** `visibilitychange`, `blur`, clipboard/paste listeners,
   fullscreen enforcement; events → `ProctoringEvent`. > 3 tab switches flags for
   faculty review.
-- **Webcam:** optional stream recording (MediaRecorder) → S3; face-presence
-  checks (optional).
+- **Webcam (deferred — ADR-15):** not in v1. The interface leaves room for
+  optional stream recording (MediaRecorder) → S3 and face-presence checks in a
+  later phase; v1 relies on browser signals + SEB.
 - **Safe Exam Browser (SEB):** generate `.seb` config per exam; kiosk mode,
   network filtering to allowlisted domains, quit password controlled by
   instructor. SEB launch detected and logged.
@@ -719,7 +727,7 @@ by ~P6 (week 20).
 | AI answer leakage | Product credibility | Guardrail evals, output filters, red-team prompts |
 | Tenant data cross-leak | Trust/legal | RLS + Prisma middleware + tests; pen-test |
 | Proctoring weaker than SEB-based rivals | Win-rate on exams | Ship SEB integration in P2, not later |
-| LGPL tooling (Sonar/Semgrep) exposure | Legal | Run as external service or replace with permissive analyzers |
+| LGPL tooling exposure | Legal | ~~Sonar/Semgrep~~ **Closed (ADR-13): in-house `quality.py`, no LGPL tooling** |
 | Grafana AGPL | Legal | Ops tool only; never bundled in product |
 | Python/Node/Go polyglot complexity | Velocity | Clear plane boundaries; contract tests between services |
 | Cold-start storms at class time | UX/SLO | Predictive warm pool; downgrade policy; load tests |
@@ -733,13 +741,17 @@ by ~P6 (week 20).
    Revisit at Phase E.
 2. **KubeLab user sync:** add SSO verification inside KubeLab (Go hook) or keep a
    separate adapter service that owns the JWKS check + user upsert?
-3. **Code quality gating:** SonarQube/Semgrep (LGPL) vs. permissive custom rules —
-   legal decision.
-4. **LLM strategy:** hosted providers vs. self-hosted vLLM for cost/data
-   residency?
+3. ~~**Code quality gating:** SonarQube/Semgrep (LGPL) vs. permissive custom
+   rules?~~ **Resolved (ADR-13): extend the in-house `quality.py`; no LGPL tooling.**
+4. ~~**LLM strategy:** hosted providers vs. self-hosted vLLM?~~ **Resolved
+   (ADR-14): hosted providers only (OpenAI/Anthropic/Bedrock) in v1.**
 5. **SEB depth:** full SEB integration vs. browser proctoring for v1?
-6. **First segment:** degree colleges (full tenancy) or bootcamps (lighter)?
+6. ~~**First segment:** degree colleges (full tenancy) or bootcamps (lighter)?~~
+   **Resolved (ADR-16): both — one platform, differentiated by plan.**
 7. **Data residency:** single India region for v1, or multi-region from launch?
+
+> **Also resolved 2026-11-11:** tier-1 backend = **Judge0** (ADR-12); video
+> proctoring **deferred past v1** (ADR-15).
 
 ---
 
