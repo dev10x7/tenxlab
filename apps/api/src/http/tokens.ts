@@ -14,3 +14,4 @@ export const EDITOR = 'TENXLAB_EDITOR';
 export const RUNNER = 'TENXLAB_CODE_RUNNER';
 export const ASSESSMENT = 'TENXLAB_ASSESSMENT';
 export const PROCTOR = 'TENXLAB_PROCTOR';
+export const PROJECT = 'TENXLAB_PROJECT';

@@ -486,13 +486,16 @@ sub-milestones so each ends demonstrable and CI-green:
       Unit tests only. A project is a **container of components** — one
       technology slot each (§1.2/§1.4); a student forks each component and
       submits per component.
-- [ ] **E1 — Fork lifecycle.** `projects/project.service.ts` mirroring
-      `LabLaunchService`: validate membership + published status, provision via
-      injected `LabProvider` (tier-2 default, tier-3 opt-in), record a
-      `ProjectFork`, return immediately; `getFork` polls. Fork source is a
-      **component's template or an existing workspace** (§1.3). Forks **must not**
-      land in `lab_sessions` (the operator's 30-min idle sweep would reap them) —
-      separate table + separate expiry policy.
+- [x] **E1 — Fork lifecycle.** `projects/project.service.ts` mirrors
+      `LabLaunchService`: validate membership + published status, resolve the
+      component's template (catalog slug or existing workspace, §1.3), create a
+      `ProjectWorkspace` + `ProjectFork`, then provision through the injected
+      `LabProvider` **asynchronously** — the caller polls `getForkStatus` until
+      the workspace reports `running` and an `ideUrl`. Re-forking re-attaches to
+      the existing workspace (unique per `(component, student)`); a failed
+      provision is recorded as `failed`, never `stopped`. Gated by
+      `PROJECTS_ENABLED` / `PROJECTS_TIER`. Stop/resume + the expiry policy that
+      keeps forks out of the lab operator's idle sweep land with E5b.
 - [ ] **E2 — Template catalog + git publish.** A template registry with **two
       shapes** (§1.4): (a) language/framework templates, dependency-ready
       (Flask, Java, Spring Boot, Spring+Mongo, React); (b) a **bare base image**

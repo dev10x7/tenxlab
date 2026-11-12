@@ -184,7 +184,7 @@ request/response tier-1 contract.
   `@codemirror/lang-*` package in `apps/web/src/components/CodeEditor.tsx`;
   every one is MIT, so `license:check` stays green.
 
-## Phase E — Projects / Nimbus equivalent (E0 landed 2026-11-12)
+## Phase E — Projects / Nimbus equivalent (E0+E1 landed 2026-11-14)
 
 The ByteXL "Nimbus" equivalent: an instructor-authored `Project` that a student
 **forks** into a durable `ProjectWorkspace`, builds in an online VS Code, and
@@ -199,6 +199,15 @@ trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`
   factories; models + migration `20261114000000_projects`; a `DEMO_PROJECT` seed
   and a template registry (`projects/templates.ts`). No service or HTTP surface
   yet — that is E1–E4.
+- **E1 = fork lifecycle** (`projects/project.service.ts`, this commit). Mirrors
+  `LabLaunchService`: validate membership + `published` status, resolve the
+  component's template (catalog slug or source workspace), create a
+  `ProjectWorkspace` + `ProjectFork`, then provision through the injected
+  `LabProvider` **asynchronously** — the caller polls `getForkStatus` until the
+  workspace is `running` with an `ideUrl`. Re-forking re-attaches to the
+  existing workspace; a failed provision is `failed`, never `stopped`. Gated by
+  `PROJECTS_ENABLED` (off ⇒ no cluster) and `PROJECTS_TIER` (default tier-2).
+  Stop/resume and the fork expiry policy land with E5b; the HTTP surface is E4.
 - **A project is a container of components, not a single template.** Each
   `ProjectComponent` is one technology slot (ByteXL's "add individual workspaces
   to it" step); a student forks *each* component into its own workspace and

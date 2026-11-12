@@ -528,12 +528,15 @@ export type ProjectComponent = z.infer<typeof ProjectComponent>;
 /**
  * Workspace lifecycle. `stopped` is the resting state: files persist on a
  * volume while no compute runs (stop-when-idle, ADR-20). `provisioning` is a
- * transient state while the provider boots the environment.
+ * transient state while the provider boots the environment. `failed` is a
+ * terminal provisioning error and is deliberately distinct from `stopped`,
+ * which promises the files survived.
  */
 export const WorkspaceStatus = z.enum([
   'provisioning',
   'running',
   'stopped',
+  'failed',
   'archived',
 ]);
 export type WorkspaceStatus = z.infer<typeof WorkspaceStatus>;

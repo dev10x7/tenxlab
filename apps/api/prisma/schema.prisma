@@ -411,7 +411,7 @@ model ProjectWorkspace {
   userId         String
   templateSlug   String
   runtimeTier    String   @default("tier_2_container")
-  status         String   @default("stopped") // provisioning | running | stopped | archived
+  status         String   @default("stopped") // provisioning | running | stopped | failed | archived
   ideUrl         String?
   storageRef     String?
   createdAt      DateTime @default(now())

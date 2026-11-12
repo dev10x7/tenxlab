@@ -91,6 +91,18 @@ const EnvSchema = z.object({
     .default('false')
     .transform((s) => s === 'true' || s === '1'),
 
+  // When true, project forks provision real workspaces through the provider.
+  // Off by default so tests and catalog-only deployments never touch a cluster.
+  PROJECTS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
+  // Default runtime tier for a project fork when the project declares none.
+  // Tier-2 keeps fork cost bounded (ADR-20); tier-3 is opt-in per project.
+  PROJECTS_TIER: z
+    .enum(['tier_1_microvm', 'tier_2_container', 'tier_3_vcluster'])
+    .default('tier_2_container'),
+
   // When true, the API persists to Postgres via Prisma (the system of record).
   // Off by default so tests and catalog-only deployments use the in-memory store.
   USE_DATABASE: z
