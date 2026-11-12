@@ -196,9 +196,12 @@ request/response tier-1 contract.
   entry with a `phase` badge is a placeholder — it must render through
   `SurfacePage` rather than a blank route.
 - The web app proxies API calls through `apps/web/src/app/api/**` to stay
-  same-origin (session cookie, no CORS). The browser client must therefore use
-  relative `/api/*` paths: never set `NEXT_PUBLIC_API_BASE_URL` (or add an `env`
-  entry for it) in `next.config.mjs` — it is inlined into the client bundle at
+  same-origin (session cookie, no CORS). **Every browser-facing API route needs a
+  matching route handler there** — adding a Nest controller alone is not enough,
+  or the page 404s in the browser while `curl` against the API still works. The
+  browser client must therefore use relative `/api/*` paths: never set
+  `NEXT_PUBLIC_API_BASE_URL` (or add an `env` entry for it) in
+  `next.config.mjs` — it is inlined into the client bundle at
   build time, so the browser would call that host directly and login/launch fail
   with "Something went wrong" while `curl` against the proxy still works.
 - Next.js patches global `fetch` and caches route-handler responses by URL. The

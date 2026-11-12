@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CodeRunResult } from '@tenxlab/contracts';
 import type { CodeExecutionProvider, CodeRunInput } from '@tenxlab/lab-provider';
-import { InMemoryAttemptRepository } from '../common/in-memory';
+import { InMemoryAttemptRepository, InMemoryMembershipRepository } from '../common/in-memory';
 import { AssessmentService } from './assessment.service';
 import { DEMO_ASSESSMENTS } from './demo-assessments';
 
@@ -187,3 +187,24 @@ test('history lists a student’s attempts, newest first', async () => {
   assert.equal(history.length, 2);
   assert.equal(history[0]!.assessmentId, 'k8s-quiz-1');
 });
+
+test('tenant review lists proctored attempts only, newest first', async () => {
+  const attempts = new InMemoryAttemptRepository();
+  const memberships = new InMemoryMembershipRepository();
+  memberships.seed({ id: 'm1', userId: 'u1', tenantId: 't1', role: 'student', status: 'active' });
+  memberships.seed({ id: 'm2', userId: 'u2', tenantId: 't2', role: 'student', status: 'active' });
+  const svc = new AssessmentService({ attempts, memberships, assessments: DEMO_ASSESSMENTS });
+  const clock = stepClock('2026-11-11T09:00:00Z');
+  // Practice (ungraded) first, then graded; a second tenant's attempt is excluded.
+  await svc.startAttempt('u1', 'k8s-practice-1', clock);
+  clock.advance(5);
+  await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  clock.advance(5);
+  await svc.startAttempt('u2', 'k8s-quiz-1', clock);
+
+  const review = await svc.reviewForTenant('t1');
+  assert.equal(review.length, 1);
+  assert.equal(review[0]!.assessmentId, 'k8s-quiz-1');
+  assert.equal(review[0]!.userId, 'u1');
+});
+

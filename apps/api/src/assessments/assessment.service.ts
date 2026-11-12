@@ -189,7 +189,11 @@ export class AssessmentService {
     return (await this.ownerInTenant(record.userId, tenantId)) ? record : null;
   }
 
-  /** Every attempt in a tenant, newest first, for the integrity view. */
+  /**
+   * Proctored attempts in a tenant, newest first, for the integrity view. Only
+   * graded (proctored) assessments qualify: an ungraded practice attempt has no
+   * integrity signals to review and must not appear here.
+   */
   async reviewForTenant(tenantId: string): Promise<AttemptRecord[]> {
     const members = await this.deps.memberships?.listByTenant(tenantId);
     if (!members) return [];
@@ -197,7 +201,10 @@ export class AssessmentService {
     const perUser = await Promise.all(
       [...userIds].map((userId) => this.deps.attempts.listByUser(userId)),
     );
-    return perUser.flat().sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    return perUser
+      .flat()
+      .filter((a) => this.find(a.assessmentId)?.mode === 'graded')
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
   }
 
   private async ownerInTenant(userId: string, tenantId: string): Promise<boolean> {
