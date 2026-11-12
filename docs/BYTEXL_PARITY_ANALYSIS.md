@@ -479,33 +479,40 @@ Built as a forkable, IDE-backed project workspace that **reuses the
 `LabProvider` seam for provisioning** — no second execution plane. Deliver in
 sub-milestones so each ends demonstrable and CI-green:
 
-- [x] **E0 — Domain + persistence.** Contracts (`Project`, `ProjectWorkspace`,
-      `ProjectFork`, `ProjectSubmission`) in `packages/contracts`; port
-      interfaces in `common/ports.ts`; in-memory + Prisma impls; Prisma models +
-      migration `…_projects`; seed a demo project. Unit tests only.
+- [x] **E0 — Domain + persistence.** Contracts (`Project`, `ProjectComponent`,
+      `ProjectWorkspace`, `ProjectFork`, `ProjectSubmission`) in
+      `packages/contracts`; port interfaces in `common/ports.ts`; in-memory +
+      Prisma impls; Prisma models + migration `…_projects`; seed a demo project.
+      Unit tests only. A project is a **container of components** — one
+      technology slot each (§1.2/§1.4); a student forks each component and
+      submits per component.
 - [ ] **E1 — Fork lifecycle.** `projects/project.service.ts` mirroring
       `LabLaunchService`: validate membership + published status, provision via
       injected `LabProvider` (tier-2 default, tier-3 opt-in), record a
       `ProjectFork`, return immediately; `getFork` polls. Fork source is a
-      **template or an existing workspace** (§1.3). Forks **must not** land in
-      `lab_sessions` (the operator's 30-min idle sweep would reap them) —
+      **component's template or an existing workspace** (§1.3). Forks **must not**
+      land in `lab_sessions` (the operator's 30-min idle sweep would reap them) —
       separate table + separate expiry policy.
 - [ ] **E2 — Template catalog + git publish.** A template registry with **two
       shapes** (§1.4): (a) language/framework templates, dependency-ready
       (Flask, Java, Spring Boot, Spring+Mongo, React); (b) a **bare base image**
       ("Alpine" = Debian, no language, `apt` available) for infra/network work.
-      Seeded as `ProjectWorkspace.templateRef`; fork copies the scaffold into the
-      new workspace. **No hosted git backend** (§1.3): git is workspace-local
-      (student runs `git init`/`config` in the IDE), and **publish = GitHub OAuth
-      device-flow push to the student's own account** (public/private + optional
-      rename). Submission keeps GitHub/demo URLs as optional free-text links.
+      A `ProjectComponent` references a template by `templateSlug` (catalog) or
+      `templateWorkspaceId` (an existing workspace, fork-your-own §1.3); the
+      fork copies that scaffold into the new workspace. **No hosted git
+      backend** (§1.3): git is workspace-local (student runs `git init`/`config`
+      in the IDE), and **publish = GitHub OAuth device-flow push to the student's
+      own account** (public/private + optional rename). Submission keeps
+      GitHub/demo URLs as optional free-text links.
 - [ ] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
-      description, workspace picker, optional GitHub link, optional demo URL**;
-      **server-authoritative deadline** that auto-closes the project. Enforce the
-      **stop-before-submit** rule: submission snapshots a *closed* workspace, so
-      reject (or wait) while the fork is ACTIVE — the exact error ByteXL shows.
-      Tenant-scoped `listSubmissions`; role-gated `evaluate(id, {score,
-      feedback})`. Auto-quality via a new `ai-bridge` client calling the AI plane
+      description, workspace picker, optional GitHub link, optional demo URL** —
+      one submission per component, so the picker lists the student's forks for
+      the project's components. **Server-authoritative deadline** that
+      auto-closes the project. Enforce the **stop-before-submit** rule:
+      submission snapshots a *closed* workspace, so reject (or wait) while the
+      fork is ACTIVE — the exact error ByteXL shows. Tenant-scoped
+      `listSubmissions`; role-gated `evaluate(id, {score, feedback})`.
+      Auto-quality via a new `ai-bridge` client calling the AI plane
       `POST /v1/quality/score` (no client exists today; add `AI_BASE_URL` to
       `env.ts`). Quality gate: extend `quality.py` (**ADR-13**); no
       SonarQube/Semgrep, so the license gate stays permissive-only.

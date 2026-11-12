@@ -192,12 +192,20 @@ The ByteXL "Nimbus" equivalent: an instructor-authored `Project` that a student
 trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`.
 
 - **E0 = domain + persistence only** (this commit). Contracts in
-  `packages/contracts` (`Project`, `ProjectTemplate`, `ProjectWorkspace`,
-  `ProjectFork`, `ProjectSubmission`, `ProjectSubmissionInput`); ports +
-  records in `common/ports.ts`; in-memory and Prisma adapters wired through
-  `Repositories` and both `demo/state.ts` factories; models + migration
-  `20261114000000_projects`; a `DEMO_PROJECT` seed and a template registry
-  (`projects/templates.ts`). No service or HTTP surface yet — that is E1–E4.
+  `packages/contracts` (`Project`, `ProjectComponent`, `ProjectTemplate`,
+  `ProjectWorkspace`, `ProjectFork`, `ProjectSubmission`,
+  `ProjectSubmissionInput`); ports + records in `common/ports.ts`; in-memory and
+  Prisma adapters wired through `Repositories` and both `demo/state.ts`
+  factories; models + migration `20261114000000_projects`; a `DEMO_PROJECT` seed
+  and a template registry (`projects/templates.ts`). No service or HTTP surface
+  yet — that is E1–E4.
+- **A project is a container of components, not a single template.** Each
+  `ProjectComponent` is one technology slot (ByteXL's "add individual workspaces
+  to it" step); a student forks *each* component into its own workspace and
+  submits *per component*, so a multi-service app is N independent workspaces
+  wired by the student (§1.4), never one composed stack. A component's template
+  is either a catalog `templateSlug` or an existing `templateWorkspaceId`
+  (fork-your-own, §1.3). Forks are unique per `(componentId, userId)`.
 - **Forks must not land in `lab_sessions`.** The lab-operator's 30-min idle
   sweep would reap a student's long-lived workspace, so project state lives in
   its own tables with its own expiry policy (**ADR-20**).
