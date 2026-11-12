@@ -79,6 +79,9 @@ Cross-cutting features their docs make explicit:
 - **Library policy** — Editor: no user-installed libraries; Nimbus: full
   dependency management.
 - **Project submission** — student attaches workspace, GitHub URL, demo URL.
+- **Student attendance** — overall + session-level attendance reports in the
+  student portal (Jan'26 update; "available for select organisations"). This is
+  **not in `TenXLab_Product_Overview.md`** and has **no equivalent in our repo**.
 - **Reliability/ops** — DNS fallback advice, alternate load-balancer URL,
   email bounce handling.
 
@@ -116,12 +119,19 @@ is the clearest signal of the template catalog:
 | 8 | **Nimbus Submissions** | the submission flow |
 
 The **Jan'26 platform-updates video** ("Deploy Projects in 1 Click, Fork
-Workspaces & Smarter Dashboard") confirms the three newest capabilities:
+Workspaces & Smarter Dashboard"; transcript supplied 2026-11-12) confirms the
+newest capabilities:
 
-- **One-click backend deployment** — "turn your backend projects live
-  instantly" and publish them.
-- **Project forking** — "fork templates **or your own workspaces**".
-- **Smarter dashboard** — "Up Next" and one-click "Resume Learning".
+- **One-click backend deployment** (0:12–0:31) — make projects live and publish
+  applications instantly for a portfolio.
+- **Student attendance reports** (0:32–0:45) — overall summary plus
+  **session-level** detail, surfaced in the student portal. *Available for
+  select organisations.*
+- **Project forking** (0:46–1:00) — fork predefined templates **or your own
+  workspaces** to experiment without starting from scratch.
+- **Smarter student dashboard** (1:11–1:46) — **"Up Next for You"** (upcoming
+  assessments, projects, quizzes) and **"Resume Learning"** (continue exactly
+  where you left off, one click).
 
 **What this means for us.** Nimbus ≈ *a persistent, forkable VS Code workspace
 with a framework template catalog, built-in git (GitHub publish), one-click
@@ -239,6 +249,17 @@ ByteXL's Nimbus feature set (from §1.1), mapped to us:
 |---|---|---|
 | Contest lifecycle + Redis leaderboard | **Missing** | — |
 | Recruiter Skill Passport portal | **Missing** | — |
+
+### 2.9 Attendance (found only in the Jan'26 video, not in our backlog)
+
+| Capability | Status | Gap |
+|---|---|---|
+| Student attendance (overall + session-level) | **Missing** | No attendance model anywhere in the repo or `TenXLab_Product_Overview.md`; batches track enrolment, not presence |
+| Instructor attendance view / export | **Missing** | — |
+
+This is a genuine scope discovery: it is not in our product overview, so it was
+never planned. It is small (an attendance record per student per session, plus
+two views) but must be added to the backlog to reach parity. See Phase E6.
 
 ---
 
@@ -389,8 +410,11 @@ sub-milestones so each ends demonstrable and CI-green:
       via a per-fork ingress (reuse `PodProvider`'s namespace+ingress builders);
       `demoUrl` = that ingress. **Scope v1 to single-service apps**;
       multi-service frontend+backend+DB is E5.1. Can ship after parity.
-- [ ] **E6 — Dashboard resume + docs.** "Up Next"/"Resume Learning" widget
-      (ByteXL's smarter dashboard); README/AGENTS notes; parity checkboxes.
+- [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
+      widget (ByteXL's smarter dashboard) and **student attendance** (overall +
+      session-level) — a new small model + student/instructor views, discovered
+      from the Jan'26 video and absent from our backlog (§2.9). Plus
+      README/AGENTS notes and parity checkboxes.
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 
