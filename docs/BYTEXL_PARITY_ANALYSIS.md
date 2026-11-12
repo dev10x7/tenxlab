@@ -523,6 +523,12 @@ sub-milestones so each ends demonstrable and CI-green:
       wired by the student with their own URLs + CORS (§1.4) — **not** a composed
       multi-container workspace, so there is no E5.1 compose build to do. Can
       ship after parity.
+- [ ] **E5b — Fork cost/quota policy (ADR-20).** Stop-when-idle forks: default
+      tier-2, 60-min idle stop + snapshot, 8-h max session, 90-day retention;
+      quotas on concurrency + storage + monthly budget. Reuse `checkQuota`
+      (add `storage_exceeded`), `findIdleSessions` (separate limit table), and
+      `costSession`; add a `persistent: true` mode to `PodProvider` (Deployment
+      + PVC, scale 0/1).
 - [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
       widget (ByteXL's smarter dashboard) and **student attendance** (overall +
       session-level) — a new small model + student/instructor views, discovered
@@ -534,10 +540,12 @@ sub-milestones so each ends demonstrable and CI-green:
 **Open decisions before E0:** (1) ~~git backend for fork/template~~ —
 **resolved by §1.3:** no hosted git; forks copy an in-platform scaffold, publish
 is a GitHub OAuth device-flow push to the student's own account; (2) hosting in
-v1 or deferred — recommend deferred (E5) so it cannot block parity; (3) fork
-tier — recommend **tier-2 default, tier-3 opt-in**; (4) long-lived-fork
-cost/quota policy; (5) **deadline + auto-close semantics** (per-project
-deadline, server-authoritative — confirmed by §1.2).
+v1 or deferred — recommend deferred (E5) so it cannot block parity; (3) ~~fork
+tier~~ — **resolved (ADR-20): tier-2 default, tier-3 opt-in**; (4) ~~long-lived
+fork cost/quota~~ — **resolved (ADR-20): stop-when-idle, 60-min idle, 8-h max,
+90-day retention, concurrency + storage + budget quotas**; (5) **deadline +
+auto-close semantics** (per-project deadline, server-authoritative — confirmed
+by §1.2). Only (2) and (5) remain open, and both have recommendations.
 
 ### Phase F — AI differentiation (3 ew)
 
