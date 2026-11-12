@@ -278,11 +278,16 @@ model Attempt {
   userId       String
   assessmentId String
   startedAt    DateTime  @default(now())
+  endsAt       DateTime?
   submittedAt  DateTime?
   score        Int?
-  status       String    @default("in_progress")
+  status       String    @default("in_progress") // in_progress | submitted | expired
+  // JSON blobs keyed by question id: the submitted answers and their per-question
+  // results. Written once and read whole, so no child rows.
+  answers      String?
+  results      String?
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   submissions Submission[]
 
   @@index([assessmentId])

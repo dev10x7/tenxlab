@@ -82,6 +82,37 @@ export interface SnippetRecord {
   updatedAt: Date;
 }
 
+/**
+ * A student's sitting of an assessment. `answers` and `results` are JSON blobs
+ * (keyed by question id) rather than child rows: they are written once, read
+ * whole, and never queried by field, so a relational split would buy nothing.
+ */
+export interface AttemptRecord {
+  id: string;
+  userId: string;
+  assessmentId: string;
+  /** in_progress | submitted | expired */
+  status: string;
+  startedAt: Date;
+  /** Server-computed deadline; null for an untimed practice assessment. */
+  endsAt: Date | null;
+  submittedAt: Date | null;
+  score: number | null;
+  /** JSON: answer map keyed by question id. */
+  answers: string | null;
+  /** JSON: per-question results, for re-display after submission. */
+  results: string | null;
+}
+
+/** A client-reported integrity signal. Aggregated, never treated as proof. */
+export interface ProctorEventRecord {
+  id: string;
+  attemptId: string;
+  type: string;
+  payload: string | null;
+  createdAt: Date;
+}
+
 export interface EnrollmentRecord {
   id: string;
   userId: string;
@@ -184,6 +215,29 @@ export interface EnrollmentRepository {
     batchId?: string | null;
   }): Promise<EnrollmentRecord>;
   listByBatch(batchId: string): Promise<EnrollmentRecord[]>;
+}
+
+export interface AttemptRepository {
+  create(input: {
+    userId: string;
+    assessmentId: string;
+    startedAt: Date;
+    endsAt: Date | null;
+  }): Promise<AttemptRecord>;
+  findById(id: string): Promise<AttemptRecord | null>;
+  /** An in-progress attempt for this user and assessment, if one is open. */
+  findOpen(userId: string, assessmentId: string): Promise<AttemptRecord | null>;
+  /** Every attempt by a user, newest first (their history). */
+  listByUser(userId: string): Promise<AttemptRecord[]>;
+  update(id: string, patch: Partial<AttemptRecord>): Promise<AttemptRecord>;
+}
+
+export interface ProctorEventRepository {
+  record(input: { attemptId: string; type: string; payload?: string | null }): Promise<ProctorEventRecord>;
+  /** All events for one attempt, oldest first. */
+  listByAttempt(attemptId: string): Promise<ProctorEventRecord[]>;
+  /** Every event across a set of attempts, for the instructor integrity view. */
+  listByAttempts(attemptIds: string[]): Promise<ProctorEventRecord[]>;
 }
 
 /** Idempotency ledger for inbound events (webhooks). */

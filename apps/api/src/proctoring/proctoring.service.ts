@@ -9,6 +9,8 @@
  * locked-down browser can be required for high-stakes assessments.
  */
 
+import type { ProctorEventRecord, ProctorEventRepository } from '../common/ports';
+
 export type ProctorEventType =
   | 'focus_lost'
   | 'focus_gained'
@@ -101,4 +103,55 @@ export function buildSebConfig(input: SebConfigInput): Record<string, unknown> {
     // The exam URL carries a generated config key so SEB can verify the config.
     hashedQuitPassword: '',
   };
+}
+
+/** A validation guard for client-supplied event types (never trust the wire). */
+export function isProctorEventType(value: unknown): value is ProctorEventType {
+  return typeof value === 'string' && value in WEIGHTS;
+}
+
+/**
+ * Persists integrity events and aggregates them per attempt.
+ *
+ * Kept separate from the pure `summarizeEvents` so the scoring stays trivially
+ * testable while the storage dependency lives here. Reads are scoped by the
+ * caller: an instructor may only see events for attempts they own the cohort of.
+ */
+export class ProctoringService {
+  constructor(private readonly events: ProctorEventRepository) {}
+
+  /** Record one client-reported event. Unknown types are rejected upstream. */
+  async record(
+    attemptId: string,
+    type: ProctorEventType,
+    detail?: string,
+  ): Promise<ProctorEventRecord> {
+    return this.events.record({ attemptId, type, payload: detail ?? null });
+  }
+
+  /** The risk summary for a single attempt. */
+  async summarize(attemptId: string): Promise<ProctorSummary> {
+    const rows = await this.events.listByAttempt(attemptId);
+    return summarizeEvents(attemptId, toEvents(rows));
+  }
+
+  /** Risk summaries for many attempts at once (the instructor integrity view). */
+  async summarizeMany(attemptIds: string[]): Promise<ProctorSummary[]> {
+    const rows = await this.events.listByAttempts(attemptIds);
+    return attemptIds.map((id) =>
+      summarizeEvents(
+        id,
+        toEvents(rows.filter((r) => r.attemptId === id)),
+      ),
+    );
+  }
+}
+
+function toEvents(rows: ProctorEventRecord[]): ProctorEvent[] {
+  return rows.map((r) => ({
+    attemptId: r.attemptId,
+    type: r.type as ProctorEventType,
+    at: r.createdAt.toISOString(),
+    detail: r.payload ?? undefined,
+  }));
 }

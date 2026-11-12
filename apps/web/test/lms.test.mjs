@@ -11,6 +11,11 @@ import {
   snippetTitle,
   runStatusLabel,
   runHasOutput,
+  formatClock,
+  clockUrgent,
+  riskLevelLabel,
+  riskSummaryLabel,
+  attemptClockLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -120,4 +125,41 @@ test('runHasOutput is true when either stream has content', () => {
   assert.equal(runHasOutput({ stdout: 'hi', stderr: '' }), true);
   assert.equal(runHasOutput({ stdout: '', stderr: 'boom' }), true);
   assert.equal(runHasOutput({ stdout: '', stderr: '' }), false);
+});
+
+test('formatClock renders m:ss and h:mm:ss, clamping negatives', () => {
+  assert.equal(formatClock(0), '0:00');
+  assert.equal(formatClock(9), '0:09');
+  assert.equal(formatClock(90), '1:30');
+  assert.equal(formatClock(1800), '30:00');
+  assert.equal(formatClock(3661), '1:01:01');
+  assert.equal(formatClock(-5), '0:00');
+});
+
+test('clockUrgent fires only in the last two minutes', () => {
+  assert.equal(clockUrgent(121), false);
+  assert.equal(clockUrgent(120), true);
+  assert.equal(clockUrgent(0), true);
+});
+
+test('riskLevelLabel maps each band', () => {
+  assert.equal(riskLevelLabel('low'), 'Low risk');
+  assert.equal(riskLevelLabel('medium'), 'Review');
+  assert.equal(riskLevelLabel('high'), 'High risk');
+});
+
+test('riskSummaryLabel pluralizes the signal count', () => {
+  assert.equal(
+    riskSummaryLabel({ eventCount: 1, riskScore: 8, riskLevel: 'low' }),
+    'Low risk · 1 signal · score 8',
+  );
+  assert.equal(
+    riskSummaryLabel({ eventCount: 3, riskScore: 25, riskLevel: 'medium' }),
+    'Review · 3 signals · score 25',
+  );
+});
+
+test('attemptClockLabel shows Untimed when there is no deadline', () => {
+  assert.equal(attemptClockLabel(null), 'Untimed');
+  assert.equal(attemptClockLabel(90), '1:30');
 });

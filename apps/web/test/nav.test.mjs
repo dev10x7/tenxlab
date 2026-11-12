@@ -64,3 +64,19 @@ test('the editor is a live student surface (no phase badge)', () => {
   assert.ok(item, 'student nav has /editor');
   assert.equal(item.phase, undefined, '/editor is wired to the API');
 });
+
+test('assessments and proctoring are live P2 surfaces (no phase badge)', () => {
+  const student = navItems('student');
+  const assessments = student.find((i) => i.href === '/assessments');
+  assert.ok(assessments, 'student nav has /assessments');
+  assert.equal(assessments.phase, undefined, '/assessments is wired to the API');
+
+  const proctoring = navItems('instructor').find((i) => i.href === '/proctoring');
+  assert.ok(proctoring, 'instructor nav has /proctoring');
+  assert.equal(proctoring.phase, undefined, '/proctoring is wired to the API');
+});
+
+test('P3 surfaces still carry their phase badge', () => {
+  const nimbus = navItems('student').find((i) => i.href === '/nimbus');
+  assert.equal(nimbus?.phase, 'P3');
+});

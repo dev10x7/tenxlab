@@ -9,6 +9,8 @@ import { SessionService } from '../identity/session.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
 import { EditorService } from '../editor/editor.service';
+import { AssessmentService } from '../assessments/assessment.service';
+import { ProctoringService } from '../proctoring/proctoring.service';
 import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
@@ -16,6 +18,7 @@ import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service'
 import { createDemoState, createPrismaState, resolveLessonId } from '../demo/state';
 import type { Repositories } from '../common/repositories';
 import {
+  AssessmentController,
   AuthController,
   BatchesController,
   CatalogController,
@@ -24,9 +27,10 @@ import {
   LabAssetController,
   LabController,
   PartnerSsoController,
+  ProctoringController,
   WebhookController,
 } from './controllers';
-import { BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
+import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
 
 export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH };
 
@@ -64,6 +68,8 @@ const STORE_PROVIDER = {
     WebhookController,
     BatchesController,
     EditorController,
+    AssessmentController,
+    ProctoringController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -173,6 +179,22 @@ const STORE_PROVIDER = {
       inject: [STORE, RUNNER],
       useFactory: (store: Repositories, runner: PistonProvider | null) =>
         new EditorService({ snippets: store.snippets, runner }),
+    },
+    {
+      provide: ASSESSMENT,
+      inject: [STORE, RUNNER],
+      useFactory: (store: Repositories, runner: PistonProvider | null) =>
+        new AssessmentService({
+          attempts: store.attempts,
+          memberships: store.memberships,
+          runner,
+        }),
+    },
+    {
+      provide: PROCTOR,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new ProctoringService(store.proctorEvents),
     },
   ],
 })

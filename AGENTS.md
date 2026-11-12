@@ -122,6 +122,32 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   only reproduces in a real browser. Regression test:
   `deploy/kubelab/test/ide-gateway.test.mjs`.
 
+## P2 — Editor, Labs & Assessments (verified 2026-11-11)
+
+The P2 exit criterion is **"a proctored exam runs end to end"**, verified by
+`apps/api/src/e2e.p2.test.ts`: it boots the real Nest app and drives
+login → list → start → report signals → submit → instructor review over HTTP.
+
+- **Labs vs. Assessments** are one lesson concept split by `lesson.kind`:
+  `/labs` is ungraded practice with hints (`HintReveal`); `/assessments` is
+  graded and (for `mode: 'graded'`) proctored. Practice sets are never proctored.
+- **The server owns the exam clock** (`assessments/exam-timer.ts`). An attempt's
+  `endsAt` is stamped at start; refreshing resumes the *same* attempt so the
+  deadline never moves; a submit past the deadline + 15 s grace is recorded but
+  scored `expired`/zero. Never trust a client clock for the deadline.
+- **Proctoring is advisory, not a verdict.** `ProctorGuard` reports what the
+  browser can see (blur/focus, copy/paste, fullscreen-exit, offline); the server
+  aggregates weighted events into a risk score (`proctoring.service.ts`,
+  `REVIEW_THRESHOLD = 30`). The UI shows signals for a human to judge — do not
+  auto-fail a student on a score. Video/webcam and full SEB are out of v1
+  (ADR-15/ADR-17); `buildSebConfig` stays in the codebase for later.
+- Assessment list/get/start/submit and proctoring summary are **instructor/tenant
+  scoped**: a student gets 403 on another attempt's summary, and review reads
+  filter through the reviewer's tenant memberships.
+- Coding questions grade through the same tier-1 `CodeExecutionProvider` as the
+  Editor; the read-only stub region is enforced *before* the code runs. With the
+  runner off, a coding question scores 0 rather than failing the attempt.
+
 ## Tier-1 execution (Piston) — license-verified 2026-11-11
 
 Tier-1 (single-file DSA code) is served by **Piston** (`engineer-man/piston`,

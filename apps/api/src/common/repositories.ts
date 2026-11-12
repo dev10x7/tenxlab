@@ -1,10 +1,12 @@
 import type {
+  AttemptRepository,
   BatchRepository,
   EnrollmentRepository,
   EventLedger,
   LabSessionRepository,
   LessonRepository,
   MembershipRepository,
+  ProctorEventRepository,
   ProgressRepository,
   ReplayGuard,
   SnippetRepository,
@@ -28,6 +30,8 @@ export interface Repositories {
   batches: BatchRepository;
   enrollments: EnrollmentRepository;
   snippets: SnippetRepository;
+  attempts: AttemptRepository;
+  proctorEvents: ProctorEventRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

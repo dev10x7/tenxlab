@@ -16,6 +16,7 @@ export interface LessonSummary {
   kind: 'video' | 'reading' | 'lab' | 'quiz';
   status: 'not_started' | 'in_progress' | 'complete';
   score?: number | null;
+  hint?: string;
 }
 
 export interface CourseSummary {
@@ -129,6 +130,83 @@ export interface Snippet {
   updatedAt: string;
 }
 
+export type QuestionKind = 'coding' | 'mcq' | 'fill' | 'descriptive';
+
+export interface AssessmentQuestion {
+  id: string;
+  kind: QuestionKind;
+  prompt: string;
+  maxScore: number;
+  stubCode?: string;
+  hasSolutionRegion: boolean;
+  options?: string[];
+  multiple?: boolean;
+}
+
+export interface AssessmentView {
+  id: string;
+  courseSlug: string;
+  title: string;
+  mode: 'practice' | 'graded';
+  proctored: boolean;
+  durationSeconds: number | null;
+  maxScore: number;
+  questions: AssessmentQuestion[];
+}
+
+export interface AttemptView {
+  id: string;
+  assessmentId: string;
+  status: 'in_progress' | 'submitted' | 'expired';
+  startedAt: string;
+  endsAt: string | null;
+  remainingSeconds: number | null;
+  assessment: AssessmentView;
+}
+
+export interface QuestionResult {
+  questionId: string;
+  score: number;
+  maxScore: number;
+  correct: boolean;
+  feedback: string;
+}
+
+export interface AttemptResult {
+  attemptId: string;
+  status: 'in_progress' | 'submitted' | 'expired';
+  score: number;
+  maxScore: number;
+  results: QuestionResult[];
+}
+
+export type ProctorEventType =
+  | 'focus_lost'
+  | 'focus_gained'
+  | 'copy'
+  | 'paste'
+  | 'fullscreen_exit'
+  | 'display_count'
+  | 'vm_detected'
+  | 'network_lost';
+
+export interface ProctorSummary {
+  attemptId: string;
+  eventCount: number;
+  riskScore: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  counts: Record<string, number>;
+}
+
+export interface ProctoredAttemptRow {
+  attemptId: string;
+  assessmentId: string;
+  status: string;
+  score: number | null;
+  startedAt: string;
+  risk: ProctorSummary;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -191,4 +269,29 @@ export const api = {
     request<void>(`/api/editor/snippets/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+  assessments: () => request<AssessmentView[]>('/api/assessments'),
+  assessment: (id: string) =>
+    request<AssessmentView>(`/api/assessments/${encodeURIComponent(id)}`),
+  startAttempt: (assessmentId: string) =>
+    request<AttemptView>(`/api/assessments/${encodeURIComponent(assessmentId)}/attempts`, {
+      method: 'POST',
+    }),
+  attempt: (attemptId: string) =>
+    request<AttemptView>(`/api/assessments/attempts/${encodeURIComponent(attemptId)}`),
+  submitAttempt: (attemptId: string, answers: Record<string, unknown>) =>
+    request<AttemptResult>(
+      `/api/assessments/attempts/${encodeURIComponent(attemptId)}/submit`,
+      { method: 'POST', body: JSON.stringify({ answers }) },
+    ),
+  attemptHistory: () => request<AttemptView[]>('/api/assessments/attempts'),
+  recordProctorEvent: (attemptId: string, type: ProctorEventType, detail?: string) =>
+    request<{ received: true }>(
+      `/api/proctoring/attempts/${encodeURIComponent(attemptId)}/events`,
+      { method: 'POST', body: JSON.stringify({ type, detail }) },
+    ),
+  proctorSummary: (attemptId: string) =>
+    request<ProctorSummary>(
+      `/api/proctoring/attempts/${encodeURIComponent(attemptId)}/summary`,
+    ),
+  proctoredAttempts: () => request<ProctoredAttemptRow[]>('/api/proctoring/attempts'),
 };

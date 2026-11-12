@@ -423,3 +423,62 @@ textarea.stdin {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* --------------------------------------------------------------- assessments */
+
+.pill.low {
+  color: var(--ok);
+  border-color: rgba(46, 125, 50, 0.4);
+}
+
+.pill.medium {
+  color: var(--warn);
+  border-color: rgba(178, 106, 0, 0.4);
+}
+
+.pill.high {
+  color: var(--danger);
+  border-color: rgba(198, 40, 40, 0.4);
+}
+
+.pill.expired {
+  color: var(--danger);
+  border-color: rgba(198, 40, 40, 0.4);
+}
+
+.exam-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.exam-clock.urgent {
+  color: var(--danger);
+  border-color: rgba(198, 40, 40, 0.5);
+}
+
+.question {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.hint {
+  border-left: 3px solid var(--warn);
+  padding: 8px 12px;
+  margin-top: 12px;
+  background: var(--surface-2);
+  border-radius: 0 8px 8px 0;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+

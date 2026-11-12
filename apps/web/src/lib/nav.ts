@@ -69,7 +69,6 @@ const ASSESSMENTS: NavItem = {
   label: 'Assessments',
   icon: '✓',
   blurb: 'Graded tests with proctoring, timers, and auto-grading.',
-  phase: 'P2',
 };
 
 const NIMBUS: NavItem = {
@@ -139,7 +138,6 @@ const PROCTORING: NavItem = {
   label: 'Proctoring',
   icon: '◔',
   blurb: 'Exam integrity: tab switches, copy/paste, and risk scores.',
-  phase: 'P2',
 };
 
 const USERS: NavItem = {

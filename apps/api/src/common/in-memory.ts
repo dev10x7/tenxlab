@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AttemptRecord,
+  AttemptRepository,
   BatchRecord,
   BatchRepository,
   EnrollmentRecord,
@@ -11,6 +13,8 @@ import type {
   LessonRepository,
   MembershipRecord,
   MembershipRepository,
+  ProctorEventRecord,
+  ProctorEventRepository,
   ProgressRepository,
   ReplayGuard,
   SnippetRecord,
@@ -270,6 +274,89 @@ export class InMemorySnippetRepository implements SnippetRepository {
   }
   seed(s: SnippetRecord) {
     this.rows.push(s);
+  }
+}
+
+export class InMemoryAttemptRepository implements AttemptRepository {
+  constructor(private readonly rows: AttemptRecord[] = []) {}
+  async create(input: {
+    userId: string;
+    assessmentId: string;
+    startedAt: Date;
+    endsAt: Date | null;
+  }) {
+    const row: AttemptRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      assessmentId: input.assessmentId,
+      status: 'in_progress',
+      startedAt: input.startedAt,
+      endsAt: input.endsAt,
+      submittedAt: null,
+      score: null,
+      answers: null,
+      results: null,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((a) => a.id === id) ?? null;
+  }
+  async findOpen(userId: string, assessmentId: string) {
+    return (
+      this.rows.find(
+        (a) =>
+          a.userId === userId &&
+          a.assessmentId === assessmentId &&
+          a.status === 'in_progress',
+      ) ?? null
+    );
+  }
+  async listByUser(userId: string) {
+    return this.rows
+      .filter((a) => a.userId === userId)
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  }
+  async update(id: string, patch: Partial<AttemptRecord>) {
+    const row = this.rows.find((a) => a.id === id);
+    if (!row) throw new Error(`attempt ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  seed(a: AttemptRecord) {
+    this.rows.push(a);
+  }
+}
+
+export class InMemoryProctorEventRepository implements ProctorEventRepository {
+  constructor(private readonly rows: ProctorEventRecord[] = []) {}
+  async record(input: {
+    attemptId: string;
+    type: string;
+    payload?: string | null;
+  }) {
+    const row: ProctorEventRecord = {
+      id: randomUUID(),
+      attemptId: input.attemptId,
+      type: input.type,
+      payload: input.payload ?? null,
+      createdAt: new Date(),
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByAttempt(attemptId: string) {
+    return this.rows
+      .filter((e) => e.attemptId === attemptId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async listByAttempts(attemptIds: string[]) {
+    const wanted = new Set(attemptIds);
+    return this.rows.filter((e) => wanted.has(e.attemptId));
+  }
+  seed(e: ProctorEventRecord) {
+    this.rows.push(e);
   }
 }
 

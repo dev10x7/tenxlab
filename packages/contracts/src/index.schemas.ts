@@ -346,3 +346,117 @@ export const SessionHandle = z.object({
   ttl_seconds: z.number().int().positive(),
 });
 export type SessionHandle = z.infer<typeof SessionHandle>;
+
+// ---------------------------------------------------------------- Assessment
+
+/** How an assessment is presented and whether it is graded. */
+export const AssessmentMode = z.enum(['practice', 'graded']);
+export type AssessmentMode = z.infer<typeof AssessmentMode>;
+
+/** The four question kinds the LMS grades. */
+export const QuestionKind = z.enum(['coding', 'mcq', 'fill', 'descriptive']);
+export type QuestionKind = z.infer<typeof QuestionKind>;
+
+/** A single question as shown to a student (no answer key). */
+export const AssessmentQuestion = z.object({
+  id: z.string().min(1),
+  kind: QuestionKind,
+  prompt: z.string(),
+  maxScore: z.number().int().positive(),
+  /** Coding only: the stub the student starts from. */
+  stubCode: z.string().optional(),
+  /** Coding only: whether the stub carries a read-only solution region. */
+  hasSolutionRegion: z.boolean().default(false),
+  /** Choice/fill only: the options to render. */
+  options: z.array(z.string()).optional(),
+  /** Fill only: whether more than one option may be selected. */
+  multiple: z.boolean().optional(),
+});
+export type AssessmentQuestion = z.infer<typeof AssessmentQuestion>;
+
+/** An assessment as shown to a student, with the attempt window when started. */
+export const AssessmentView = z.object({
+  id: z.string().min(1),
+  courseSlug: z.string().min(1),
+  title: z.string(),
+  mode: AssessmentMode,
+  /** Proctoring is only enforced for graded assessments. */
+  proctored: z.boolean().default(false),
+  durationSeconds: z.number().int().positive().nullable().default(null),
+  maxScore: z.number().int().positive(),
+  questions: z.array(AssessmentQuestion),
+});
+export type AssessmentView = z.infer<typeof AssessmentView>;
+
+/** A student's answers, keyed by question id. Values are JSON-safe. */
+export const AssessmentAnswers = z.record(z.unknown());
+export type AssessmentAnswers = z.infer<typeof AssessmentAnswers>;
+
+export const AttemptStatus = z.enum(['in_progress', 'submitted', 'expired']);
+export type AttemptStatus = z.infer<typeof AttemptStatus>;
+
+/** A live attempt: the assessment plus the server-authoritative clock. */
+export const AttemptView = z.object({
+  id: z.string().min(1),
+  assessmentId: z.string().min(1),
+  status: AttemptStatus,
+  startedAt: z.string().datetime(),
+  /** Server-computed deadline; null for untimed practice. */
+  endsAt: z.string().datetime().nullable(),
+  remainingSeconds: z.number().int().nonnegative().nullable(),
+  assessment: AssessmentView,
+});
+export type AttemptView = z.infer<typeof AttemptView>;
+
+/** Per-question result returned after a submission is graded. */
+export const QuestionResult = z.object({
+  questionId: z.string().min(1),
+  score: z.number().nonnegative(),
+  maxScore: z.number().positive(),
+  correct: z.boolean(),
+  feedback: z.string(),
+});
+export type QuestionResult = z.infer<typeof QuestionResult>;
+
+/** The outcome of a graded submission. */
+export const AttemptResult = z.object({
+  attemptId: z.string().min(1),
+  status: AttemptStatus,
+  score: z.number().nonnegative(),
+  maxScore: z.number().positive(),
+  results: z.array(QuestionResult),
+});
+export type AttemptResult = z.infer<typeof AttemptResult>;
+
+/**
+ * Proctoring events a student's browser reports. These are client-reported
+ * signals, aggregated into a risk score — never treated as proof of cheating.
+ */
+export const ProctorEventType = z.enum([
+  'focus_lost',
+  'focus_gained',
+  'copy',
+  'paste',
+  'fullscreen_exit',
+  'display_count',
+  'vm_detected',
+  'network_lost',
+]);
+export type ProctorEventType = z.infer<typeof ProctorEventType>;
+
+export const ProctorEventInput = z.object({
+  type: ProctorEventType,
+  /** Optional client detail, e.g. the display count. */
+  detail: z.string().max(200).optional(),
+});
+export type ProctorEventInput = z.infer<typeof ProctorEventInput>;
+
+/** Aggregated integrity view for one attempt, for the instructor. */
+export const ProctorSummary = z.object({
+  attemptId: z.string().min(1),
+  eventCount: z.number().int().nonnegative(),
+  riskScore: z.number().int().nonnegative(),
+  riskLevel: z.enum(['low', 'medium', 'high']),
+  counts: z.record(z.number().int().nonnegative()),
+});
+export type ProctorSummary = z.infer<typeof ProctorSummary>;

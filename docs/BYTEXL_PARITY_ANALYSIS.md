@@ -85,8 +85,8 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Ungraded practice labs | **Partial** | Lab launch exists; no "lab" vs "assessment" distinction in UI |
-| Hints | **Missing** | — |
+| Ungraded practice labs | **Done** | `/labs` lists `lab` lessons and launches a real environment; distinct from graded Assessments. |
+| Hints | **Done** | `lesson.hint` on the catalog DTO, revealed by `HintReveal`. |
 
 ### 2.4 Assessments
 
@@ -96,7 +96,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Read-only stub sections | **Done** | `read-only.ts` — `parseSolutionRegion`/`checkSolutionRegion`/`checkSubmissionRegions` enforce in-file regions delimited by `#`/`//`/`--` `start your solution` … `end your solution` (one region per file), matching ByteXL; whole-file `checkReadOnly` remains for no-marker files. |
 | Proctoring event ingest + risk score | **Done** | `proctoring/proctoring.service.ts` |
 | SEB config generation | **Done** | `buildSebConfig` |
-| Tab-switch / copy-paste / time limits | **Partial** | Events + weights exist; authoritative server timer now in `assessments/exam-timer.ts` (deadline, auto-submit, grace). Browser event capture still to wire. Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
+| Tab-switch / copy-paste / time limits | **Done** | Authoritative server timer (`assessments/exam-timer.ts`: deadline, auto-submit, grace) plus browser capture in `ProctorGuard` (blur/focus, copy/paste, fullscreen-exit, offline). Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
 | `.seb` download entry point | **Deferred** | No route serving the `.seb` file — full SEB integration is post-v1 (ADR-17) |
 | SEB quit password (test:edit gated) | **Deferred** | Post-v1 (ADR-17) |
 
@@ -194,10 +194,10 @@ This is the largest parity gap and the most-used surface.
       session). `PistonProvider` is the only implementation.
 - [x] Web editor: CodeMirror 6 (ADR-19), language picker, STDIN panel, run, save.
 - [x] Code persistence: per-user snippets, reopenable (`code_snippets`).
-- [ ] Lab vs. assessment distinction: `lesson.kind` drives graded vs. practice
-      UI, with hints on practice items.
-- [ ] Exit criterion: a student solves a DSA problem in-browser, with STDIN,
-      and their code is still there tomorrow.
+- [x] Lab vs. assessment distinction: `lesson.kind` drives graded vs. practice
+      UI, with hints on practice items (`HintReveal`).
+- [x] Exit criterion: a student solves a DSA problem in-browser, with STDIN,
+      and their code is still there tomorrow (per-user `code_snippets`).
 
 ### Phase C — Assessment hardening (3 ew)
 
@@ -206,17 +206,19 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 - [x] Read-only **regions**: marker parser for `#`/`//`/`--`
       `start your solution` / `end your solution`; one editable region per
       exercise, matching ByteXL (`parseSolutionRegion`, `checkSubmissionRegions`).
-- [ ] Browser proctoring client: `visibilitychange` (tab switch), copy/paste
-      interception, fullscreen-exit, display-count — feeding the existing
-      `ProctorEvent` ingest. **This is the v1 exam path (ADR-17).**
+- [x] Browser proctoring client: blur/focus (tab switch), copy/paste
+      interception, fullscreen-exit, offline — feeding the existing
+      `ProctorEvent` ingest via `ProctorGuard`. **This is the v1 exam path
+      (ADR-17).**
 - [x] Server-side timer: authoritative start/end, auto-submit at expiry
       (`assessments/exam-timer.ts`).
 - [ ] Full SEB integration: **deferred past v1 (ADR-17)** — serving the `.seb`
       file, kiosk/network filtering, quit password. The `buildSebConfig`
       generator stays in the codebase.
 - [ ] Video proctoring: **deferred past v1 (ADR-15)** — browser events only.
-- [ ] Exit criterion: a proctored exam runs in the browser with timers,
-      read-only stubs, and a risk score visible to the instructor.
+- [x] Exit criterion: a proctored exam runs in the browser with timers,
+      read-only stubs, and a risk score visible to the instructor (verified
+      end to end in `apps/api/src/e2e.p2.test.ts`).
 
 ### Phase D — Runtime scale-out (3 ew)
 

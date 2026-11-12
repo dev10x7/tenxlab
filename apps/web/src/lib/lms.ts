@@ -127,3 +127,44 @@ export function runHasOutput(result: { stdout: string; stderr: string }): boolea
   return result.stdout.length > 0 || result.stderr.length > 0;
 }
 
+/**
+ * Format a countdown as `m:ss` (or `h:mm:ss` past an hour). Negative remaining
+ * time is clamped to zero so an expired exam reads `0:00`, never `-1:30`.
+ */
+export function formatClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** A clock is "urgent" (rendered red) in its last two minutes. */
+export function clockUrgent(seconds: number): boolean {
+  return seconds <= 120;
+}
+
+/** Human label for a proctoring risk band. */
+export function riskLevelLabel(level: 'low' | 'medium' | 'high'): string {
+  if (level === 'high') return 'High risk';
+  if (level === 'medium') return 'Review';
+  return 'Low risk';
+}
+
+/** One-line summary of a proctoring risk score, e.g. "Review · 3 signals · score 25". */
+export function riskSummaryLabel(summary: {
+  eventCount: number;
+  riskScore: number;
+  riskLevel: 'low' | 'medium' | 'high';
+}): string {
+  const signals = summary.eventCount === 1 ? '1 signal' : `${summary.eventCount} signals`;
+  return `${riskLevelLabel(summary.riskLevel)} · ${signals} · score ${summary.riskScore}`;
+}
+
+/** Countdown text for an attempt, or a dash when the assessment is untimed. */
+export function attemptClockLabel(remainingSeconds: number | null): string {
+  return remainingSeconds == null ? 'Untimed' : formatClock(remainingSeconds);
+}
+

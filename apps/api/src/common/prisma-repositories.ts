@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type {
+  AttemptRecord,
+  AttemptRepository,
   BatchRecord,
   BatchRepository,
   EnrollmentRecord,
@@ -12,6 +14,8 @@ import type {
   LessonRepository,
   MembershipRecord,
   MembershipRepository,
+  ProctorEventRecord,
+  ProctorEventRepository,
   ProgressRepository,
   ReplayGuard,
   SnippetRecord,
@@ -324,6 +328,77 @@ export class PrismaSnippetRepository implements SnippetRepository {
   }
 }
 
+export class PrismaAttemptRepository implements AttemptRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: {
+    userId: string;
+    assessmentId: string;
+    startedAt: Date;
+    endsAt: Date | null;
+  }): Promise<AttemptRecord> {
+    const row = await this.db.attempt.create({
+      data: {
+        userId: input.userId,
+        assessmentId: input.assessmentId,
+        startedAt: input.startedAt,
+        endsAt: input.endsAt,
+        status: 'in_progress',
+      },
+    });
+    return toAttempt(row);
+  }
+  async findById(id: string): Promise<AttemptRecord | null> {
+    const row = await this.db.attempt.findUnique({ where: { id } });
+    return row ? toAttempt(row) : null;
+  }
+  async findOpen(userId: string, assessmentId: string): Promise<AttemptRecord | null> {
+    const row = await this.db.attempt.findFirst({
+      where: { userId, assessmentId, status: 'in_progress' },
+      orderBy: { startedAt: 'desc' },
+    });
+    return row ? toAttempt(row) : null;
+  }
+  async listByUser(userId: string): Promise<AttemptRecord[]> {
+    const rows = await this.db.attempt.findMany({
+      where: { userId },
+      orderBy: { startedAt: 'desc' },
+    });
+    return rows.map(toAttempt);
+  }
+  async update(id: string, patch: Partial<AttemptRecord>): Promise<AttemptRecord> {
+    const row = await this.db.attempt.update({ where: { id }, data: patch });
+    return toAttempt(row);
+  }
+}
+
+export class PrismaProctorEventRepository implements ProctorEventRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async record(input: {
+    attemptId: string;
+    type: string;
+    payload?: string | null;
+  }): Promise<ProctorEventRecord> {
+    const row = await this.db.proctoringEvent.create({
+      data: { attemptId: input.attemptId, type: input.type, payload: input.payload ?? null },
+    });
+    return toProctorEvent(row);
+  }
+  async listByAttempt(attemptId: string): Promise<ProctorEventRecord[]> {
+    const rows = await this.db.proctoringEvent.findMany({
+      where: { attemptId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toProctorEvent);
+  }
+  async listByAttempts(attemptIds: string[]): Promise<ProctorEventRecord[]> {
+    if (attemptIds.length === 0) return [];
+    const rows = await this.db.proctoringEvent.findMany({
+      where: { attemptId: { in: attemptIds } },
+    });
+    return rows.map(toProctorEvent);
+  }
+}
+
 export class PrismaEventLedger implements EventLedger {
   constructor(private readonly db: PrismaClient) {}
   async recordIfNew(eventId: string, source: string): Promise<boolean> {
@@ -367,6 +442,12 @@ type EnrollmentRow = Awaited<
 >;
 type SnippetRow = Awaited<
   ReturnType<PrismaClient['codeSnippet']['findUniqueOrThrow']>
+>;
+type AttemptRow = Awaited<
+  ReturnType<PrismaClient['attempt']['findUniqueOrThrow']>
+>;
+type ProctorEventRow = Awaited<
+  ReturnType<PrismaClient['proctoringEvent']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -452,5 +533,30 @@ function toSnippet(s: SnippetRow): SnippetRecord {
     stdin: s.stdin,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
+  };
+}
+
+function toAttempt(a: AttemptRow): AttemptRecord {
+  return {
+    id: a.id,
+    userId: a.userId,
+    assessmentId: a.assessmentId,
+    status: a.status,
+    startedAt: a.startedAt,
+    endsAt: a.endsAt ?? null,
+    submittedAt: a.submittedAt ?? null,
+    score: a.score ?? null,
+    answers: a.answers ?? null,
+    results: a.results ?? null,
+  };
+}
+
+function toProctorEvent(e: ProctorEventRow): ProctorEventRecord {
+  return {
+    id: e.id,
+    attemptId: e.attemptId,
+    type: e.type,
+    payload: e.payload ?? null,
+    createdAt: e.createdAt,
   };
 }

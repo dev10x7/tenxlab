@@ -7,6 +7,8 @@ export interface LessonSummaryDto {
   kind: 'video' | 'reading' | 'lab' | 'quiz';
   status: 'not_started' | 'in_progress' | 'complete';
   score?: number | null;
+  /** Practice labs only: a progressive hint revealed on request. */
+  hint?: string;
 }
 
 export interface CourseSummaryDto {
@@ -49,6 +51,7 @@ export class CatalogService {
         kind: lesson.kind,
         status: normalizeStatus(record?.status),
         score: record?.score ?? null,
+        hint: lesson.hint,
       });
     }
     return {

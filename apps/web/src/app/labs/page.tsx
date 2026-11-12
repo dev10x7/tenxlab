@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, type CourseSummary, type LessonSummary } from '@/lib/api';
 import { lessonStatusLabel } from '@/lib/lms';
 import { LabLaunchButton } from '@/components/LabLaunchButton';
+import { HintReveal } from '@/components/HintReveal';
 
 interface LabLesson extends LessonSummary {
   courseSlug: string;
@@ -61,6 +62,7 @@ export default function LabsPage() {
             </div>
             <p className="muted">{lab.courseTitle}</p>
             <LabLaunchButton lessonId={lab.id} />
+            {lab.hint ? <HintReveal hint={lab.hint} /> : null}
           </div>
         ))}
         {labs.length === 0 ? (

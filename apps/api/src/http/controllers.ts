@@ -29,8 +29,21 @@ import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service'
 import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
 import { EditorService } from '../editor/editor.service';
+import { AssessmentService } from '../assessments/assessment.service';
+import { isProctorEventType, ProctoringService } from '../proctoring/proctoring.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
-import { BATCH, CATALOG, EDITOR, GRADEBOOK, JWT, LAUNCH, SESSION, SSO } from './tokens';
+import {
+  ASSESSMENT,
+  BATCH,
+  CATALOG,
+  EDITOR,
+  GRADEBOOK,
+  JWT,
+  LAUNCH,
+  PROCTOR,
+  SESSION,
+  SSO,
+} from './tokens';
 
 @Controller()
 export class JwksController {
@@ -395,6 +408,168 @@ export class EditorController {
   private requireSession(req: Request): SessionPayload {
     const session = this.sessions.fromCookieHeader(req.headers.cookie);
     if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * The Assessment surface: list assessments, start/resume an attempt, and submit
+ * for grading. The server owns the exam clock; a late submission is recorded but
+ * marked expired. Coding questions run on the tier-1 pool and enforce the
+ * read-only region of the stub before grading.
+ */
+@Controller('api/assessments')
+export class AssessmentController {
+  constructor(
+    @Inject(ASSESSMENT) private readonly assessments: AssessmentService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get()
+  async list(@Req() req: Request) {
+    this.requireSession(req);
+    return this.assessments.listAll();
+  }
+
+  @Get('attempts')
+  async history(@Req() req: Request) {
+    return this.assessments.history(this.requireSession(req).userId);
+  }
+
+  @Get(':id')
+  async get(@Param('id') id: string, @Req() req: Request) {
+    this.requireSession(req);
+    const assessment = this.assessments.getAssessment(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    return assessment;
+  }
+
+  @Post(':id/attempts')
+  @HttpCode(201)
+  async start(@Param('id') id: string, @Req() req: Request) {
+    const attempt = await this.assessments.startAttempt(
+      this.requireSession(req).userId,
+      id,
+    );
+    if (!attempt) throw new NotFoundException('Assessment not found');
+    return attempt;
+  }
+
+  @Get('attempts/:attemptId')
+  async attempt(@Param('attemptId') attemptId: string, @Req() req: Request) {
+    const attempt = await this.assessments.getAttempt(
+      attemptId,
+      this.requireSession(req).userId,
+    );
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    return attempt;
+  }
+
+  @Post('attempts/:attemptId/submit')
+  async submit(
+    @Param('attemptId') attemptId: string,
+    @Body() body: { answers?: Record<string, unknown> },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.assessments.submit(
+      attemptId,
+      session.userId,
+      body?.answers ?? {},
+    );
+    if ('reason' in result) {
+      if (result.reason === 'not_found') throw new NotFoundException('Attempt not found');
+      throw new BadRequestException(
+        result.reason === 'expired'
+          ? 'This attempt has expired'
+          : 'This attempt has already been submitted',
+      );
+    }
+    return result;
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * Proctoring ingest and review. Students POST the client-reported signals their
+ * browser captures during a graded attempt; instructors read the aggregated risk
+ * summary. Events are advisory — never proof of cheating.
+ */
+@Controller('api/proctoring')
+export class ProctoringController {
+  constructor(
+    @Inject(PROCTOR) private readonly proctoring: ProctoringService,
+    @Inject(ASSESSMENT) private readonly assessments: AssessmentService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Post('attempts/:attemptId/events')
+  @HttpCode(202)
+  async record(
+    @Param('attemptId') attemptId: string,
+    @Body() body: { type?: string; detail?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    // Only the owner of the attempt may report events for it.
+    const attempt = await this.assessments.getAttempt(attemptId, session.userId);
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    if (!isProctorEventType(body?.type)) {
+      throw new BadRequestException('Unknown proctoring event type');
+    }
+    await this.proctoring.record(attemptId, body.type, body.detail);
+    return { received: true };
+  }
+
+  @Get('attempts')
+  async list(@Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const attempts = await this.assessments.reviewForTenant(session.tenantId);
+    const summaries = await this.proctoring.summarizeMany(attempts.map((a) => a.id));
+    const byId = new Map(summaries.map((s) => [s.attemptId, s]));
+    return attempts.map((a) => ({
+      attemptId: a.id,
+      assessmentId: a.assessmentId,
+      status: a.status,
+      score: a.score,
+      startedAt: a.startedAt.toISOString(),
+      risk: byId.get(a.id) ?? {
+        attemptId: a.id,
+        eventCount: 0,
+        riskScore: 0,
+        riskLevel: 'low' as const,
+        counts: {},
+      },
+    }));
+  }
+
+  @Get('attempts/:attemptId/summary')
+  async summary(@Param('attemptId') attemptId: string, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const attempt = await this.assessments.getAttemptForTenantReview(
+      attemptId,
+      session.tenantId,
+    );
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    return this.proctoring.summarize(attemptId);
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
     return session;
   }
 }

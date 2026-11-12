@@ -20,6 +20,8 @@ export interface DemoLesson {
   maxScore: number;
   exerciseSlug?: string;
   runtimeTier?: 'tier_1_microvm' | 'tier_2_container' | 'tier_3_vcluster';
+  /** Progressive hint for a practice lab, revealed on request. */
+  hint?: string;
 }
 
 export interface DemoModule {
@@ -63,6 +65,17 @@ export const DEMO_COURSES: DemoCourse[] = [
         maxScore: 100,
         exerciseSlug: 'create-simple-pod',
         runtimeTier: 'tier_3_vcluster',
+        hint:
+          'A Pod needs apiVersion, kind, metadata and spec. Start from the ' +
+          'bootstrap `pod.yaml` and apply it with `kubectl apply -f pod.yaml`.',
+      },
+      {
+        id: 'k8s-l3',
+        moduleId: 'k8s-m1',
+        title: 'Kubernetes Foundations — Graded Test',
+        kind: 'quiz',
+        type: 'quiz',
+        maxScore: 100,
       },
     ],
   },
