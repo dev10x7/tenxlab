@@ -144,6 +144,57 @@ AI plane's `quality.py`. Two deliberate differences: ByteXL ships Nimbus as a
 uses **SonarQube**, whereas we extend `quality.py` (ADR-13) to keep the license
 gate permissive-only.
 
+### 1.2 Submission flow (Nimbus Submissions video, `zdhNqMrC86w`)
+
+Transcript supplied 2026-11-12. The flow, with the design-relevant facts:
+
+- **Where it lives.** "Nimbus submissions" is an item in the **LMS left
+  navigation** — submissions are an LMS surface, not part of the Nimbus IDE.
+  Projects are *built* in Nimbus and *submitted* in the LMS.
+- **What the student sees.** A list of projects to submit with their
+  **submission deadlines**. "Once the submission deadline has passed, the
+  project will be **automatically closed and cannot be submitted for
+  evaluation**." → deadline gating is server-authoritative.
+- **The submission form fields:** (1) **title** ("clear and catchy name"), (2)
+  **description** ("concise and informative"), (3) **select Nimbus Workspace**
+  from a **dropdown** ("choose the exact workspace where your project was
+  created"), (4) **optional GitHub link** and **demo URL** ("if your demo link
+  is hosted on `bytexl.live`, include it here").
+- **Lifecycle coupling (important).** "Sometimes you might encounter an error
+  during submission if the Nimbus workspace is **still active**. … close any
+  tabs … wait for 1 to 2 minutes to let the **session close** … try submitting
+  again." → **submission requires the workspace to be stopped**; the snapshot is
+  taken from a *closed* workspace, and there is an explicit "session closing"
+  wait.
+- **Demo hosting domain.** Demos are hosted on `bytexl.live` — ByteXL has a
+  dedicated demo-hosting domain that the submission form links to.
+
+### 1.3 GitHub publish (Source Control video, `ahiet1Sj0zc`)
+
+Transcript supplied 2026-11-12. This **resolves the git-backend question**:
+
+- **Entry point.** From the projects menu: "launch a **new template**" or "pick
+  one of your **existing workspaces**". The fork source is a template *or* an
+  existing workspace — both are in-platform.
+- **Git is workspace-local and student-initialised.** Inside the VS Code
+  workspace, the student opens the **Source Control tab → initialize
+  repository**, sets `user.name`/`user.email` (the UI shows the two `git config`
+  commands to run in the terminal), and commits. → There is **no hosted git
+  backend**; the repo is local to the workspace.
+- **Publish is an OAuth device-flow push to the student's own GitHub.** "allow
+  GitHub … this will give you a **code** … copy and continue … paste the
+  password … authorize the access." → **GitHub OAuth device flow**, pushing to
+  the *student's* account, with a **public/private** choice and an optional
+  **rename**.
+- **Ongoing sync.** Later commits use **commit + sync** to push to the same
+  GitHub repo.
+
+**Consequence.** ByteXL does **not** host git and does **not** fork via a git
+remote. A "template" is an in-platform scaffold; a "fork" copies that scaffold
+(or an existing workspace) into a new workspace; git is local to the workspace;
+"publish" is an OAuth push to the student's GitHub. This is simpler than a
+hosted-git design and removes a piece of infrastructure from our Phase E.
+
 ---
 
 ## 2. Gap analysis: ByteXL vs. current TenXLab
@@ -211,8 +262,11 @@ ByteXL's Nimbus feature set (from §1.1), mapped to us:
 | Cloud VS Code workspace (persistent) | **Partial** | Tier-2 pod / tier-3 vcluster already run `code-server`; no *project* workspace model or long-lived lifecycle |
 | Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Missing** | No template registry or fork source |
 | Fork a template **or own workspace** | **Missing** | — |
-| Built-in Source Control → publish to GitHub | **Missing** | No git integration in the workspace; submission takes a GitHub URL as free text |
-| One-click backend deployment + live URL | **Missing** | — |
+| Built-in Source Control → publish to GitHub | **Missing** | ByteXL uses workspace-local git + **GitHub OAuth device flow** (§1.3); we take a GitHub URL as free text and have no IDE git integration |
+| One-click backend deployment + live URL | **Missing** | ByteXL demos on `bytexl.live`; we have no per-fork ingress/deploy action |
+| Submission form (title, description, workspace picker, links) | **Missing** | ByteXL's exact form is in §1.2 |
+| Submission deadline + auto-close | **Missing** | ByteXL closes the project server-side when the deadline passes (§1.2) |
+| Stop-before-submit lifecycle rule | **Missing** | ByteXL requires the workspace closed before submitting (§1.2) |
 | SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer — **decided (ADR-13): extend it, no SonarQube/Semgrep** |
 | Submissions: workspace + GitHub URL + demo URL | **Missing** | — |
 | Trainer evaluation + score | **Missing** | — |
@@ -386,30 +440,40 @@ sub-milestones so each ends demonstrable and CI-green:
 - [ ] **E1 — Fork lifecycle.** `projects/project.service.ts` mirroring
       `LabLaunchService`: validate membership + published status, provision via
       injected `LabProvider` (tier-2 default, tier-3 opt-in), record a
-      `ProjectFork`, return immediately; `getFork` polls. Forks **must not** land
-      in `lab_sessions` (the operator's 30-min idle sweep would reap them) —
+      `ProjectFork`, return immediately; `getFork` polls. Fork source is a
+      **template or an existing workspace** (§1.3). Forks **must not** land in
+      `lab_sessions` (the operator's 30-min idle sweep would reap them) —
       separate table + separate expiry policy.
 - [ ] **E2 — Template catalog + git publish.** A template registry (Flask, Java,
       Spring Boot, Spring+Mongo, Spring+Mongo+React, NOS — mirroring ByteXL's
-      guides), seeded as `ProjectWorkspace.templateRef`; fork clones the template
-      into the workspace's git repo. Built-in Source Control → **publish to
-      GitHub** (ByteXL's guide #6) as an API action, not free-text submission.
-- [ ] **E3 — Submission + evaluation.** `submit(forkId, {workspaceRef, githubUrl,
-      demoUrl})`, tenant-scoped `listSubmissions`, role-gated `evaluate(id,
-      {score, feedback})`. Auto-quality via a new `ai-bridge` client calling the
-      AI plane `POST /v1/quality/score` (no client exists today; add
-      `AI_BASE_URL` to `env.ts`). Quality gate: extend `quality.py` (**ADR-13**);
-      no SonarQube/Semgrep, so the license gate stays permissive-only.
+      guides), seeded as `ProjectWorkspace.templateRef`; fork copies the scaffold
+      into the new workspace. **No hosted git backend** (§1.3): git is
+      workspace-local (student runs `git init`/`config` in the IDE), and
+      **publish = GitHub OAuth device-flow push to the student's own account**
+      (public/private + optional rename). Submission keeps GitHub/demo URLs as
+      optional free-text links.
+- [ ] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
+      description, workspace picker, optional GitHub link, optional demo URL**;
+      **server-authoritative deadline** that auto-closes the project. Enforce the
+      **stop-before-submit** rule: submission snapshots a *closed* workspace, so
+      reject (or wait) while the fork is ACTIVE — the exact error ByteXL shows.
+      Tenant-scoped `listSubmissions`; role-gated `evaluate(id, {score,
+      feedback})`. Auto-quality via a new `ai-bridge` client calling the AI plane
+      `POST /v1/quality/score` (no client exists today; add `AI_BASE_URL` to
+      `env.ts`). Quality gate: extend `quality.py` (**ADR-13**); no
+      SonarQube/Semgrep, so the license gate stays permissive-only.
 - [ ] **E4 — HTTP + web.** `ProjectsController`, `PROJECT` token, module factory,
       role gating matching existing checks; `env.ts` gains `PROJECTS_ENABLED`,
       `PROJECTS_TIER`, `AI_BASE_URL`. Replace the `/nimbus` `SurfacePage`
       placeholder: student view (list → detail → Fork → IDE link → submit →
       feedback) and instructor view (create, attach templates, publish,
-      evaluate). Proxy routes under `app/api/projects/**`.
+      evaluate). Proxy routes under `app/api/projects/**`. **Submissions live in
+      the LMS nav** (§1.2), not inside the IDE.
 - [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes a fork
       via a per-fork ingress (reuse `PodProvider`'s namespace+ingress builders);
-      `demoUrl` = that ingress. **Scope v1 to single-service apps**;
-      multi-service frontend+backend+DB is E5.1. Can ship after parity.
+      `demoUrl` = that ingress, analogous to ByteXL's `bytexl.live`. **Scope v1
+      to single-service apps**; multi-service frontend+backend+DB is E5.1. Can
+      ship after parity.
 - [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
       widget (ByteXL's smarter dashboard) and **student attendance** (overall +
       session-level) — a new small model + student/instructor views, discovered
@@ -418,10 +482,13 @@ sub-milestones so each ends demonstrable and CI-green:
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 
-**Open decisions before E0:** (1) git backend for fork/template — recommend
-self-hosted **Gitea** over GitHub template repos; (2) hosting in v1 or deferred
-— recommend deferred (E5) so it cannot block parity; (3) fork tier — recommend
-**tier-2 default, tier-3 opt-in**; (4) long-lived-fork cost/quota policy.
+**Open decisions before E0:** (1) ~~git backend for fork/template~~ —
+**resolved by §1.3:** no hosted git; forks copy an in-platform scaffold, publish
+is a GitHub OAuth device-flow push to the student's own account; (2) hosting in
+v1 or deferred — recommend deferred (E5) so it cannot block parity; (3) fork
+tier — recommend **tier-2 default, tier-3 opt-in**; (4) long-lived-fork
+cost/quota policy; (5) **deadline + auto-close semantics** (per-project
+deadline, server-authoritative — confirmed by §1.2).
 
 ### Phase F — AI differentiation (3 ew)
 
