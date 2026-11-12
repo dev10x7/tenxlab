@@ -17,6 +17,16 @@ import type {
   ProctorEventRecord,
   ProctorEventRepository,
   ProgressRepository,
+  ProjectComponentRecord,
+  ProjectComponentRepository,
+  ProjectForkRecord,
+  ProjectForkRepository,
+  ProjectRecord,
+  ProjectRepository,
+  ProjectSubmissionRecord,
+  ProjectSubmissionRepository,
+  ProjectWorkspaceRecord,
+  ProjectWorkspaceRepository,
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
@@ -423,6 +433,164 @@ export class PrismaReplayGuard implements ReplayGuard {
   }
 }
 
+// ---------------------------------------------------------------- Projects
+
+export class PrismaProjectRepository implements ProjectRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ProjectRecord, 'id' | 'createdAt'>,
+  ): Promise<ProjectRecord> {
+    const p = await this.db.project.create({ data: input });
+    return toProject(p);
+  }
+  async findById(id: string): Promise<ProjectRecord | null> {
+    const p = await this.db.project.findUnique({ where: { id } });
+    return p ? toProject(p) : null;
+  }
+  async listByTenant(tenantId: string): Promise<ProjectRecord[]> {
+    const rows = await this.db.project.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toProject);
+  }
+  async update(id: string, patch: Partial<ProjectRecord>): Promise<ProjectRecord> {
+    const p = await this.db.project.update({ where: { id }, data: patch });
+    return toProject(p);
+  }
+}
+
+export class PrismaProjectComponentRepository implements ProjectComponentRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ProjectComponentRecord, 'id' | 'createdAt'>,
+  ): Promise<ProjectComponentRecord> {
+    const c = await this.db.projectComponent.create({ data: input });
+    return toProjectComponent(c);
+  }
+  async findById(id: string): Promise<ProjectComponentRecord | null> {
+    const c = await this.db.projectComponent.findUnique({ where: { id } });
+    return c ? toProjectComponent(c) : null;
+  }
+  async listByProject(projectId: string): Promise<ProjectComponentRecord[]> {
+    const rows = await this.db.projectComponent.findMany({
+      where: { projectId },
+      orderBy: { position: 'asc' },
+    });
+    return rows.map(toProjectComponent);
+  }
+}
+
+export class PrismaProjectWorkspaceRepository implements ProjectWorkspaceRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+  ): Promise<ProjectWorkspaceRecord> {
+    const w = await this.db.projectWorkspace.create({ data: input });
+    return toProjectWorkspace(w);
+  }
+  async findById(id: string): Promise<ProjectWorkspaceRecord | null> {
+    const w = await this.db.projectWorkspace.findUnique({ where: { id } });
+    return w ? toProjectWorkspace(w) : null;
+  }
+  async listByUser(
+    tenantId: string,
+    userId: string,
+  ): Promise<ProjectWorkspaceRecord[]> {
+    const rows = await this.db.projectWorkspace.findMany({
+      where: { tenantId, userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toProjectWorkspace);
+  }
+  async update(
+    id: string,
+    patch: Partial<ProjectWorkspaceRecord>,
+  ): Promise<ProjectWorkspaceRecord> {
+    const w = await this.db.projectWorkspace.update({ where: { id }, data: patch });
+    return toProjectWorkspace(w);
+  }
+}
+
+export class PrismaProjectForkRepository implements ProjectForkRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ProjectForkRecord, 'id' | 'createdAt'>,
+  ): Promise<ProjectForkRecord> {
+    const f = await this.db.projectFork.create({ data: input });
+    return toProjectFork(f);
+  }
+  async findById(id: string): Promise<ProjectForkRecord | null> {
+    const f = await this.db.projectFork.findUnique({ where: { id } });
+    return f ? toProjectFork(f) : null;
+  }
+  async findByComponentAndUser(
+    componentId: string,
+    userId: string,
+  ): Promise<ProjectForkRecord | null> {
+    const f = await this.db.projectFork.findUnique({
+      where: { componentId_userId: { componentId, userId } },
+    });
+    return f ? toProjectFork(f) : null;
+  }
+  async listByProjectAndUser(
+    projectId: string,
+    userId: string,
+  ): Promise<ProjectForkRecord[]> {
+    const rows = await this.db.projectFork.findMany({
+      where: { projectId, userId },
+    });
+    return rows.map(toProjectFork);
+  }
+  async listByProject(projectId: string): Promise<ProjectForkRecord[]> {
+    const rows = await this.db.projectFork.findMany({ where: { projectId } });
+    return rows.map(toProjectFork);
+  }
+}
+
+export class PrismaProjectSubmissionRepository
+  implements ProjectSubmissionRepository
+{
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+  ): Promise<ProjectSubmissionRecord> {
+    const s = await this.db.projectSubmission.create({ data: input });
+    return toProjectSubmission(s);
+  }
+  async findById(id: string): Promise<ProjectSubmissionRecord | null> {
+    const s = await this.db.projectSubmission.findUnique({ where: { id } });
+    return s ? toProjectSubmission(s) : null;
+  }
+  async listByProject(
+    tenantId: string,
+    projectId: string,
+  ): Promise<ProjectSubmissionRecord[]> {
+    const rows = await this.db.projectSubmission.findMany({
+      where: { tenantId, projectId },
+      orderBy: { submittedAt: 'desc' },
+    });
+    return rows.map(toProjectSubmission);
+  }
+  async listByUser(
+    tenantId: string,
+    userId: string,
+  ): Promise<ProjectSubmissionRecord[]> {
+    const rows = await this.db.projectSubmission.findMany({
+      where: { tenantId, userId },
+      orderBy: { submittedAt: 'desc' },
+    });
+    return rows.map(toProjectSubmission);
+  }
+  async update(
+    id: string,
+    patch: Partial<ProjectSubmissionRecord>,
+  ): Promise<ProjectSubmissionRecord> {
+    const s = await this.db.projectSubmission.update({ where: { id }, data: patch });
+    return toProjectSubmission(s);
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -448,6 +616,21 @@ type AttemptRow = Awaited<
 >;
 type ProctorEventRow = Awaited<
   ReturnType<PrismaClient['proctoringEvent']['findUniqueOrThrow']>
+>;
+type ProjectRow = Awaited<
+  ReturnType<PrismaClient['project']['findUniqueOrThrow']>
+>;
+type ProjectComponentRow = Awaited<
+  ReturnType<PrismaClient['projectComponent']['findUniqueOrThrow']>
+>;
+type ProjectWorkspaceRow = Awaited<
+  ReturnType<PrismaClient['projectWorkspace']['findUniqueOrThrow']>
+>;
+type ProjectForkRow = Awaited<
+  ReturnType<PrismaClient['projectFork']['findUniqueOrThrow']>
+>;
+type ProjectSubmissionRow = Awaited<
+  ReturnType<PrismaClient['projectSubmission']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -558,5 +741,82 @@ function toProctorEvent(e: ProctorEventRow): ProctorEventRecord {
     type: e.type,
     payload: e.payload ?? null,
     createdAt: e.createdAt,
+  };
+}
+
+function toProject(p: ProjectRow): ProjectRecord {
+  return {
+    id: p.id,
+    tenantId: p.tenantId,
+    title: p.title,
+    description: p.description,
+    runtimeTier: p.runtimeTier,
+    status: p.status,
+    deadline: p.deadline ?? null,
+    maxScore: p.maxScore,
+    createdAt: p.createdAt,
+  };
+}
+
+function toProjectComponent(c: ProjectComponentRow): ProjectComponentRecord {
+  return {
+    id: c.id,
+    tenantId: c.tenantId,
+    projectId: c.projectId,
+    title: c.title,
+    technology: c.technology,
+    templateSlug: c.templateSlug ?? null,
+    templateWorkspaceId: c.templateWorkspaceId ?? null,
+    position: c.position,
+    createdAt: c.createdAt,
+  };
+}
+
+function toProjectWorkspace(w: ProjectWorkspaceRow): ProjectWorkspaceRecord {
+  return {
+    id: w.id,
+    tenantId: w.tenantId,
+    userId: w.userId,
+    templateSlug: w.templateSlug,
+    runtimeTier: w.runtimeTier,
+    status: w.status,
+    ideUrl: w.ideUrl ?? null,
+    storageRef: w.storageRef ?? null,
+    createdAt: w.createdAt,
+    lastActivityAt: w.lastActivityAt,
+  };
+}
+
+function toProjectFork(f: ProjectForkRow): ProjectForkRecord {
+  return {
+    id: f.id,
+    tenantId: f.tenantId,
+    projectId: f.projectId,
+    componentId: f.componentId,
+    userId: f.userId,
+    workspaceId: f.workspaceId,
+    sourceTemplateSlug: f.sourceTemplateSlug ?? null,
+    sourceWorkspaceId: f.sourceWorkspaceId ?? null,
+    createdAt: f.createdAt,
+  };
+}
+
+function toProjectSubmission(s: ProjectSubmissionRow): ProjectSubmissionRecord {
+  return {
+    id: s.id,
+    tenantId: s.tenantId,
+    projectId: s.projectId,
+    componentId: s.componentId,
+    userId: s.userId,
+    workspaceId: s.workspaceId,
+    title: s.title,
+    description: s.description,
+    githubUrl: s.githubUrl ?? null,
+    demoUrl: s.demoUrl ?? null,
+    status: s.status,
+    score: s.score ?? null,
+    feedback: s.feedback ?? null,
+    submittedAt: s.submittedAt,
+    evaluatedAt: s.evaluatedAt ?? null,
   };
 }

@@ -16,6 +16,16 @@ import type {
   ProctorEventRecord,
   ProctorEventRepository,
   ProgressRepository,
+  ProjectComponentRecord,
+  ProjectComponentRepository,
+  ProjectForkRecord,
+  ProjectForkRepository,
+  ProjectRecord,
+  ProjectRepository,
+  ProjectSubmissionRecord,
+  ProjectSubmissionRepository,
+  ProjectWorkspaceRecord,
+  ProjectWorkspaceRepository,
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
@@ -377,5 +387,158 @@ export class InMemoryReplayGuard implements ReplayGuard {
     if (this.seen.has(key)) return false;
     this.seen.add(key);
     return true;
+  }
+}
+
+// ---------------------------------------------------------------- Projects
+
+export class InMemoryProjectRepository implements ProjectRepository {
+  constructor(private readonly rows: ProjectRecord[] = []) {}
+  async create(input: Omit<ProjectRecord, 'id' | 'createdAt'>) {
+    const row: ProjectRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((p) => p.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .filter((p) => p.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  async update(id: string, patch: Partial<ProjectRecord>) {
+    const row = this.rows.find((p) => p.id === id);
+    if (!row) throw new Error(`project ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  seed(p: ProjectRecord) {
+    this.rows.push(p);
+  }
+}
+
+export class InMemoryProjectComponentRepository implements ProjectComponentRepository {
+  constructor(private readonly rows: ProjectComponentRecord[] = []) {}
+  async create(input: Omit<ProjectComponentRecord, 'id' | 'createdAt'>) {
+    const row: ProjectComponentRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((c) => c.id === id) ?? null;
+  }
+  async listByProject(projectId: string) {
+    return this.rows
+      .filter((c) => c.projectId === projectId)
+      .sort((a, b) => a.position - b.position);
+  }
+  seed(c: ProjectComponentRecord) {
+    this.rows.push(c);
+  }
+}
+
+export class InMemoryProjectWorkspaceRepository implements ProjectWorkspaceRepository {
+  constructor(private readonly rows: ProjectWorkspaceRecord[] = []) {}
+  async create(
+    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+  ) {
+    const now = new Date();
+    const row: ProjectWorkspaceRecord = {
+      id: randomUUID(),
+      createdAt: now,
+      lastActivityAt: now,
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((w) => w.id === id) ?? null;
+  }
+  async listByUser(tenantId: string, userId: string) {
+    return this.rows
+      .filter((w) => w.tenantId === tenantId && w.userId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  async update(id: string, patch: Partial<ProjectWorkspaceRecord>) {
+    const row = this.rows.find((w) => w.id === id);
+    if (!row) throw new Error(`project workspace ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  seed(w: ProjectWorkspaceRecord) {
+    this.rows.push(w);
+  }
+}
+
+export class InMemoryProjectForkRepository implements ProjectForkRepository {
+  constructor(private readonly rows: ProjectForkRecord[] = []) {}
+  async create(input: Omit<ProjectForkRecord, 'id' | 'createdAt'>) {
+    const row: ProjectForkRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((f) => f.id === id) ?? null;
+  }
+  async findByComponentAndUser(componentId: string, userId: string) {
+    return (
+      this.rows.find((f) => f.componentId === componentId && f.userId === userId) ??
+      null
+    );
+  }
+  async listByProjectAndUser(projectId: string, userId: string) {
+    return this.rows.filter((f) => f.projectId === projectId && f.userId === userId);
+  }
+  async listByProject(projectId: string) {
+    return this.rows.filter((f) => f.projectId === projectId);
+  }
+  seed(f: ProjectForkRecord) {
+    this.rows.push(f);
+  }
+}
+
+export class InMemoryProjectSubmissionRepository
+  implements ProjectSubmissionRepository
+{
+  constructor(private readonly rows: ProjectSubmissionRecord[] = []) {}
+  async create(
+    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+  ) {
+    const row: ProjectSubmissionRecord = {
+      id: randomUUID(),
+      submittedAt: new Date(),
+      evaluatedAt: null,
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((s) => s.id === id) ?? null;
+  }
+  async listByProject(tenantId: string, projectId: string) {
+    return this.rows
+      .filter((s) => s.tenantId === tenantId && s.projectId === projectId)
+      .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+  }
+  async listByUser(tenantId: string, userId: string) {
+    return this.rows
+      .filter((s) => s.tenantId === tenantId && s.userId === userId)
+      .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+  }
+  async update(id: string, patch: Partial<ProjectSubmissionRecord>) {
+    const row = this.rows.find((s) => s.id === id);
+    if (!row) throw new Error(`project submission ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  seed(s: ProjectSubmissionRecord) {
+    this.rows.push(s);
   }
 }

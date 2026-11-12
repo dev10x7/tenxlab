@@ -9,6 +9,11 @@ import {
   PrismaLessonRepository,
   PrismaMembershipRepository,
   PrismaProgressRepository,
+  PrismaProjectComponentRepository,
+  PrismaProjectForkRepository,
+  PrismaProjectRepository,
+  PrismaProjectSubmissionRepository,
+  PrismaProjectWorkspaceRepository,
   PrismaReplayGuard,
   PrismaSnippetRepository,
   PrismaTenantRepository,
@@ -197,6 +202,99 @@ test(
       assert.equal((await snippets.listByUser(created.id)).length, 1);
       assert.equal(await snippets.delete(snippet.id, 'someone-else'), false);
       assert.equal(await snippets.delete(snippet.id, created.id), true);
+
+      // --- projects: create -> component -> fork -> submit -> evaluate
+      const projects = new PrismaProjectRepository(db);
+      const project = await projects.create({
+        tenantId,
+        title: 'Build an API',
+        description: 'A REST service',
+        runtimeTier: 'tier_2_container',
+        status: 'published',
+        deadline: null,
+        maxScore: 100,
+      });
+      assert.equal((await projects.listByTenant(tenantId)).length, 1);
+      const closed = await projects.update(project.id, { status: 'closed' });
+      assert.equal(closed.status, 'closed');
+
+      const components = new PrismaProjectComponentRepository(db);
+      const component = await components.create({
+        tenantId,
+        projectId: project.id,
+        title: 'REST API service',
+        technology: 'spring-boot',
+        templateSlug: 'spring-boot',
+        templateWorkspaceId: null,
+        position: 0,
+      });
+      assert.equal((await components.listByProject(project.id)).length, 1);
+      assert.equal((await components.findById(component.id))?.technology, 'spring-boot');
+
+      const workspaces = new PrismaProjectWorkspaceRepository(db);
+      const workspace = await workspaces.create({
+        tenantId,
+        userId: created.id,
+        templateSlug: 'spring-boot',
+        runtimeTier: 'tier_2_container',
+        status: 'provisioning',
+        ideUrl: null,
+        storageRef: null,
+      });
+      const stopped = await workspaces.update(workspace.id, {
+        status: 'stopped',
+        storageRef: `vol-${suffix}`,
+      });
+      assert.equal(stopped.status, 'stopped');
+      assert.equal(stopped.storageRef, `vol-${suffix}`);
+      assert.equal((await workspaces.listByUser(tenantId, created.id)).length, 1);
+
+      const forks = new PrismaProjectForkRepository(db);
+      const fork = await forks.create({
+        tenantId,
+        projectId: project.id,
+        componentId: component.id,
+        userId: created.id,
+        workspaceId: workspace.id,
+        sourceTemplateSlug: 'spring-boot',
+        sourceWorkspaceId: null,
+      });
+      assert.equal(
+        (await forks.findByComponentAndUser(component.id, created.id))?.id,
+        fork.id,
+      );
+      assert.equal(
+        (await forks.listByProjectAndUser(project.id, created.id)).length,
+        1,
+      );
+      assert.equal((await forks.listByProject(project.id)).length, 1);
+      assert.equal((await forks.findById(fork.id))?.workspaceId, workspace.id);
+
+      const submissions = new PrismaProjectSubmissionRepository(db);
+      const submission = await submissions.create({
+        tenantId,
+        projectId: project.id,
+        componentId: component.id,
+        userId: created.id,
+        workspaceId: workspace.id,
+        title: 'My API',
+        description: 'submitted',
+        githubUrl: 'https://github.com/example/api',
+        demoUrl: null,
+        status: 'submitted',
+        score: null,
+        feedback: null,
+      });
+      assert.equal(submission.evaluatedAt, null);
+      const evaluated = await submissions.update(submission.id, {
+        status: 'evaluated',
+        score: 91,
+        feedback: 'Nice work',
+        evaluatedAt: new Date(),
+      });
+      assert.equal(evaluated.score, 91);
+      assert.equal((await submissions.listByProject(tenantId, project.id)).length, 1);
+      assert.equal((await submissions.listByUser(tenantId, created.id)).length, 1);
     } finally {
       // Cascades clean up memberships, progress, sessions, lessons, modules.
       await db.tenant.deleteMany({ where: { id: tenantId } });

@@ -460,3 +460,156 @@ export const ProctorSummary = z.object({
   counts: z.record(z.number().int().nonnegative()),
 });
 export type ProctorSummary = z.infer<typeof ProctorSummary>;
+
+// ---------------------------------------------------------------- Projects
+// ByteXL "Nimbus" equivalent: a student forks a project's template into a
+// durable cloud workspace, builds in an online VS Code, and submits the
+// workspace plus optional GitHub/demo links for trainer evaluation.
+
+/** Two template shapes: a dependency-ready framework, or a bare base image. */
+export const ProjectTemplateKind = z.enum(['framework', 'base_image']);
+export type ProjectTemplateKind = z.infer<typeof ProjectTemplateKind>;
+
+/** A template a workspace can be created from (e.g. React, Spring Boot, Debian). */
+export const ProjectTemplate = z.object({
+  id: z.string().min(1),
+  slug: z.string().min(1),
+  title: z.string(),
+  description: z.string().default(''),
+  kind: ProjectTemplateKind,
+  /** Framework/language label, e.g. "react", "spring-boot", "debian". */
+  stack: z.string().min(1),
+  /** Container image the workspace runs. */
+  image: z.string().min(1),
+});
+export type ProjectTemplate = z.infer<typeof ProjectTemplate>;
+
+export const ProjectStatus = z.enum(['draft', 'published', 'closed']);
+export type ProjectStatus = z.infer<typeof ProjectStatus>;
+
+/** An instructor-authored project that students fork, build, and submit. */
+export const Project = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  title: z.string(),
+  description: z.string().default(''),
+  /** Tier a fork is provisioned at: tier-2 default, tier-3 opt-in (ADR-20). */
+  runtimeTier: RuntimeTier,
+  status: ProjectStatus,
+  /** Submission deadline; the project auto-closes once it passes. */
+  deadline: z.string().datetime().nullable().default(null),
+  maxScore: z.number().int().positive(),
+});
+export type Project = z.infer<typeof Project>;
+
+/**
+ * One technology slot in a project. A project is a container of components —
+ * ByteXL's "add individual workspaces to it" step (e.g. a React front end and a
+ * Spring Boot backend are two components of one project). A student forks each
+ * component into its own workspace and submits per component, so a multi-service
+ * app is N independent workspaces wired by the student (§1.4), not one stack.
+ */
+export const ProjectComponent = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string(),
+  /** Technology label shown to students, e.g. "react", "spring-boot". */
+  technology: z.string().min(1),
+  /** Catalog template the fork copies. Mutually exclusive with templateWorkspaceId. */
+  templateSlug: z.string().nullable().default(null),
+  /** An existing workspace used as the template (fork your own, §1.3). */
+  templateWorkspaceId: z.string().nullable().default(null),
+  /** Ordering within the project. */
+  position: z.number().int().nonnegative(),
+});
+export type ProjectComponent = z.infer<typeof ProjectComponent>;
+
+/**
+ * Workspace lifecycle. `stopped` is the resting state: files persist on a
+ * volume while no compute runs (stop-when-idle, ADR-20). `provisioning` is a
+ * transient state while the provider boots the environment.
+ */
+export const WorkspaceStatus = z.enum([
+  'provisioning',
+  'running',
+  'stopped',
+  'archived',
+]);
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatus>;
+
+/**
+ * A student's durable workspace. Durable state (files on `storageRef`) is
+ * separate from running compute, so a workspace can be stopped without losing
+ * work.
+ */
+export const ProjectWorkspace = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  userId: z.string().min(1),
+  templateSlug: z.string().min(1),
+  runtimeTier: RuntimeTier,
+  status: WorkspaceStatus,
+  /** IDE URL while running; null while stopped. */
+  ideUrl: z.string().nullable().default(null),
+  /** Volume/snapshot ref holding the durable files. */
+  storageRef: z.string().nullable().default(null),
+  createdAt: z.string().datetime(),
+  lastActivityAt: z.string().datetime(),
+});
+export type ProjectWorkspace = z.infer<typeof ProjectWorkspace>;
+
+/**
+ * A student's fork of one project component into their own durable workspace.
+ * A project with N components yields up to N forks per student, so a
+ * multi-service app is several independent workspaces (§1.4).
+ */
+export const ProjectFork = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  projectId: z.string().min(1),
+  componentId: z.string().min(1),
+  userId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  /** The template the fork's workspace was copied from (catalog or workspace). */
+  sourceTemplateSlug: z.string().nullable().default(null),
+  /** Set when the fork copied an existing workspace rather than a template. */
+  sourceWorkspaceId: z.string().nullable().default(null),
+  createdAt: z.string().datetime(),
+});
+export type ProjectFork = z.infer<typeof ProjectFork>;
+
+export const SubmissionStatus = z.enum(['submitted', 'evaluated']);
+export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
+
+/** The artifacts a student submits, plus the trainer's evaluation. */
+export const ProjectSubmission = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  projectId: z.string().min(1),
+  componentId: z.string().min(1),
+  userId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().default(''),
+  /** Optional link to the student's published GitHub repo. */
+  githubUrl: z.string().url().nullable().default(null),
+  /** Optional link to a hosted demo. */
+  demoUrl: z.string().url().nullable().default(null),
+  status: SubmissionStatus,
+  score: z.number().nonnegative().nullable().default(null),
+  feedback: z.string().nullable().default(null),
+  submittedAt: z.string().datetime(),
+  evaluatedAt: z.string().datetime().nullable().default(null),
+});
+export type ProjectSubmission = z.infer<typeof ProjectSubmission>;
+
+/** The body a student posts to submit a project. */
+export const ProjectSubmissionInput = z.object({
+  workspaceId: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().default(''),
+  githubUrl: z.string().url().nullable().default(null),
+  demoUrl: z.string().url().nullable().default(null),
+});
+export type ProjectSubmissionInput = z.infer<typeof ProjectSubmissionInput>;

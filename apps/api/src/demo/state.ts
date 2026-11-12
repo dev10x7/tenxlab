@@ -9,6 +9,11 @@ import {
   InMemoryMembershipRepository,
   InMemoryProctorEventRepository,
   InMemoryProgressRepository,
+  InMemoryProjectComponentRepository,
+  InMemoryProjectForkRepository,
+  InMemoryProjectRepository,
+  InMemoryProjectSubmissionRepository,
+  InMemoryProjectWorkspaceRepository,
   InMemoryReplayGuard,
   InMemorySnippetRepository,
   InMemoryTenantRepository,
@@ -24,6 +29,11 @@ import {
   PrismaMembershipRepository,
   PrismaProctorEventRepository,
   PrismaProgressRepository,
+  PrismaProjectComponentRepository,
+  PrismaProjectForkRepository,
+  PrismaProjectRepository,
+  PrismaProjectSubmissionRepository,
+  PrismaProjectWorkspaceRepository,
   PrismaReplayGuard,
   PrismaSnippetRepository,
   PrismaTenantRepository,
@@ -32,6 +42,7 @@ import {
 import type { Repositories } from '../common/repositories';
 import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from '../catalog/demo-data';
 import { DEMO_USERS } from '../identity/demo-users';
+import { DEMO_PROJECT, DEMO_PROJECT_COMPONENT } from '../projects/demo-project';
 
 /**
  * In-memory repository set, seeded from the demo catalog. Used by unit tests and
@@ -51,6 +62,11 @@ export interface DemoState extends Repositories {
   snippets: InMemorySnippetRepository;
   attempts: InMemoryAttemptRepository;
   proctorEvents: InMemoryProctorEventRepository;
+  projects: InMemoryProjectRepository;
+  projectComponents: InMemoryProjectComponentRepository;
+  projectWorkspaces: InMemoryProjectWorkspaceRepository;
+  projectForks: InMemoryProjectForkRepository;
+  projectSubmissions: InMemoryProjectSubmissionRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -129,6 +145,11 @@ export function createDemoState(): DemoState {
     snippets: new InMemorySnippetRepository(),
     attempts: new InMemoryAttemptRepository(),
     proctorEvents: new InMemoryProctorEventRepository(),
+    projects: new InMemoryProjectRepository([DEMO_PROJECT]),
+    projectComponents: new InMemoryProjectComponentRepository([DEMO_PROJECT_COMPONENT]),
+    projectWorkspaces: new InMemoryProjectWorkspaceRepository(),
+    projectForks: new InMemoryProjectForkRepository(),
+    projectSubmissions: new InMemoryProjectSubmissionRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -148,6 +169,11 @@ export function createPrismaState(db: PrismaClient): Repositories {
     snippets: new PrismaSnippetRepository(db),
     attempts: new PrismaAttemptRepository(db),
     proctorEvents: new PrismaProctorEventRepository(db),
+    projects: new PrismaProjectRepository(db),
+    projectComponents: new PrismaProjectComponentRepository(db),
+    projectWorkspaces: new PrismaProjectWorkspaceRepository(db),
+    projectForks: new PrismaProjectForkRepository(db),
+    projectSubmissions: new PrismaProjectSubmissionRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

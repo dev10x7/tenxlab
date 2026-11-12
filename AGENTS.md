@@ -28,7 +28,7 @@ Two deliberate deviations from the original overview:
 ```
 apps/web        Next.js App Router client (student/instructor)
 apps/api        NestJS LMS API (system of record)
-packages/contracts       zod schemas: launch JWT, webhooks, events (source of truth)
+packages/contracts       zod schemas: launch JWT, webhooks, events, projects (source of truth)
 packages/lab-provider    LabProvider interface, KubeLabAdapter, PodProvider (tier-2), RoutingProvider
 packages/runtime-policy  pure policy: tier routing, warm pool, quotas, cost
 services/ai              FastAPI: plagiarism, quality, speech, webhook signer
@@ -183,6 +183,39 @@ request/response tier-1 contract.
   CodeMirror id and a starter template. Add a language there *and* import its
   `@codemirror/lang-*` package in `apps/web/src/components/CodeEditor.tsx`;
   every one is MIT, so `license:check` stays green.
+
+## Phase E — Projects / Nimbus equivalent (E0 landed 2026-11-12)
+
+The ByteXL "Nimbus" equivalent: an instructor-authored `Project` that a student
+**forks** into a durable `ProjectWorkspace`, builds in an online VS Code, and
+**submits** (title, description, workspace, optional GitHub/demo links) for a
+trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`.
+
+- **E0 = domain + persistence only** (this commit). Contracts in
+  `packages/contracts` (`Project`, `ProjectTemplate`, `ProjectWorkspace`,
+  `ProjectFork`, `ProjectSubmission`, `ProjectSubmissionInput`); ports +
+  records in `common/ports.ts`; in-memory and Prisma adapters wired through
+  `Repositories` and both `demo/state.ts` factories; models + migration
+  `20261114000000_projects`; a `DEMO_PROJECT` seed and a template registry
+  (`projects/templates.ts`). No service or HTTP surface yet — that is E1–E4.
+- **Forks must not land in `lab_sessions`.** The lab-operator's 30-min idle
+  sweep would reap a student's long-lived workspace, so project state lives in
+  its own tables with its own expiry policy (**ADR-20**).
+- **Stop-when-idle is a data-model property, not an afterthought**: a
+  `ProjectWorkspace` carries `storageRef` (the durable volume) separately from
+  `ideUrl` (the running compute), so `status: 'stopped'` keeps the files and
+  drops the compute. Snapshot on stop, restore on resume.
+- **Two template shapes** (parity §1.4): `framework` (dependency-ready Flask /
+  Java / Spring Boot / Spring+Mongo / React) and `base_image` (bare Debian, no
+  language, `apt` available — the "Alpine/NOS" case). A multi-service app is
+  **N independent workspaces wired by the student**, not one composed stack.
+- **No hosted git** (parity §1.3): a fork copies an in-platform scaffold; git is
+  workspace-local (`git init`/`config` in the IDE); publish is a GitHub OAuth
+  device-flow push to the student's own account. Keep GitHub/demo URLs on the
+  submission as optional free-text links.
+- **Submission is LMS-nav, not IDE.** Deadlines are server-authoritative and
+  auto-close the project; submission snapshots a *closed* workspace (the
+  stop-before-submit rule ByteXL surfaces as a "session closing" wait).
 
 ## Gotchas
 

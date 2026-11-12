@@ -8,6 +8,11 @@ import type {
   MembershipRepository,
   ProctorEventRepository,
   ProgressRepository,
+  ProjectComponentRepository,
+  ProjectForkRepository,
+  ProjectRepository,
+  ProjectSubmissionRepository,
+  ProjectWorkspaceRepository,
   ReplayGuard,
   SnippetRepository,
   TenantRepository,
@@ -32,6 +37,11 @@ export interface Repositories {
   snippets: SnippetRepository;
   attempts: AttemptRepository;
   proctorEvents: ProctorEventRepository;
+  projects: ProjectRepository;
+  projectComponents: ProjectComponentRepository;
+  projectWorkspaces: ProjectWorkspaceRepository;
+  projectForks: ProjectForkRepository;
+  projectSubmissions: ProjectSubmissionRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

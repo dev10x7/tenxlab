@@ -5,6 +5,10 @@ import {
   CompletionWebhook,
   PartnerSsoClaims,
   LabSpec,
+  Project,
+  ProjectComponent,
+  ProjectWorkspace,
+  ProjectSubmissionInput,
   hmacSha256Hex,
   verifyHmacSha256,
 } from '../dist/index.js';
@@ -114,3 +118,102 @@ test('verifyHmacSha256 rejects tampered bodies', () => {
   const sig = hmacSha256Hex(secret, '{"a":1}');
   assert.equal(verifyHmacSha256(secret, '{"a":2}', sig), false);
 });
+
+// ---------------------------------------------------------------- Projects
+
+test('Project accepts a valid published project', () => {
+  const p = {
+    id: 'p1',
+    tenantId: 't1',
+    title: 'Build an API',
+    description: 'A REST service',
+    runtimeTier: 'tier_2_container',
+    status: 'published',
+    deadline: null,
+    maxScore: 100,
+  };
+  assert.equal(Project.safeParse(p).success, true);
+});
+
+test('Project rejects an unknown runtime tier', () => {
+  const bad = {
+    id: 'p1',
+    tenantId: 't1',
+    title: 'x',
+    runtimeTier: 'tier_9_quantum',
+    status: 'published',
+    maxScore: 100,
+  };
+  assert.equal(Project.safeParse(bad).success, false);
+});
+
+test('Project rejects an unknown status', () => {
+  const bad = {
+    id: 'p1',
+    tenantId: 't1',
+    title: 'x',
+    runtimeTier: 'tier_2_container',
+    status: 'archived',
+    maxScore: 100,
+  };
+  assert.equal(Project.safeParse(bad).success, false);
+});
+
+test('ProjectComponent accepts a catalog template or an existing workspace', () => {
+  const fromCatalog = ProjectComponent.parse({
+    id: 'c1',
+    tenantId: 't1',
+    projectId: 'p1',
+    title: 'REST API',
+    technology: 'spring-boot',
+    templateSlug: 'spring-boot',
+    position: 0,
+  });
+  assert.equal(fromCatalog.templateWorkspaceId, null);
+
+  const fromWorkspace = ProjectComponent.parse({
+    id: 'c2',
+    tenantId: 't1',
+    projectId: 'p1',
+    title: 'Fork my own',
+    technology: 'python',
+    templateWorkspaceId: 'ws-42',
+    position: 1,
+  });
+  assert.equal(fromWorkspace.templateSlug, null);
+});
+
+test('ProjectWorkspace defaults ideUrl and storageRef to null when stopped', () => {
+  const parsed = ProjectWorkspace.parse({
+    id: 'w1',
+    tenantId: 't1',
+    userId: 'u1',
+    templateSlug: 'react',
+    runtimeTier: 'tier_2_container',
+    status: 'stopped',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastActivityAt: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(parsed.ideUrl, null);
+  assert.equal(parsed.storageRef, null);
+});
+
+test('ProjectSubmissionInput requires a workspace and title but not links', () => {
+  const parsed = ProjectSubmissionInput.parse({
+    workspaceId: 'w1',
+    title: 'My project',
+  });
+  assert.equal(parsed.description, '');
+  assert.equal(parsed.githubUrl, null);
+  assert.equal(parsed.demoUrl, null);
+});
+
+test('ProjectSubmissionInput rejects a non-URL github link', () => {
+  const bad = ProjectSubmissionInput.safeParse({
+    workspaceId: 'w1',
+    title: 'x',
+    githubUrl: 'not-a-url',
+  });
+  assert.equal(bad.success, false);
+});
+

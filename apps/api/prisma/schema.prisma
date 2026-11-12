@@ -3,7 +3,7 @@
 // applied in a follow-up migration (see prisma/rls.sql).
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" covers local/dev hosts; debian-openssl-3.0.x matches the
   // node:22-slim runtime so the container finds its query engine.
   binaryTargets = ["native", "debian-openssl-3.0.x"]
@@ -26,10 +26,12 @@ model Tenant {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  departments Department[]
-  users       Membership[]
-  courses     Course[]
-  batches     AcademicBatch[]
+  departments       Department[]
+  users             Membership[]
+  courses           Course[]
+  batches           AcademicBatch[]
+  projects          Project[]
+  projectComponents ProjectComponent[]
 
   @@map("tenants")
 }
@@ -58,6 +60,10 @@ model User {
   attempts    Attempt[]
   sessions    LabSession[]
   snippets    CodeSnippet[]
+
+  projectWorkspaces  ProjectWorkspace[]
+  projectForks       ProjectFork[]
+  projectSubmissions ProjectSubmission[]
 
   @@map("users")
 }
@@ -89,16 +95,16 @@ model PartnerSsoReplay {
 // ---------------------------------------------------------------- Learning
 
 model AcademicBatch {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   tenantId     String
   departmentId String?
   name         String
   startDate    DateTime?
   endDate      DateTime?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
-  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department Department?  @relation(fields: [departmentId], references: [id])
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department  Department?  @relation(fields: [departmentId], references: [id])
   enrollments Enrollment[]
 
   @@index([tenantId])
@@ -113,8 +119,8 @@ model Course {
   status      String   @default("draft")
   createdAt   DateTime @default(now())
 
-  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  modules    Module[]
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modules     Module[]
   enrollments Enrollment[]
 
   @@index([tenantId])
@@ -188,17 +194,17 @@ model LessonProgress {
 // ---------------------------------------------------------------- Labs
 
 model LabSession {
-  id             String    @id @default(uuid())
+  id             String   @id @default(uuid())
   tenantId       String
   userId         String
   exerciseSlug   String
   tier           String
-  status         String    @default("WARM") // WARM | ACTIVE | IDLE | TERMINATED
+  status         String   @default("WARM") // WARM | ACTIVE | IDLE | TERMINATED
   ideUrl         String?
   kubelabRef     String?
-  startedAt      DateTime  @default(now())
-  lastActivityAt DateTime  @default(now())
-  ttlSeconds     Int       @default(1800)
+  startedAt      DateTime @default(now())
+  lastActivityAt DateTime @default(now())
+  ttlSeconds     Int      @default(1800)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -242,9 +248,9 @@ model CodeSnippet {
 
 // Idempotency ledger for inbound webhooks.
 model ProcessedEvent {
-  eventId     String   @id
-  source      String
-  receivedAt  DateTime @default(now())
+  eventId    String   @id
+  source     String
+  receivedAt DateTime @default(now())
 
   @@index([receivedAt])
   @@map("processed_events")
@@ -253,12 +259,12 @@ model ProcessedEvent {
 // ---------------------------------------------------------------- Assessment
 
 model Assessment {
-  id        String @id @default(uuid())
-  courseId  String
-  title     String
-  type      String // coding | mcq | fill_blank | descriptive
-  mode      String @default("graded") // practice | graded
-  maxScore  Int    @default(100)
+  id       String @id @default(uuid())
+  courseId String
+  title    String
+  type     String // coding | mcq | fill_blank | descriptive
+  mode     String @default("graded") // practice | graded
+  maxScore Int    @default(100)
 
   questions Question[]
 
@@ -267,18 +273,18 @@ model Assessment {
 }
 
 model Question {
-  id           String  @id @default(uuid())
-  assessmentId String
-  position     Int     @default(0)
-  prompt       String
+  id              String  @id @default(uuid())
+  assessmentId    String
+  position        Int     @default(0)
+  prompt          String
   // coding question fields
-  stubCode     String?
+  stubCode        String?
   readonlyMarkers String? // JSON: {start,end}
-  rubricCheckRef String?
-  hiddenTestsRef String?
+  rubricCheckRef  String?
+  hiddenTestsRef  String?
   // choice question fields
-  options      String? // JSON array
-  correct      String? // JSON
+  options         String? // JSON array
+  correct         String? // JSON
 
   assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
@@ -347,4 +353,121 @@ model SkillPassport {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("skill_passports")
+}
+
+// ---------------------------------------------------------------- Projects
+// ByteXL "Nimbus" equivalent. An instructor-authored project is forked by a
+// student into a durable workspace; the student submits the workspace plus
+// optional links and a trainer scores it. Kept in its own tables, separate from
+// lab_sessions, so the lab operator's idle sweep cannot reap a student's work.
+
+model Project {
+  id          String    @id @default(uuid())
+  tenantId    String
+  title       String
+  description String    @default("")
+  runtimeTier String    @default("tier_2_container")
+  status      String    @default("draft") // draft | published | closed
+  deadline    DateTime?
+  maxScore    Int       @default(100)
+  createdAt   DateTime  @default(now())
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  components  ProjectComponent[]
+  forks       ProjectFork[]
+  submissions ProjectSubmission[]
+
+  @@index([tenantId, status])
+  @@map("projects")
+}
+
+// One technology slot in a project (ByteXL's "add workspaces to the project").
+// A project with N components yields up to N forks per student — a multi-service
+// app is N independent workspaces wired by the student, not one stack.
+model ProjectComponent {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  projectId           String
+  title               String
+  technology          String
+  templateSlug        String?
+  templateWorkspaceId String?
+  position            Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  forks   ProjectFork[]
+
+  @@index([tenantId, projectId])
+  @@map("project_components")
+}
+
+// A student's durable cloud workspace. Durable state (storageRef) is separate
+// from running compute, so a workspace is stopped when idle without data loss.
+model ProjectWorkspace {
+  id             String   @id @default(uuid())
+  tenantId       String
+  userId         String
+  templateSlug   String
+  runtimeTier    String   @default("tier_2_container")
+  status         String   @default("stopped") // provisioning | running | stopped | archived
+  ideUrl         String?
+  storageRef     String?
+  createdAt      DateTime @default(now())
+  lastActivityAt DateTime @default(now())
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  forks ProjectFork[]
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+  @@map("project_workspaces")
+}
+
+// A student's fork of one project component into their own durable workspace.
+model ProjectFork {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  projectId          String
+  componentId        String
+  userId             String
+  workspaceId        String
+  sourceTemplateSlug String?
+  sourceWorkspaceId  String?
+  createdAt          DateTime @default(now())
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  component ProjectComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace ProjectWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([componentId, userId])
+  @@index([tenantId, projectId])
+  @@map("project_forks")
+}
+
+model ProjectSubmission {
+  id          String    @id @default(uuid())
+  tenantId    String
+  projectId   String
+  componentId String
+  userId      String
+  workspaceId String
+  title       String
+  description String    @default("")
+  githubUrl   String?
+  demoUrl     String?
+  status      String    @default("submitted") // submitted | evaluated
+  score       Int?
+  feedback    String?
+  submittedAt DateTime  @default(now())
+  evaluatedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, projectId])
+  @@index([tenantId, userId])
+  @@map("project_submissions")
 }

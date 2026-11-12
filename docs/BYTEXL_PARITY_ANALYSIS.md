@@ -479,7 +479,7 @@ Built as a forkable, IDE-backed project workspace that **reuses the
 `LabProvider` seam for provisioning** — no second execution plane. Deliver in
 sub-milestones so each ends demonstrable and CI-green:
 
-- [ ] **E0 — Domain + persistence.** Contracts (`Project`, `ProjectWorkspace`,
+- [x] **E0 — Domain + persistence.** Contracts (`Project`, `ProjectWorkspace`,
       `ProjectFork`, `ProjectSubmission`) in `packages/contracts`; port
       interfaces in `common/ports.ts`; in-memory + Prisma impls; Prisma models +
       migration `…_projects`; seed a demo project. Unit tests only.
@@ -537,15 +537,20 @@ sub-milestones so each ends demonstrable and CI-green:
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 
-**Open decisions before E0:** (1) ~~git backend for fork/template~~ —
-**resolved by §1.3:** no hosted git; forks copy an in-platform scaffold, publish
-is a GitHub OAuth device-flow push to the student's own account; (2) hosting in
-v1 or deferred — recommend deferred (E5) so it cannot block parity; (3) ~~fork
-tier~~ — **resolved (ADR-20): tier-2 default, tier-3 opt-in**; (4) ~~long-lived
-fork cost/quota~~ — **resolved (ADR-20): stop-when-idle, 60-min idle, 8-h max,
-90-day retention, concurrency + storage + budget quotas**; (5) **deadline +
-auto-close semantics** (per-project deadline, server-authoritative — confirmed
-by §1.2). Only (2) and (5) remain open, and both have recommendations.
+**Decisions (confirmed 2026-11-12):**
+
+1. **Git backend — resolved by §1.3.** No hosted git; forks copy an in-platform
+   scaffold; publish is a GitHub OAuth device-flow push to the student's own
+   account.
+2. **Hosting — deferred to E5 (confirmed).** E0–E4 deliver the parity path
+   (create → fork → build → submit → evaluate); hosting ships after and cannot
+   block parity.
+3. **Fork tier — tier-2 default, tier-3 opt-in (confirmed).** Recorded in ADR-20.
+4. **Fork cost/quota — stop-when-idle (confirmed).** ADR-20: 60-min idle stop +
+   snapshot, 8-h max session, 90-day retention, concurrency + storage + budget
+   quotas.
+5. **Deadline/auto-close — per-project, server-authoritative.** Confirmed by
+   §1.2; the project closes automatically when its deadline passes.
 
 ### Phase F — AI differentiation (3 ew)
 

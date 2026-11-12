@@ -120,6 +120,76 @@ export interface EnrollmentRecord {
   batchId?: string | null;
 }
 
+// ---------------------------------------------------------------- Projects
+
+export interface ProjectRecord {
+  id: string;
+  tenantId: string;
+  title: string;
+  description: string;
+  runtimeTier: string;
+  status: string;
+  deadline: Date | null;
+  maxScore: number;
+  createdAt: Date;
+}
+
+/** One technology slot in a project; a fork copies its template. */
+export interface ProjectComponentRecord {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  title: string;
+  technology: string;
+  templateSlug: string | null;
+  templateWorkspaceId: string | null;
+  position: number;
+  createdAt: Date;
+}
+
+export interface ProjectWorkspaceRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  templateSlug: string;
+  runtimeTier: string;
+  status: string;
+  ideUrl: string | null;
+  storageRef: string | null;
+  createdAt: Date;
+  lastActivityAt: Date;
+}
+
+export interface ProjectForkRecord {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  componentId: string;
+  userId: string;
+  workspaceId: string;
+  sourceTemplateSlug: string | null;
+  sourceWorkspaceId: string | null;
+  createdAt: Date;
+}
+
+export interface ProjectSubmissionRecord {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  componentId: string;
+  userId: string;
+  workspaceId: string;
+  title: string;
+  description: string;
+  githubUrl: string | null;
+  demoUrl: string | null;
+  status: string;
+  score: number | null;
+  feedback: string | null;
+  submittedAt: Date;
+  evaluatedAt: Date | null;
+}
+
 export interface TenantRepository {
   findById(id: string): Promise<TenantRecord | null>;
   findByDomain(domain: string): Promise<TenantRecord | null>;
@@ -250,4 +320,62 @@ export interface EventLedger {
 export interface ReplayGuard {
   /** Returns true if the jti is new; false if it was already used. */
   claim(jti: string, partnerId: string): Promise<boolean>;
+}
+
+// ---------------------------------------------------------------- Projects
+
+export interface ProjectRepository {
+  create(input: Omit<ProjectRecord, 'id' | 'createdAt'>): Promise<ProjectRecord>;
+  findById(id: string): Promise<ProjectRecord | null>;
+  /** Every project in a tenant, newest first. */
+  listByTenant(tenantId: string): Promise<ProjectRecord[]>;
+  update(id: string, patch: Partial<ProjectRecord>): Promise<ProjectRecord>;
+}
+
+export interface ProjectComponentRepository {
+  create(
+    input: Omit<ProjectComponentRecord, 'id' | 'createdAt'>,
+  ): Promise<ProjectComponentRecord>;
+  findById(id: string): Promise<ProjectComponentRecord | null>;
+  /** A project's components in display order. */
+  listByProject(projectId: string): Promise<ProjectComponentRecord[]>;
+}
+
+export interface ProjectWorkspaceRepository {
+  create(
+    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+  ): Promise<ProjectWorkspaceRecord>;
+  findById(id: string): Promise<ProjectWorkspaceRecord | null>;
+  /** A user's workspaces within a tenant, newest first. */
+  listByUser(tenantId: string, userId: string): Promise<ProjectWorkspaceRecord[]>;
+  update(id: string, patch: Partial<ProjectWorkspaceRecord>): Promise<ProjectWorkspaceRecord>;
+}
+
+export interface ProjectForkRepository {
+  create(input: Omit<ProjectForkRecord, 'id' | 'createdAt'>): Promise<ProjectForkRecord>;
+  findById(id: string): Promise<ProjectForkRecord | null>;
+  /** A user's fork of one component (at most one). */
+  findByComponentAndUser(
+    componentId: string,
+    userId: string,
+  ): Promise<ProjectForkRecord | null>;
+  /** A user's forks across a project's components. */
+  listByProjectAndUser(
+    projectId: string,
+    userId: string,
+  ): Promise<ProjectForkRecord[]>;
+  /** Every fork of a project, for the instructor roster. */
+  listByProject(projectId: string): Promise<ProjectForkRecord[]>;
+}
+
+export interface ProjectSubmissionRepository {
+  create(
+    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+  ): Promise<ProjectSubmissionRecord>;
+  findById(id: string): Promise<ProjectSubmissionRecord | null>;
+  /** Submissions for one project in a tenant, newest first (instructor view). */
+  listByProject(tenantId: string, projectId: string): Promise<ProjectSubmissionRecord[]>;
+  /** A user's own submissions in a tenant, newest first (student view). */
+  listByUser(tenantId: string, userId: string): Promise<ProjectSubmissionRecord[]>;
+  update(id: string, patch: Partial<ProjectSubmissionRecord>): Promise<ProjectSubmissionRecord>;
 }
