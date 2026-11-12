@@ -18,7 +18,7 @@ Two deliberate deviations from the original overview:
 - **KubeLab is adapter-only — never fork it (ADR-8, decided 2026-11-11).**
   Upstream provisioning is record-driven and binary (`clusterRunning` → Helm
   vcluster), has no tier field, and has no SSO/JWT code. So KubeLab serves
-  **tier-3 only, unmodified**; tier-1 (Judge0, a request/response provider —
+  **tier-3 only, unmodified**; tier-1 (Piston, a request/response provider —
   ADR-12) and tier-2 (a plain pod) are separate `LabProvider` implementations
   beside it. Do not patch KubeLab's Go controller. Revisit at Phase E only if
   one exercise format across tiers is worth a rebase tax.
@@ -121,6 +121,24 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   "Creating a socket" and renders blank. `curl` never sends `Origin`, so this
   only reproduces in a real browser. Regression test:
   `deploy/kubelab/test/ide-gateway.test.mjs`.
+
+## Tier-1 execution (Piston) — license-verified 2026-11-11
+
+Tier-1 (single-file DSA code) is served by **Piston** (`engineer-man/piston`,
+**MIT**), not Judge0. ADR-12 originally named Judge0 and recorded it as
+"Apache-2.0"; that was wrong — Judge0 CE is **GPL-3.0**, which ADR-7 forbids in
+the product image. Piston is MIT, lighter (no Postgres/Redis), and fits the same
+request/response tier-1 contract.
+
+- Piston sandboxes with **Isolate** (GPL-2.0) inside its own container, invoked
+  over HTTP. Never link or bundle it — treat Piston as an external service, like
+  KubeLab. Verify any new runtime's license before adding it (this mistake is why
+  the ADR existed in prose but the license was never checked).
+- Piston defaults (3 s CPU, 1024-char stdout) are too tight for teaching; raise
+  `run_timeout` / output caps per exercise.
+- The editor widget is **CodeMirror 6** (MIT), per ADR-19 — a single-pane
+  practice playground, not an IDE. Monaco stays the fallback only if the Editor
+  must feel identical to the lab's code-server workbench.
 
 ## Gotchas
 

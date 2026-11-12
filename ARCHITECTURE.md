@@ -90,17 +90,18 @@ for artifacts.
 | ADR-5 | **Postgres Row-Level Security + `tenant_id`** for isolation | Scales better than schema-per-tenant; single migration path. | Accepted |
 | ADR-6 | **RS256 JWTs** for internal service-to-service auth; **HS256** for partner SSO | RS256 lets KubeLab/AI verify without the signing secret; HS256 matches partner ergonomics. | Accepted |
 | ADR-7 | **No AGPL/GPL dependencies** in product image | Avoids network-copyleft source-disclosure obligation. | Accepted |
-| ADR-8 | **KubeLab integrated behind a `LabProvider` interface, adapter-only — no fork** | KubeLab is vcluster-only with no warm pool; tier-1 (Judge0) is a request/response provider and tier-2 is a pod, both added beside KubeLab rather than inside it. Keeps the Apache-2.0 dependency pristine so upstream pulls always apply. Revisit at Phase E (projects) if one exercise format across tiers is worth a fork. | Accepted (2026-11-11) |
+| ADR-8 | **KubeLab integrated behind a `LabProvider` interface, adapter-only — no fork** | KubeLab is vcluster-only with no warm pool; tier-1 (Piston) is a request/response provider and tier-2 is a pod, both added beside KubeLab rather than inside it. Keeps the Apache-2.0 dependency pristine so upstream pulls always apply. Revisit at Phase E (projects) if one exercise format across tiers is worth a fork. | Accepted (2026-11-11) |
 | ADR-9 | **Redis Streams + BullMQ** for jobs/events (Kafka deferred) | Simplicity at current scale; revisit at >10k concurrent labs. | Accepted |
 | ADR-10 | **S3-compatible object storage (S3/MinIO)** for snapshots | Portability; cost. | Accepted |
 | ADR-11 | **KubeLab keeps its own PocketBase DB and auth; LMS is the system of record** | Avoids a dual-write mess; sync via SSO-in and webhook-out only. | Accepted |
-| ADR-12 | **Tier-1 runtime is Judge0** (not Firecracker) | Mature, permissive (Apache-2.0) code-execution service; a request/response provider that fits tier-1 without a session model. Faster to ship than a bespoke Firecracker pool. | Accepted (2026-11-11) |
+| ADR-12 | **Tier-1 runtime is Piston** (not Judge0, not Firecracker) | Mature **MIT** code-execution service; a request/response provider that fits tier-1 without a session model. **Amended 2026-11-11:** the original pick was Judge0, recorded as "permissive (Apache-2.0)" — that was wrong. Judge0 CE is **GPL-3.0**, which ADR-7 forbids in the product image. Piston is MIT, lighter (no Postgres/Redis), and fits the same tier-1 contract. Faster to ship than a bespoke Firecracker pool. | Accepted (2026-11-11, amended) |
 | ADR-13 | **Code-quality gating is in-house (`services/ai/app/quality.py`); no SonarQube/Semgrep** | Removes all LGPL exposure from the product artifact. ByteXL uses SonarQube; we match the capability with a permissive analyzer rather than an external copyleft service. | Accepted (2026-11-11) |
 | ADR-14 | **LLM access is hosted providers only** (OpenAI/Anthropic/Bedrock) | No self-hosted vLLM in v1 — avoids GPU fleet cost/ops. Data residency handled by provider/region choice and PII redaction before calls. | Accepted (2026-11-11) |
 | ADR-15 | **Video proctoring is deferred past v1** | Browser-level signals (tab switch, copy/paste, fullscreen, display count) ship first; webcam recording/face-presence is a later phase. Keeps v1 scope and cost down. | Accepted (2026-11-11) |
 | ADR-16 | **Serve degree colleges and bootcamps from one platform** | Same core, differentiated by plan/tenancy depth rather than a separate product. College tenancy is the superset; bootcamps use a lighter plan. | Accepted (2026-11-11) |
 | ADR-17 | **v1 proctoring is browser-level only; full Safe Exam Browser integration is deferred** | Browser signals (tab switch, copy/paste, fullscreen, display count) + authoritative server timer ship in P2. The `.seb` config generator stays in the codebase but is not the v1 exam path; SEB kiosk/network-filtering/quit-password integration is a later phase. | Accepted (2026-11-11) |
 | ADR-18 | **Single India region for v1** (ap-south-1) | One region matches the first customer base and keeps ops cost down; the design stays multi-region-ready (region-parameterised IaC, data residency options) but multi-region is deferred. | Accepted (2026-11-11) |
+| ADR-19 | **Editor widget is CodeMirror 6** (Monaco deferred) | The ByteXL-parity "Editor" module is a single-pane practice playground, not an IDE — CodeMirror 6 is MIT, ~10× lighter than Monaco, tree-shakeable per language, and needs no worker/SSR gymnastics. Monaco stays the pick only if the Editor must feel identical to the lab's code-server IDE. | Accepted (2026-11-11) |
 
 > **KubeLab reality (verified 2026-11-11 from `natrontech/kubelab`, `main`):**
 > - **License:** Apache-2.0 — permissive, no copyleft concern.
@@ -115,6 +116,21 @@ for artifacts.
 > - **Gaps we must fill:** (a) vcluster-only — no microVM/container tiers;
 >   (b) no pre-warmed pool; (c) its own auth/DB. These map to our tier router,
 >   warm-pool operator, and SSO/sync bridge respectively.
+
+> **Tier-1 execution reality (verified 2026-11-11 from upstream LICENSE files):**
+> - **Piston** (`engineer-man/piston`) — **MIT** (`license` file). Our tier-1
+>   pick. Sandboxes with **Isolate** inside Docker: Linux namespaces, chroot,
+>   cgroups, per-submission unprivileged users, network off by default, and
+>   CPU/memory/process/file caps. Ships ~80 language packages, multiple versions
+>   per language, one `POST /api/v2/execute` call, no external DB. Defaults are
+>   conservative for teaching (3 s CPU, 1024-char stdout) and must be raised per
+>   exercise.
+> - **Isolate** (`ioi/isolate`) is **GPL-2.0**. It runs *inside Piston's own
+>   container*, invoked over HTTP — never linked or bundled into our artifact, so
+>   ADR-7 is unaffected. Treat Piston as an external service, not a vendored dep.
+> - **Judge0** (`judge0/judge0`) is **GPL-3.0**, not Apache-2.0. ADR-12 originally
+>   recorded it as "permissive (Apache-2.0)"; that was incorrect and is corrected
+>   above. Judge0 is rejected for the product image because ADR-7 forbids GPL.
 
 ---
 
@@ -143,7 +159,7 @@ for artifacts.
 | Orchestrator | **Kubernetes** (managed: EKS/GKE) | Apache-2.0 |
 | Lab provisioning | **KubeLab** (`natrontech/kubelab`) — Go on PocketBase + SvelteKit UI | Apache-2.0 |
 | Nested clusters | **vcluster** (Loft Labs) — Helm chart v0.16.x, k3s image | Apache-2.0 (OSS core) |
-| MicroVM execution | **Judge0** worker pool (our tier-1 addition) | Apache-2.0 |
+| MicroVM execution | **Piston** worker pool (our tier-1 addition) | MIT |
 | Warm-pool operator | Custom **Go** Kubernetes operator (our addition) | ours |
 | Workspace IDE | VS Code (`code-server`, as used by KubeLab) + xterm.js terminal | MIT |
 
@@ -227,7 +243,7 @@ for artifacts.
    │  Lab Adapter (LabProvider)│       │            │  FastAPI                  │
    │  ┌────────────────────┐  │        │            │  ┌─────────────────────┐  │
    │  │ Runtime Tier Router│  │        │            │  │ Socratic Tutor      │  │
-   │  │ T1 Judge0          │  │        │            │  │ AST Plagiarism      │  │
+   │  │ T1 Piston          │  │        │            │  │ AST Plagiarism      │  │
    │  │ T2 single pod      │  │        │            │  │ Quality Gating      │  │
    │  │ T3 KubeLab+vcluster│  │        │            │  │ Whisper Soft-skills │  │
    │  └────────────────────┘  │        │            │  └─────────────────────┘  │
@@ -428,7 +444,7 @@ LabSpec:
 **What we must build on top of KubeLab (not present upstream):**
 
 1. **Tier-1 and tier-2 runtimes.** KubeLab is **vcluster-only**. We add:
-   - `tier_1_microvm` → Judge0 pool (DSA, single-file code).
+   - `tier_1_microvm` → Piston pool (DSA, single-file code).
    - `tier_2_container` → a plain pod (code-server + terminal, no nested control plane).
    The `LabProvider` adapter routes by `runtime_tier`; only `tier_3` delegates to
    KubeLab's vcluster path unchanged.
@@ -452,7 +468,7 @@ upstream, and the exercise agent is vcluster-coupled (it waits on `vcluster-0`
 and reads the `vc-vcluster` kubeconfig secret).
 
 Decision: **KubeLab serves tier-3 only, unmodified.** Tier-1 is a separate
-request/response provider (Judge0) — a session model does not fit
+request/response provider (Piston) — a session model does not fit
 it. Tier-2 is a separate pod-based provider. Both are additional `LabProvider`
 implementations beside KubeLab, never patches inside it. This keeps upstream
 pulls frictionless and confines the `LabProvider` seam to our code.
@@ -484,7 +500,7 @@ Reads `runtime_tier` from the launch JWT and routes provisioning:
 
 | Tier | Use case | Runtime | Boot target | Memory |
 |---|---|---|---|---|
-| `tier_1_microvm` | DSA, single-file code | Judge0 worker pool | < 2 s | < 128 MB |
+| `tier_1_microvm` | DSA, single-file code | Piston worker pool | < 2 s | < 128 MB |
 | `tier_2_container` | Web/DB apps, VS Code + terminal | Single isolated Pod | < 10 s | ≤ 2 GB |
 | `tier_3_vcluster` | Kubernetes/infra labs | vcluster (nested control plane) | < 60 s | ≤ 4 GB |
 
@@ -760,8 +776,8 @@ by ~P6 (week 20).
 7. ~~**Data residency:** single India region for v1, or multi-region from
    launch?~~ **Resolved (ADR-18): single region (`ap-south-1`) for v1.**
 
-> **Also resolved 2026-11-11:** tier-1 backend = **Judge0** (ADR-12); video
-> proctoring **deferred past v1** (ADR-15).
+> **Also resolved 2026-11-11:** tier-1 backend = **Piston** (ADR-12, amended
+> from Judge0 on license grounds); video proctoring **deferred past v1** (ADR-15).
 
 ---
 

@@ -119,7 +119,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Quotas + budget warnings | **Done** | `runtime-policy/quota.ts` |
 | Idle termination | **Done** | `findIdleSessions` + operator sweep |
 | Cost telemetry | **Done** | `runtime-policy/cost.ts` |
-| Judge0 tier-1 worker | **Missing** | Router targets the tier; the backend does not exist — **decided (ADR-12): Judge0** |
+| Piston tier-1 worker | **Missing** | Router targets the tier; the backend does not exist — **decided (ADR-12, amended): Piston** (Judge0 rejected: GPL-3.0) |
 | Tier-2 pod provider | **Missing** | Same — targeted, not implemented |
 | Predictive scale-up before class | **Missing** | Operator is reactive only |
 
@@ -152,7 +152,7 @@ These are not gaps; they are choices to keep or revisit.
 2. **KubeLab as the execution plane**, behind `LabProvider`, rather than a
    bespoke runner. Cost: KubeLab is vcluster-first and early-stage; tiers 1–2
    are ours to build. **Resolved 2026-11-11 (ADR-8): adapter-only, no fork.**
-   KubeLab serves tier-3 unmodified; tier-1 (Judge0) and tier-2 (pod) are
+   KubeLab serves tier-3 unmodified; tier-1 (Piston) and tier-2 (pod) are
    separate `LabProvider` implementations beside it. The cost we accept is that
    tier-2 authors a lab in our format, not KubeLab's. Revisit at Phase E.
 3. **Kubernetes-native labs** (vcluster, `kubectl`, `helm`) are a genuine
@@ -189,8 +189,8 @@ Make the existing pieces work end-to-end before adding surface.
 This is the largest parity gap and the most-used surface.
 
 - [ ] Editor service: wrap a code-run sandbox behind the `LabProvider`
-      abstraction (a new `Judge0Provider` implementing the same interface).
-- [ ] Web editor: Monaco, language picker, STDIN panel, run/format, save.
+      abstraction (a new `PistonProvider` implementing the same interface).
+- [ ] Web editor: CodeMirror 6 (ADR-19), language picker, STDIN panel, run, save.
 - [ ] Code persistence: per-user snippets, reopenable.
 - [ ] Lab vs. assessment distinction: `lesson.kind` drives graded vs. practice
       UI, with hints on practice items.
@@ -218,7 +218,7 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 
 ### Phase D — Runtime scale-out (3 ew)
 
-- [ ] Implement the tier-1 backend (**Judge0**, ADR-12) behind
+- [ ] Implement the tier-1 backend (**Piston**, ADR-12) behind
       `LabProvider`; wire the router's `tier_1_microvm` to it. Tier-1 is a
       request/response provider — not a KubeLab session — per ADR-8.
 - [ ] Implement the tier-2 pod provider behind `LabProvider` (namespace +
@@ -301,8 +301,10 @@ All previously open items now have an owner decision. Recorded as ADRs in
 
 1. **SonarQube → extend in-house `quality.py` (ADR-13).** No SonarQube/Semgrep;
    keeps the product image permissive-only and the license gate clean.
-2. **Tier-1 backend → Judge0 (ADR-12).** Mature, Apache-2.0, and a natural
-   request/response fit; not Firecracker.
+2. **Tier-1 backend → Piston (ADR-12, amended 2026-11-11).** MIT, lighter than
+   Judge0 (no Postgres/Redis), and a natural request/response fit. The original
+   pick was Judge0, recorded as "Apache-2.0" — incorrect: Judge0 CE is GPL-3.0,
+   which ADR-7 forbids. Editor widget is **CodeMirror 6** (ADR-19).
 3. **Video proctoring → deferred past v1 (ADR-15).** Browser signals ship
    first; webcam recording/face-presence is a later phase.
 4. **LLM strategy → hosted providers only (ADR-14).** OpenAI/Anthropic/Bedrock

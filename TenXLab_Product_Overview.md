@@ -22,7 +22,7 @@
          v                                          v
 +---------------------------------+   +---------------------------------+
 |   KubeLab Hybrid Orchestrator   |   |   AI Tutor & Proctoring Svc     |
-| - Tier 1: Judge0 / MicroVM (DSA)|   | - VS Code Sidecar Context       |
+| - Tier 1: Piston / MicroVM (DSA)|   | - VS Code Sidecar Context       |
 | - Tier 2: Single Pod (Web/DB)   |   | - Socratic LLM Guardrails       |
 | - Tier 3: vcluster (Kubernetes) |   | - Whisper Soft-Skills Eval      |
 +---------------------------------+   +---------------------------------+
@@ -104,7 +104,7 @@ Provide these exact schemas to your AI coding agents when generating boilerplate
 #### Story 2.1: Runtime Tier Router (`Tier 1`, `Tier 2`, `Tier 3`)
 * **Goal:** Prevent expensive `vcluster` provisioning for simple Python/C++ DSA exercises while preserving full clusters for Kubernetes labs.
 * **Implementation Details:** Modify KubeLab's session provisioning controller to read `runtime_tier` from the launch JWT:
-  * `tier_1_microvm`: Route code execution to a lightweight **Judge0** or **Firecracker** worker pool.
+  * `tier_1_microvm`: Route code execution to a lightweight **Piston** (MIT) or **Firecracker** worker pool. (Judge0 is rejected: GPL-3.0 — see ADR-12.)
   * `tier_2_container`: Provision a single isolated Kubernetes Pod (VS Code + terminal) without nested control-plane components.
   * `tier_3_vcluster`: Execute KubeLab's default `vcluster` provisioning workflow.
 * **Acceptance Criteria:**
