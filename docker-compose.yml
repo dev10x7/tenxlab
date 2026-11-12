@@ -102,6 +102,27 @@ services:
     volumes:
       - ./data/piston:/piston
 
+  # Warm-pool reconciler for the lab execution plane. Off by default; enable
+  # with `--profile operator`. It needs a reachable cluster (KUBECONFIG) and
+  # talks to the same Postgres the API uses.
+  lab-operator:
+    build:
+      context: .
+      dockerfile: services/lab-operator/Dockerfile
+    container_name: tenxlab-lab-operator
+    profiles: ['operator']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LAB_OPERATOR_DATABASE_URL: postgresql://tenxlab:tenxlab@postgres:5432/tenxlab?schema=public
+      KUBELAB_ALLOWED_HOSTS: 192.168.49.2.nip.io
+      KUBELAB_IDE_SCHEME: https
+      RECONCILE_INTERVAL_MS: '30000'
+    # The cluster config is mounted read-only; the operator never writes it.
+    volumes:
+      - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+
   api:
     build:
       context: .
@@ -126,6 +147,10 @@ services:
       # instance and set KUBELAB_ENABLED=true to provision real sandboxes.
       KUBELAB_ENABLED: 'false'
       KUBELAB_BASE_URL: http://kubelab.local
+      # Tier-2 pod provider (code-server + terminal). Needs in-cluster RBAC; see
+      # deploy/lab-operator/operator.yaml for the service account it uses.
+      POD_PROVIDER_ENABLED: 'false'
+      CODE_SERVER_IMAGE: codercom/code-server:latest
       # Tier-1 code execution (Piston, ADR-12) for the Editor. The service below
       # runs under the `runner` profile; keep this in sync with that profile.
       PISTON_ENABLED: 'false'

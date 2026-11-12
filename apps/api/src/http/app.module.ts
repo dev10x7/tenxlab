@@ -1,7 +1,14 @@
 import { Module } from '@nestjs/common';
 import { generateKeyPairSync } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { KubeLabAdapter, PistonProvider } from '@tenxlab/lab-provider';
+import {
+  KubeLabAdapter,
+  KubernetesClient,
+  PistonProvider,
+  PodProvider,
+  RoutingProvider,
+  type LabProvider,
+} from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
 import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
@@ -123,22 +130,42 @@ const STORE_PROVIDER = {
     {
       provide: PROVIDER,
       inject: [ENV],
-      useFactory: (env: Env) =>
-        new KubeLabAdapter({
-          baseUrl: env.KUBELAB_BASE_URL,
-          adminEmail: env.KUBELAB_ADMIN_EMAIL,
-          adminPassword: env.KUBELAB_ADMIN_PASSWORD,
-          allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
-          ideScheme: env.KUBELAB_IDE_SCHEME,
-          publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
-          resolveExercise: (slug) => buildExerciseDescriptor(slug, env.LAB_ASSET_BASE_URL),
-          resolveUser: (userId) => resolveKubeLabUser(userId),
-        }),
+      useFactory: (env: Env): LabProvider | null => {
+        const routes: Record<string, LabProvider> = {};
+
+        // Tier-3: KubeLab's vcluster path, unmodified (ADR-8).
+        if (env.KUBELAB_ENABLED) {
+          routes['tier_3_vcluster'] = new KubeLabAdapter({
+            baseUrl: env.KUBELAB_BASE_URL,
+            adminEmail: env.KUBELAB_ADMIN_EMAIL,
+            adminPassword: env.KUBELAB_ADMIN_PASSWORD,
+            allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
+            ideScheme: env.KUBELAB_IDE_SCHEME,
+            publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+            resolveExercise: (slug) => buildExerciseDescriptor(slug, env.LAB_ASSET_BASE_URL),
+            resolveUser: (userId) => resolveKubeLabUser(userId),
+          });
+        }
+
+        // Tier-2: our own pod provider (code-server + terminal, no vcluster).
+        if (env.POD_PROVIDER_ENABLED) {
+          routes['tier_2_container'] = new PodProvider({
+            cluster: new KubernetesClient(),
+            allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
+            ideScheme: env.KUBELAB_IDE_SCHEME,
+            publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+            codeServerImage: env.CODE_SERVER_IMAGE,
+          });
+        }
+
+        if (Object.keys(routes).length === 0) return null;
+        return new RoutingProvider(routes);
+      },
     },
     {
       provide: LAUNCH,
       inject: [ENV, STORE, PROVIDER],
-      useFactory: (env: Env, store: Repositories, provider: KubeLabAdapter | null) =>
+      useFactory: (env: Env, store: Repositories, provider: LabProvider | null) =>
         new LabLaunchService({
           lessons: store.lessons,
           memberships: store.memberships,

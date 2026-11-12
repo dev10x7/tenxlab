@@ -13,7 +13,7 @@ execution plane for hands-on labs.
 | `apps/web` | Next.js App Router client |
 | `apps/api` | NestJS LMS API |
 | `packages/contracts` | Shared zod schemas (launch JWT, webhooks, events) |
-| `packages/lab-provider` | `LabProvider` interface + KubeLab adapter |
+| `packages/lab-provider` | `LabProvider` + KubeLab adapter, tier-2 pod provider, tier router |
 | `packages/runtime-policy` | Tier routing, warm-pool planning, quotas, cost |
 | `services/ai` | FastAPI AI plane (plagiarism, quality, speech) |
 | `services/lab-operator` | Warm-pool reconciler + idle sweeper |
@@ -51,6 +51,14 @@ Object storage (MinIO) is opt-in because it is not yet wired into the API:
 
 ```bash
 docker compose --profile storage up --build
+```
+
+The warm-pool operator is also opt-in (`operator` profile). It needs a reachable
+cluster — `KUBECONFIG` is mounted read-only — and keeps warm sandboxes ready so
+a launch claims one instead of cold-starting:
+
+```bash
+KUBECONFIG=$HOME/.kube/config docker compose --profile operator up --build
 ```
 
 Tear down with `docker compose down` (add `-v` to drop the Postgres volume).
@@ -182,6 +190,24 @@ KUBELAB_IDE_PUBLIC_URL=http://localhost:12001 npm start
 
 The gateway maps `/<gateway>/lab/<ingress-host>/...` to
 `https://<ingress-host>/...`; readiness still probes the ingress directly.
+
+### Run tier-2 labs without KubeLab (pod provider)
+
+`tier_2_container` lessons do not need KubeLab: the API routes them to
+`PodProvider`, which creates a per-session namespace holding a code-server pod, a
+service, and an ingress. Enable it with:
+
+```bash
+POD_PROVIDER_ENABLED=true \
+CODE_SERVER_IMAGE=codercom/code-server:latest \
+npm start
+```
+
+The API then needs the same cluster RBAC the operator uses — apply
+`deploy/lab-operator/operator.yaml` and run the API under that service account,
+or grant its credentials equivalent rights. Tier-1 (Editor) and tier-3 (KubeLab)
+are independent: enabling one does not enable the others, and a launch for a
+tier with no provider is recorded as a catalog-only session.
 
 ## Quality gates
 

@@ -432,14 +432,21 @@ can be added/replaced without touching LMS code):
 ```
 LabProvider:
   provision(spec: LabSpec) -> SessionHandle
-  getSession(sessionId) -> SessionStatus
+  status(sessionId) -> SessionHandle | null
+  heartbeat(sessionId) -> SessionHandle
   terminate(sessionId) -> void
-  onCompletion(callback: WebhookHandler) -> void
 
 LabSpec:
   exercise_id, runtime_tier, tenant_id, user_id,
   image/stack, resource_limits, ttl_seconds, network_policy
 ```
+
+Implementations: `KubeLabAdapter` (tier-3, unmodified upstream),
+`PodProvider` (tier-2, namespace + code-server pod + service + ingress), and
+`RoutingProvider`, which dispatches on `LabSpec.runtime_tier` and fails loudly
+for a tier with no provider. The API injects the `RoutingProvider` as `PROVIDER`;
+tier-1 is not a session at all and uses the separate `CodeExecutionProvider`
+(Piston) seam.
 
 **What we must build on top of KubeLab (not present upstream):**
 
@@ -793,8 +800,12 @@ tenxlab/
 │  └─ lab-operator/   # Warm-pool reconciler + idle sweeper
 ├─ packages/
 │  ├─ contracts/      # Shared schemas: JWT, webhooks, events
-│  ├─ lab-provider/   # LabProvider interface + KubeLabAdapter
+│  ├─ lab-provider/   # LabProvider + KubeLabAdapter, PodProvider (tier-2), RoutingProvider
 │  └─ runtime-policy/ # Tier routing, warm-pool planning, quotas, cost
+├─ deploy/
+│  ├─ kubelab/        # KubeLab manifests + IDE gateway
+│  ├─ lab-operator/   # Operator RBAC + Deployment manifests
+│  └─ stack/          # Full-stack compose wiring + tests
 ├─ platform/
 │  ├─ helm/           # K8s manifests / charts (incl. vcluster values overrides)
 │  └─ terraform/      # Cloud IaC

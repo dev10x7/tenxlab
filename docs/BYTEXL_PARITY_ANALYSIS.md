@@ -116,12 +116,13 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Capability | Status | Gap |
 |---|---|---|
 | Tier router | **Done** | `packages/runtime-policy/tier-router.ts` |
-| Warm pool planning + reconciler | **Done** | `runtime-policy/warm-pool.ts`, `services/lab-operator` (6 tests) |
+| Warm pool planning + reconciler | **Done** | `runtime-policy/warm-pool.ts`, `services/lab-operator` (12 tests, real PG + k8s ports) |
 | Quotas + budget warnings | **Done** | `runtime-policy/quota.ts` |
 | Idle termination | **Done** | `findIdleSessions` + operator sweep |
 | Cost telemetry | **Done** | `runtime-policy/cost.ts` |
 | Piston tier-1 worker | **Done** | `packages/lab-provider/src/piston.provider.ts` (`CodeExecutionProvider`, ADR-12); Judge0 rejected: GPL-3.0 |
-| Tier-2 pod provider | **Missing** | Same — targeted, not implemented |
+| Tier-2 pod provider | **Done** | `packages/lab-provider/src/pod.provider.ts` (namespace + code-server pod + service + ingress) |
+| Provider routing by tier | **Done** | `packages/lab-provider/src/routing.provider.ts`; API injects it as `PROVIDER` |
 | Predictive scale-up before class | **Missing** | Operator is reactive only |
 
 ### 2.7 AI plane
@@ -225,12 +226,15 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 - [x] Implement the tier-1 backend (**Piston**, ADR-12) behind
       `CodeExecutionProvider`; wired to the Editor. Tier-1 is a
       request/response provider — not a KubeLab session — per ADR-8.
-- [ ] Route `tier_1_microvm` launches (Lab surface) through the same provider.
-- [ ] Implement the tier-2 pod provider behind `LabProvider` (namespace +
+- [x] Implement the tier-2 pod provider behind `LabProvider` (namespace +
       code-server pod + service + ingress, no Helm, no nested control plane).
-- [ ] Keep KubeLab unmodified: tier-3 only, reached through `KubeLabAdapter`.
-- [ ] Wire `services/lab-operator` to real ports: KubeLab provider + DB-backed
-      session store; deploy as a CronJob.
+- [x] Keep KubeLab unmodified: tier-3 only, reached through `KubeLabAdapter`.
+- [x] Route providers by tier via `RoutingProvider`; the API injects it as
+      `PROVIDER` so a `tier_2_container` launch no longer needs KubeLab.
+- [x] Wire `services/lab-operator` to real ports: `KubernetesClient` (provider),
+      Postgres-backed session store + warm inventory; deploy as a Deployment
+      (`deploy/lab-operator/operator.yaml`) or a CronJob (`RECONCILE_ONCE=1`).
+- [ ] Route `tier_1_microvm` launches (Lab surface) through the same provider.
 - [ ] Predictive scale-up: a batch's scheduled class time raises the pool target
       15 minutes ahead (reads the LMS schedule).
 - [ ] Load test: 500 concurrent launches; tier-1 boot < 2 s; claim < 1.5 s.

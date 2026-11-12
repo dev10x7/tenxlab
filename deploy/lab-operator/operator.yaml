@@ -1,0 +1,97 @@
+# Warm-pool operator for the TenXLab lab execution plane.
+#
+# Deploys `@tenxlab/lab-operator` as a long-lived reconciler that keeps N warm
+# sandboxes per tier ready and reaps idle sessions. It needs cluster-wide RBAC
+# because it creates and deletes per-session namespaces on behalf of the API.
+#
+# Apply with:
+#   kubectl apply -f deploy/lab-operator/operator.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenxlab-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenxlab-lab-operator
+  namespace: tenxlab-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenxlab-lab-operator
+rules:
+  # Per-session namespaces are created and deleted by the pod provider.
+  - apiGroups: ['']
+    resources: ['namespaces']
+    verbs: ['get', 'list', 'watch', 'create', 'delete']
+  - apiGroups: ['']
+    resources: ['pods', 'services', 'persistentvolumeclaims', 'events']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+  - apiGroups: ['networking.k8s.io']
+    resources: ['ingresses']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tenxlab-lab-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenxlab-lab-operator
+subjects:
+  - kind: ServiceAccount
+    name: tenxlab-lab-operator
+    namespace: tenxlab-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenxlab-lab-operator
+  namespace: tenxlab-system
+  labels:
+    app.kubernetes.io/name: tenxlab-lab-operator
+spec:
+  # The operator owns the pool in-process; a single replica avoids two
+  # reconcilers racing to boot the same warm sandbox.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenxlab-lab-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenxlab-lab-operator
+    spec:
+      serviceAccountName: tenxlab-lab-operator
+      containers:
+        - name: operator
+          image: ghcr.io/dev10x7/tenxlab-lab-operator:latest
+          env:
+            - name: LAB_OPERATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tenxlab-db
+                  key: database-url
+            - name: KUBELAB_ALLOWED_HOSTS
+              value: '192.168.49.2.nip.io'
+            - name: KUBELAB_IDE_SCHEME
+              value: 'https'
+            - name: RECONCILE_INTERVAL_MS
+              value: '30000'
+            - name: WARM_TIER1
+              value: '1'
+            - name: WARM_TIER2
+              value: '4'
+            - name: WARM_TIER3
+              value: '1'
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

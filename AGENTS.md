@@ -29,11 +29,12 @@ Two deliberate deviations from the original overview:
 apps/web        Next.js App Router client (student/instructor)
 apps/api        NestJS LMS API (system of record)
 packages/contracts       zod schemas: launch JWT, webhooks, events (source of truth)
-packages/lab-provider    LabProvider interface + KubeLabAdapter
+packages/lab-provider    LabProvider interface, KubeLabAdapter, PodProvider (tier-2), RoutingProvider
 packages/runtime-policy  pure policy: tier routing, warm pool, quotas, cost
 services/ai              FastAPI: plagiarism, quality, speech, webhook signer
-services/lab-operator    warm-pool reconciler + idle sweeper
+services/lab-operator    warm-pool reconciler + idle sweeper (PG + k8s ports)
 deploy/kubelab           KubeLab manifests + IDE gateway
+deploy/lab-operator      operator RBAC + Deployment manifests
 deploy/stack             full-stack compose wiring + its tests
 scripts/check-licenses.mjs  CI license gate
 ```
@@ -226,3 +227,21 @@ request/response tier-1 contract.
 - Inbound lab webhooks are signed with HMAC-SHA256 over the **raw** body and the
   header is `x-tenxlab-signature-256`; the payload `status` is uppercase
   (`PASSED`/`FAILED`/`ERROR`). Getting either wrong yields 401/422.
+- Lab execution is tier-routed. `PROVIDER` in `apps/api/src/http/app.module.ts`
+  is a `RoutingProvider`, not a bare `KubeLabAdapter`: `tier_3_vcluster` →
+  KubeLab (adapter-only, ADR-8), `tier_2_container` → our `PodProvider`. Each
+  route is gated by env (`KUBELAB_ENABLED`, `POD_PROVIDER_ENABLED`); with none
+  set the provider is `null` and launches record a catalog-only session. A tier
+  with no route fails loudly rather than silently no-op'ing.
+- `PodProvider.provider_ref` is the session's **namespace** and doubles as the
+  session id for status/terminate, so `namespaceFor` is idempotent (it accepts
+  an already-prefixed name). Changing that breaks terminate-after-status.
+- The operator (`services/lab-operator`) drives the warm pool through
+  `OperatorPorts`. The concrete `PgOperatorPorts` owns `lab_sessions` (read for
+  the idle sweep) and `warm_sandboxes` (its inventory); `KubernetesClient`
+  talks to the API server directly (no `@kubernetes/client-node`, keeps the
+  dependency surface and license gate small). Ticks are serialised so the pool
+  does not double-boot; `RECONCILE_ONCE=1` runs one tick for a CronJob.
+- The operator needs cluster-wide RBAC (it creates/deletes per-session
+  namespaces); `deploy/lab-operator/operator.yaml` grants it. Compose runs it
+  under the `operator` profile and mounts `KUBECONFIG` read-only.

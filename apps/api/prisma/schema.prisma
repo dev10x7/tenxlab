@@ -207,6 +207,19 @@ model LabSession {
   @@map("lab_sessions")
 }
 
+// Sandboxes the warm-pool operator has booted and not yet claimed. A row is
+// the pool's inventory of "already running, no student attached" capacity; the
+// operator reconciles it toward the per-tier target and a launch claims one.
+model WarmSandbox {
+  id          String   @id @default(uuid())
+  tier        String
+  providerRef String
+  createdAt   DateTime @default(now())
+
+  @@index([tier])
+  @@map("warm_sandboxes")
+}
+
 // ---------------------------------------------------------------- Editor
 
 // Per-user saved code from the Editor surface. Scoped by userId: a snippet is

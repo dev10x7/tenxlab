@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { hmacSha256Hex } from '@tenxlab/contracts';
+import { PodProvider, RoutingProvider } from '@tenxlab/lab-provider';
 import { JwtService } from './crypto/jwt.service';
 import { PartnerSsoService } from './identity/partner-sso.service';
 import { LabLaunchService } from './labs/lab-launch.service';
@@ -339,6 +340,73 @@ test('lab launch provisions through the provider and records the IDE URL', async
   assert.equal(row?.kubelabRef, 'kl-1');
   assert.equal(provisioned.length, 1);
   assert.equal(provisioned[0]?.['exercise_id'], 'create-simple-pod');
+});
+
+test('a tier-2 lesson routes to the pod provider and records its IDE URL', async () => {
+  const { sessions } = labFixture();
+  const applied: Array<Record<string, unknown>> = [];
+  const cluster = {
+    async apply(manifest: Record<string, unknown>) {
+      applied.push(manifest);
+    },
+    async delete() {},
+    async get() {
+      return null;
+    },
+    async list() {
+      return [];
+    },
+  };
+  const provider = new RoutingProvider({
+    tier_2_container: new PodProvider({
+      cluster,
+      allowedHosts: '192.168.49.2.nip.io',
+      fetchImpl: (async () => ({ status: 200 })) as unknown as typeof fetch,
+    }),
+  });
+  const svc = new LabLaunchService({
+    lessons: new InMemoryLessonRepository([
+      {
+        id: 'lesson_2',
+        moduleId: 'mod_1',
+        title: 'Build a web app',
+        type: 'interactive_lab',
+        exerciseSlug: 'build-a-web-app',
+        runtimeTier: 'tier_2_container',
+        maxScore: 100,
+      },
+    ]),
+    memberships: new InMemoryMembershipRepository([
+      { id: 'm1', userId: 'user_1', tenantId: 'tenant_1', role: 'student', status: 'active' },
+    ]),
+    tenants: new InMemoryTenantRepository([
+      {
+        id: 'tenant_1',
+        name: 'Acme',
+        domain: 'acme',
+        maxConcurrentLabs: 10,
+        plan: 'standard',
+        status: 'active',
+      },
+    ]),
+    sessions,
+    provider,
+  });
+
+  const res = await svc.launch({ userId: 'user_1', tenantId: 'tenant_1', lessonId: 'lesson_2' });
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.tier, 'tier_2_container');
+  await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'ACTIVE');
+  const row = await sessions.findById(res.sessionId);
+  assert.equal(row?.status, 'ACTIVE');
+  assert.match(row?.ideUrl ?? '', /^https:\/\/tenxlab-t2-.*\.192\.168\.49\.2\.nip\.io\/$/);
+  assert.equal(row?.kubelabRef, `tenxlab-t2-${res.sessionId}`);
+  // The pod provider created the session's namespace and pod.
+  assert.deepEqual(
+    applied.map((m) => m['kind']),
+    ['Namespace', 'PersistentVolumeClaim', 'Pod', 'Service', 'Ingress'],
+  );
 });
 
 test('lab launch records FAILED when provisioning throws', async () => {

@@ -68,6 +68,16 @@ test('every long-running service declares a healthcheck', () => {
   }
 });
 
+test('the warm-pool operator is opt-in and points at the shared database', () => {
+  assert.ok(svc.has('lab-operator'), 'missing lab-operator service');
+  const body = svc.get('lab-operator').join('\n');
+  assert.match(body, /profiles:\s*\['operator'\]/);
+  assert.match(
+    body,
+    /LAB_OPERATOR_DATABASE_URL:\s*postgresql:\/\/[^@]+@postgres:5432\/tenxlab/,
+  );
+});
+
 test('api and web expose the ports the docs promise', () => {
   assert.match(svc.get('api').join('\n'), /'4000:4000'/);
   assert.match(svc.get('web').join('\n'), /'3000:3000'/);

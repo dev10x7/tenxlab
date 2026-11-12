@@ -131,6 +131,18 @@ test(
       assert.equal(updated.ideUrl, 'https://ide');
       assert.equal((await sessions.findById(s.id))?.status, 'ACTIVE');
 
+      // --- warm pool inventory: the operator's claim/reap surface
+      await db.warmSandbox.create({
+        data: { tier: 'tier_2_container', providerRef: `ns-${suffix}` },
+      });
+      const warm = await db.warmSandbox.findMany({ where: { tier: 'tier_2_container' } });
+      assert.equal(warm.filter((w) => w.providerRef === `ns-${suffix}`).length, 1);
+      await db.warmSandbox.deleteMany({ where: { providerRef: `ns-${suffix}` } });
+      assert.equal(
+        (await db.warmSandbox.findMany({ where: { providerRef: `ns-${suffix}` } })).length,
+        0,
+      );
+
       // --- idempotency ledger and SSO replay guard reject duplicates
       const ledger = new PrismaEventLedger(db);
       assert.equal(await ledger.recordIfNew(`evt-${suffix}`, 'kubelab'), true);

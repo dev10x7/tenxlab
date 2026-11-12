@@ -69,6 +69,16 @@ const EnvSchema = z.object({
     .default('false')
     .transform((s) => s === 'true' || s === '1'),
 
+  // Tier-2 pod provider. When enabled, launches for `tier_2_container` lessons
+  // create an isolated pod (code-server + terminal) in the cluster. Requires
+  // in-cluster RBAC (see deploy/lab-operator/).
+  POD_PROVIDER_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
+  // Container image served to the student for a tier-2 lab.
+  CODE_SERVER_IMAGE: z.string().default('codercom/code-server:latest'),
+
   // Tier-1 code execution pool (Piston, ADR-12) for the Editor surface.
   PISTON_BASE_URL: z.string().default('http://localhost:2000'),
   // Runtime version selector; `*` lets the pool pick the newest installed.
