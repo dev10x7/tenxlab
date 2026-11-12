@@ -13,6 +13,43 @@ Sources reviewed:
 
 ---
 
+## 0. Executive summary
+
+**ByteXL's public surface** is four student modules — **Editor, Labs,
+Assessments, Nimbus** — plus three cross-cutting capabilities: proctored tests
+(Safe Exam Browser, tab-switch and copy/paste detection, time limits, video
+recording), partner SSO (a 60-second **HS256** signed-token redirect), and
+project submission/evaluation with trainer scoring.
+
+**TenXLab's backlog** (`TenXLab_Product_Overview.md`) targets the same four
+modules and adds three differentiators: a **hybrid runtime** (tier-1 microVM /
+tier-2 pod / tier-3 vcluster), a **warm pool** for class-time scale, and an **AI
+plane** (Socratic tutor, speech/soft-skills scoring). It also names contests,
+anti-cheat plagiarism, and a recruiter portal.
+
+**Where we are (2026-11-11):** P0–P2 are shipped and were verified live against
+KubeLab on minikube; **Phase D (runtime scale-out) is largely done** — tier
+router, tier-2 pod provider, and a warm-pool operator with real Postgres + k8s
+ports, all behind the `LabProvider` seam (ADR-8, adapter-only). What remains for
+parity is the **Nimbus-equivalent projects** (Phase E); what remains for
+differentiation is the **AI tutor + soft skills** (Phase F) and **contests /
+recruiter portal** (Phase G).
+
+| ByteXL module | TenXLab equivalent | State |
+|---|---|---|
+| Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (6 langs; AI help missing) |
+| Labs (ungraded practice + hints) | `/labs` | Done |
+| Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
+| Nimbus (build/host/evaluate projects) | `/nimbus` | **Missing** (Phase E) |
+| Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
+| Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
+| Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
+
+The rest of this document is the detailed gap analysis (§1–§3) and the phased
+plan (§4–§6).
+
+---
+
 ## 1. What ByteXL actually is (from their own docs)
 
 ByteXL's help centre describes four student-facing modules:
@@ -160,6 +197,21 @@ These are not gaps; they are choices to keep or revisit.
 3. **Kubernetes-native labs** (vcluster, `kubectl`, `helm`) are a genuine
    differentiator ByteXL does not advertise. Worth leading with.
 4. **Permissive-only dependencies** enforced in CI, vs. ByteXL's SonarQube.
+
+### 3.1 Backlog items not yet surfaced in the product
+
+The overview's Epics 4.x (contests, anti-cheat plagiarism, recruiter portal) and
+the Editor's "AI help" have no user-facing entry point yet:
+
+- **No contest surface.** There is no nav entry or route for hackathons/contests
+  (`apps/web/src/lib/nav.ts` lists Editor/Labs/Assessments/Nimbus/Learn/Reports/
+  Resumes only), and no `contests` module in `apps/api/src`. Phase G.
+- **No recruiter portal.** `/resumes` is a `SurfacePage` placeholder; the Skill
+  Passport aggregate it reads is Phase G.
+- **Editor AI help** is absent (the AI plane has plagiarism/quality/speech but no
+  tutor endpoint). Phase F.
+- **Dead directory:** `apps/api/src/assessment/` is empty and unreferenced (the
+  live module is `assessments/`). Safe to delete.
 
 ---
 
