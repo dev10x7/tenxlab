@@ -168,3 +168,80 @@ export function attemptClockLabel(remainingSeconds: number | null): string {
   return remainingSeconds == null ? 'Untimed' : formatClock(remainingSeconds);
 }
 
+/** Human label for a project workspace lifecycle state. */
+export function workspaceStatusLabel(status: string): string {
+  switch (status) {
+    case 'provisioning':
+      return 'Starting…';
+    case 'running':
+      return 'Running';
+    case 'stopped':
+      return 'Stopped';
+    case 'failed':
+      return 'Failed';
+    case 'archived':
+      return 'Archived';
+    default:
+      return status;
+  }
+}
+
+/**
+ * Whether a fork's workspace is ready for the student to open in the IDE, still
+ * starting, or broken. Drives the fork button's polling loop.
+ */
+export function forkReadyState(status: {
+  status: string;
+  ideUrl?: string | null;
+}): { ready: boolean; failed: boolean; ideUrl: string | null } {
+  if (status.status === 'failed') return { ready: false, failed: true, ideUrl: null };
+  if (status.status === 'running' && status.ideUrl) {
+    return { ready: true, failed: false, ideUrl: status.ideUrl };
+  }
+  return { ready: false, failed: false, ideUrl: null };
+}
+
+/**
+ * Whether a workspace may be submitted. A submission snapshots a *stopped*
+ * workspace, so a running or starting one must be stopped first (ByteXL's rule).
+ */
+export function canSubmitWorkspace(status: string): boolean {
+  return status === 'stopped';
+}
+
+/** Human label for a submission's evaluation state. */
+export function submissionStatusLabel(submission: {
+  status: string;
+  score: number | null;
+}): string {
+  if (submission.status === 'evaluated') {
+    return submission.score == null ? 'Evaluated' : `Evaluated — ${submission.score}`;
+  }
+  return 'Submitted';
+}
+
+/**
+ * Whether a project's deadline has passed relative to `now`, which closes it
+ * for submission. A project with no deadline is never closed by the clock.
+ */
+export function projectDeadlinePassed(
+  deadline: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!deadline) return false;
+  const at = new Date(deadline).getTime();
+  return !Number.isNaN(at) && at < now.getTime();
+}
+
+/** One-line deadline label for a project card. */
+export function projectDeadlineLabel(
+  deadline: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (!deadline) return 'No deadline';
+  if (projectDeadlinePassed(deadline, now)) return 'Closed — deadline passed';
+  const date = new Date(deadline);
+  if (Number.isNaN(date.getTime())) return 'No deadline';
+  return `Due ${date.toLocaleDateString()}`;
+}
+

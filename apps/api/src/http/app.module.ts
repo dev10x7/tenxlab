@@ -22,6 +22,7 @@ import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { ProjectService } from '../projects/project.service';
+import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { createDemoState, createPrismaState, resolveLessonId } from '../demo/state';
 import type { Repositories } from '../common/repositories';
@@ -36,9 +37,10 @@ import {
   LabController,
   PartnerSsoController,
   ProctoringController,
+  ProjectsController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
+import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
 
 export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH };
 
@@ -78,6 +80,7 @@ const STORE_PROVIDER = {
     EditorController,
     AssessmentController,
     ProctoringController,
+    ProjectsController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -236,6 +239,19 @@ const STORE_PROVIDER = {
           memberships: store.memberships,
           provider: env.PROJECTS_ENABLED ? provider : null,
           defaultTier: env.PROJECTS_TIER,
+        }),
+    },
+    {
+      provide: PROJECT_SUBMISSION,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new ProjectSubmissionService({
+          projects: store.projects,
+          components: store.projectComponents,
+          workspaces: store.projectWorkspaces,
+          forks: store.projectForks,
+          submissions: store.projectSubmissions,
+          memberships: store.memberships,
         }),
     },
   ],

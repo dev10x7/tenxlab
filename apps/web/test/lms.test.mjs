@@ -16,6 +16,12 @@ import {
   riskLevelLabel,
   riskSummaryLabel,
   attemptClockLabel,
+  workspaceStatusLabel,
+  forkReadyState,
+  canSubmitWorkspace,
+  submissionStatusLabel,
+  projectDeadlinePassed,
+  projectDeadlineLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -162,4 +168,61 @@ test('riskSummaryLabel pluralizes the signal count', () => {
 test('attemptClockLabel shows Untimed when there is no deadline', () => {
   assert.equal(attemptClockLabel(null), 'Untimed');
   assert.equal(attemptClockLabel(90), '1:30');
+});
+
+test('workspaceStatusLabel maps every lifecycle state', () => {
+  assert.equal(workspaceStatusLabel('provisioning'), 'Starting…');
+  assert.equal(workspaceStatusLabel('running'), 'Running');
+  assert.equal(workspaceStatusLabel('stopped'), 'Stopped');
+  assert.equal(workspaceStatusLabel('failed'), 'Failed');
+  assert.equal(workspaceStatusLabel('weird'), 'weird');
+});
+
+test('forkReadyState reports readiness, pending, and failure', () => {
+  assert.deepEqual(forkReadyState({ status: 'provisioning' }), {
+    ready: false,
+    failed: false,
+    ideUrl: null,
+  });
+  assert.deepEqual(forkReadyState({ status: 'running', ideUrl: 'https://ide' }), {
+    ready: true,
+    failed: false,
+    ideUrl: 'https://ide',
+  });
+  assert.deepEqual(forkReadyState({ status: 'failed' }), {
+    ready: false,
+    failed: true,
+    ideUrl: null,
+  });
+});
+
+test('canSubmitWorkspace only allows a stopped workspace', () => {
+  assert.equal(canSubmitWorkspace('stopped'), true);
+  assert.equal(canSubmitWorkspace('running'), false);
+  assert.equal(canSubmitWorkspace('provisioning'), false);
+});
+
+test('submissionStatusLabel shows the score once evaluated', () => {
+  assert.equal(submissionStatusLabel({ status: 'submitted', score: null }), 'Submitted');
+  assert.equal(
+    submissionStatusLabel({ status: 'evaluated', score: 92 }),
+    'Evaluated — 92',
+  );
+});
+
+test('projectDeadlinePassed only closes a project past a real deadline', () => {
+  const now = new Date('2026-06-01T00:00:00Z');
+  assert.equal(projectDeadlinePassed(null, now), false);
+  assert.equal(projectDeadlinePassed('2026-05-01T00:00:00Z', now), true);
+  assert.equal(projectDeadlinePassed('2026-07-01T00:00:00Z', now), false);
+});
+
+test('projectDeadlineLabel reads Closed once the deadline passes', () => {
+  const now = new Date('2026-06-01T00:00:00Z');
+  assert.equal(projectDeadlineLabel(null, now), 'No deadline');
+  assert.equal(
+    projectDeadlineLabel('2026-05-01T00:00:00Z', now),
+    'Closed — deadline passed',
+  );
+  assert.match(projectDeadlineLabel('2026-07-01T00:00:00Z', now), /^Due /);
 });

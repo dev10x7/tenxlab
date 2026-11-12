@@ -221,6 +221,101 @@ export interface ProctoredAttemptRow {
   risk: ProctorSummary;
 }
 
+export type ProjectTemplateKind = 'framework' | 'base_image';
+
+export interface ProjectTemplate {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  kind: ProjectTemplateKind;
+  stack: string;
+  image: string;
+}
+
+export type ProjectStatus = 'draft' | 'published' | 'closed';
+export type WorkspaceStatus =
+  | 'provisioning'
+  | 'running'
+  | 'stopped'
+  | 'failed'
+  | 'archived';
+
+export interface ProjectSummary {
+  id: string;
+  tenantId: string;
+  title: string;
+  description: string;
+  runtimeTier: string;
+  status: ProjectStatus;
+  deadline: string | null;
+  maxScore: number;
+}
+
+export interface ProjectForkRef {
+  id: string;
+  projectId: string;
+  componentId: string;
+  userId: string;
+  workspaceId: string;
+  sourceTemplateSlug: string | null;
+  sourceWorkspaceId: string | null;
+}
+
+export interface ProjectComponentView {
+  id: string;
+  projectId: string;
+  title: string;
+  technology: string;
+  templateSlug: string | null;
+  templateWorkspaceId: string | null;
+  position: number;
+  fork: ProjectForkRef | null;
+}
+
+/** A project as a student sees it: components plus their own fork state. */
+export interface StudentProjectView {
+  project: ProjectSummary;
+  components: ProjectComponentView[];
+}
+
+/** A project as an instructor sees it: components plus the fork roster size. */
+export interface InstructorProjectView {
+  project: ProjectSummary;
+  components: ProjectComponentView[];
+  forkCount: number;
+}
+
+export interface ForkStatus {
+  forkId: string;
+  workspaceId: string;
+  status: WorkspaceStatus;
+  tier: string | null;
+  ideUrl: string | null;
+}
+
+export interface ProjectSubmission {
+  id: string;
+  projectId: string;
+  componentId: string;
+  userId: string;
+  workspaceId: string;
+  title: string;
+  description: string;
+  githubUrl: string | null;
+  demoUrl: string | null;
+  status: 'submitted' | 'evaluated';
+  score: number | null;
+  feedback: string | null;
+  submittedAt: string;
+  evaluatedAt: string | null;
+}
+
+export interface StudentSubmissionView {
+  submission: ProjectSubmission;
+  workspace: { id: string; status: WorkspaceStatus } | null;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -312,4 +407,70 @@ export const api = {
       `/api/proctoring/attempts/${encodeURIComponent(attemptId)}/summary`,
     ),
   proctoredAttempts: () => request<ProctoredAttemptRow[]>('/api/proctoring/attempts'),
+  projectTemplates: () => request<ProjectTemplate[]>('/api/projects/templates'),
+  projects: () => request<Array<StudentProjectView | InstructorProjectView>>('/api/projects'),
+  project: (id: string) =>
+    request<StudentProjectView | InstructorProjectView>(
+      `/api/projects/${encodeURIComponent(id)}`,
+    ),
+  forkProjectComponent: (projectId: string, componentId: string) =>
+    request<{ forkId: string; workspaceId: string; status: string; tier: string }>(
+      `/api/projects/${encodeURIComponent(projectId)}/components/${encodeURIComponent(componentId)}/fork`,
+      { method: 'POST' },
+    ),
+  forkStatus: (forkId: string) =>
+    request<ForkStatus>(`/api/projects/forks/${encodeURIComponent(forkId)}`),
+  stopWorkspace: (workspaceId: string) =>
+    request<{ workspaceId: string; status: string }>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/stop`,
+      { method: 'POST' },
+    ),
+  myProjectSubmissions: () =>
+    request<StudentSubmissionView[]>('/api/projects/submissions'),
+  submitProject: (
+    projectId: string,
+    componentId: string,
+    input: {
+      workspaceId: string;
+      title: string;
+      description: string;
+      githubUrl?: string | null;
+      demoUrl?: string | null;
+    },
+  ) =>
+    request<ProjectSubmission>(
+      `/api/projects/${encodeURIComponent(projectId)}/components/${encodeURIComponent(componentId)}/submissions`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  projectSubmissions: (projectId: string) =>
+    request<ProjectSubmission[]>(
+      `/api/projects/${encodeURIComponent(projectId)}/submissions`,
+    ),
+  evaluateSubmission: (submissionId: string, score: number, feedback: string) =>
+    request<ProjectSubmission>(
+      `/api/projects/submissions/${encodeURIComponent(submissionId)}`,
+      { method: 'PATCH', body: JSON.stringify({ score, feedback }) },
+    ),
+  createProject: (input: {
+    title: string;
+    description?: string;
+    deadline?: string | null;
+    maxScore?: number;
+  }) =>
+    request<ProjectSummary>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  addProjectComponent: (
+    projectId: string,
+    input: { title: string; technology: string; templateSlug?: string | null },
+  ) =>
+    request<ProjectComponentView>(
+      `/api/projects/${encodeURIComponent(projectId)}/components`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  publishProject: (projectId: string) =>
+    request<ProjectSummary>(`/api/projects/${encodeURIComponent(projectId)}/publish`, {
+      method: 'POST',
+    }),
 };

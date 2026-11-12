@@ -19,7 +19,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { SIGNATURE_HEADER } from '@tenxlab/contracts';
+import { SIGNATURE_HEADER, type RuntimeTier } from '@tenxlab/contracts';
 import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService, type SessionPayload } from '../identity/session.service';
@@ -30,7 +30,9 @@ import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
-import { isProctorEventType, ProctoringService } from '../proctoring/proctoring.service';
+import { ProctoringService, isProctorEventType } from '../proctoring/proctoring.service';
+import { ProjectService } from '../projects/project.service';
+import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
 import {
   ASSESSMENT,
@@ -41,6 +43,8 @@ import {
   JWT,
   LAUNCH,
   PROCTOR,
+  PROJECT,
+  PROJECT_SUBMISSION,
   SESSION,
   SSO,
 } from './tokens';
@@ -572,6 +576,279 @@ export class ProctoringController {
     );
     if (!attempt) throw new NotFoundException('Attempt not found');
     return this.proctoring.summarize(attemptId);
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+/**
+ * Projects (the ByteXL "Nimbus" equivalent): students fork a project's template
+ * into a durable cloud workspace, build in an online VS Code, stop the
+ * workspace, and submit it with optional GitHub/demo links; instructors author
+ * and publish projects and evaluate submissions.
+ *
+ * Student reads are scoped to published projects and the caller's own forks;
+ * authoring and evaluation require instructor or admin. A fork is asynchronous —
+ * the client polls the fork endpoint until the workspace reports `running`.
+ */
+@Controller('api/projects')
+export class ProjectsController {
+  constructor(
+    @Inject(PROJECT) private readonly projects: ProjectService,
+    @Inject(PROJECT_SUBMISSION) private readonly submissions: ProjectSubmissionService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The template catalog, for the instructor authoring form. */
+  @Get('templates')
+  templates(@Req() req: Request) {
+    this.requireInstructor(req);
+    return this.projects.listTemplates();
+  }
+
+  /** A student's own submissions, newest first. Declared before `:id` so the
+   * literal path is not swallowed by the parameter route. */
+  @Get('submissions')
+  async mySubmissions(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.submissions.listForStudent(session.tenantId, session.userId);
+  }
+
+  /** Poll a fork's workspace status until it reports `running` and an IDE URL. */
+  @Get('forks/:forkId')
+  async forkStatus(@Param('forkId') forkId: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const status = await this.projects.getForkStatus(forkId);
+    if (!status || status.fork.userId !== session.userId) {
+      throw new NotFoundException('Fork not found');
+    }
+    return {
+      forkId: status.fork.id,
+      workspaceId: status.fork.workspaceId,
+      status: status.workspace?.status ?? 'stopped',
+      tier: status.workspace?.runtimeTier ?? null,
+      ideUrl: status.workspace?.ideUrl ?? null,
+    };
+  }
+
+  /** Published projects for the signed-in student, with their fork state. */
+  @Get()
+  async list(@Req() req: Request) {
+    const session = this.requireSession(req);
+    if (session.role === 'student') {
+      return this.projects.listForStudent(session.tenantId, session.userId);
+    }
+    return this.projects.listForInstructor(session.tenantId);
+  }
+
+  @Get(':id')
+  async detail(@Param('id') id: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    if (session.role === 'student') {
+      const view = await this.projects.getForStudent(session.tenantId, session.userId, id);
+      if (!view) throw new NotFoundException('Project not found');
+      return view;
+    }
+    const all = await this.projects.listForInstructor(session.tenantId);
+    const view = all.find((p) => p.project.id === id);
+    if (!view) throw new NotFoundException('Project not found');
+    return view;
+  }
+
+  /** Fork a component into the student's own durable workspace. */
+  @Post(':id/components/:componentId/fork')
+  @HttpCode(201)
+  async fork(
+    @Param('id') projectId: string,
+    @Param('componentId') componentId: string,
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.projects.fork({
+      userId: session.userId,
+      tenantId: session.tenantId,
+      projectId,
+      componentId,
+    });
+    if (!result.ok) {
+      if (result.reason === 'project_not_found' || result.reason === 'component_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'membership_required') {
+        throw new ForbiddenException(result.message);
+      }
+      throw new BadRequestException(result.message);
+    }
+    return result;
+  }
+
+  /** Stop a fork's workspace (required before submit). */
+  @Post('workspaces/:workspaceId/stop')
+  async stopWorkspace(@Param('workspaceId') workspaceId: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const result = await this.projects.stopWorkspace(session.userId, workspaceId);
+    if (!result.ok) throw new NotFoundException(result.message);
+    return {
+      workspaceId: result.workspace.id,
+      status: result.workspace.status,
+    };
+  }
+
+  /** Submit a stopped workspace for a project component. */
+  @Post(':id/components/:componentId/submissions')
+  @HttpCode(201)
+  async submit(
+    @Param('id') projectId: string,
+    @Param('componentId') componentId: string,
+    @Body()
+    body: {
+      workspaceId?: string;
+      title?: string;
+      description?: string;
+      githubUrl?: string | null;
+      demoUrl?: string | null;
+    },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    if (!body?.workspaceId) throw new BadRequestException('workspaceId is required');
+    const title = body.title?.trim();
+    if (!title) throw new BadRequestException('title is required');
+
+    const result = await this.submissions.submit({
+      userId: session.userId,
+      tenantId: session.tenantId,
+      projectId,
+      componentId,
+      workspaceId: body.workspaceId,
+      title,
+      description: body.description ?? '',
+      githubUrl: body.githubUrl ?? null,
+      demoUrl: body.demoUrl ?? null,
+    });
+    if (!result.ok) {
+      if (result.reason === 'project_not_found' || result.reason === 'component_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'membership_required' || result.reason === 'fork_required') {
+        throw new ForbiddenException(result.message);
+      }
+      // deadline_passed / workspace_active / workspace_not_ready are conflicts.
+      throw new HttpException(result.message, HttpStatus.CONFLICT);
+    }
+    return result.submission;
+  }
+
+  /** The instructor evaluation queue for a project. */
+  @Get(':id/submissions')
+  async projectSubmissions(@Param('id') projectId: string, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    return this.submissions.listForProject(session.tenantId, projectId);
+  }
+
+  /** Record a trainer's score and feedback against a submission. */
+  @Patch('submissions/:submissionId')
+  async evaluate(
+    @Param('submissionId') submissionId: string,
+    @Body() body: { score?: number; feedback?: string | null },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    if (typeof body?.score !== 'number') {
+      throw new BadRequestException('score is required');
+    }
+    const result = await this.submissions.evaluate(session.tenantId, submissionId, {
+      score: body.score,
+      feedback: body.feedback ?? null,
+    });
+    if (!result.ok) {
+      if (result.reason === 'submission_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      throw new BadRequestException(result.message);
+    }
+    return result.submission;
+  }
+
+  /** Author a new project (draft until published). */
+  @Post()
+  @HttpCode(201)
+  async create(
+    @Body()
+    body: {
+      title?: string;
+      description?: string;
+      runtimeTier?: RuntimeTier;
+      deadline?: string | null;
+      maxScore?: number;
+    },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    const result = await this.projects.createProject({
+      tenantId: session.tenantId,
+      title: body?.title ?? '',
+      description: body?.description,
+      runtimeTier: body?.runtimeTier,
+      deadline: body?.deadline ?? null,
+      maxScore: body?.maxScore,
+    });
+    if (!result.ok) throw new BadRequestException(result.message);
+    return result.project;
+  }
+
+  /** Add a technology slot to a project. */
+  @Post(':id/components')
+  @HttpCode(201)
+  async addComponent(
+    @Param('id') projectId: string,
+    @Body()
+    body: {
+      title?: string;
+      technology?: string;
+      templateSlug?: string | null;
+      templateWorkspaceId?: string | null;
+      position?: number;
+    },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    const result = await this.projects.addComponent(session.tenantId, projectId, {
+      tenantId: session.tenantId,
+      title: body?.title ?? '',
+      technology: body?.technology ?? '',
+      templateSlug: body?.templateSlug ?? null,
+      templateWorkspaceId: body?.templateWorkspaceId ?? null,
+      position: body?.position,
+    });
+    if (!result.ok) {
+      if (result.reason === 'project_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      throw new BadRequestException(result.message);
+    }
+    return result.component;
+  }
+
+  /** Publish a project so students can see and fork it. */
+  @Post(':id/publish')
+  async publish(@Param('id') projectId: string, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const result = await this.projects.publish(session.tenantId, projectId);
+    if (!result.ok) throw new NotFoundException(result.message);
+    return result.project;
   }
 
   private requireSession(req: Request): SessionPayload {

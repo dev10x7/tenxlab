@@ -76,7 +76,6 @@ const NIMBUS: NavItem = {
   label: 'Nimbus',
   icon: '☁',
   blurb: 'Build, host, and auto-evaluate projects in the cloud.',
-  phase: 'P3',
 };
 
 const REPORTS: NavItem = {

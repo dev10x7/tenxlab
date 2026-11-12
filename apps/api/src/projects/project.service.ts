@@ -12,6 +12,56 @@ import type {
   ProjectWorkspaceRecord,
   ProjectWorkspaceRepository,
 } from '../common/ports';
+import { findTemplate, listTemplates, type TemplateSeed } from './templates';
+
+/** A project as the student sees it: components plus their own fork, if any. */
+export interface StudentProjectView {
+  project: ProjectRecord;
+  components: Array<ProjectComponentRecord & { fork: ProjectForkRecord | null }>;
+}
+
+/** A project as the instructor sees it: components plus the fork roster size. */
+export interface InstructorProjectView {
+  project: ProjectRecord;
+  components: ProjectComponentRecord[];
+  forkCount: number;
+}
+
+export interface CreateProjectInput {
+  tenantId: string;
+  title: string;
+  description?: string;
+  runtimeTier?: RuntimeTier;
+  deadline?: string | null;
+  maxScore?: number;
+}
+
+export interface CreateComponentInput {
+  tenantId: string;
+  title: string;
+  technology: string;
+  templateSlug?: string | null;
+  templateWorkspaceId?: string | null;
+  position?: number;
+}
+
+export type ProjectWriteResult =
+  | { ok: true; project: ProjectRecord }
+  | { ok: false; reason: ProjectWriteFailure; message: string };
+
+export type ComponentWriteResult =
+  | { ok: true; component: ProjectComponentRecord }
+  | { ok: false; reason: ProjectWriteFailure; message: string };
+
+export type ProjectWriteFailure =
+  | 'project_not_found'
+  | 'invalid_title'
+  | 'unknown_template'
+  | 'template_required';
+
+export type StopResult =
+  | { ok: true; workspace: ProjectWorkspaceRecord }
+  | { ok: false; reason: 'workspace_not_found'; message: string };
 
 export interface ForkRequest {
   userId: string;
@@ -160,6 +210,171 @@ export class ProjectService {
     return this.deps.forks.findById(forkId);
   }
 
+  /** The template catalog shown when authoring a component. */
+  listTemplates(): TemplateSeed[] {
+    return listTemplates();
+  }
+
+  /** Published projects a student can fork, each with their own fork state. */
+  async listForStudent(tenantId: string, userId: string): Promise<StudentProjectView[]> {
+    const projects = (await this.deps.projects.listByTenant(tenantId)).filter(
+      (p) => p.status === 'published',
+    );
+    return Promise.all(
+      projects.map(async (project) => ({
+        project,
+        components: await this.componentsWithFork(project.id, userId),
+      })),
+    );
+  }
+
+  /** A single published project with the student's fork state per component. */
+  async getForStudent(
+    tenantId: string,
+    userId: string,
+    projectId: string,
+  ): Promise<StudentProjectView | null> {
+    const project = await this.deps.projects.findById(projectId);
+    if (!project || project.tenantId !== tenantId || project.status !== 'published') {
+      return null;
+    }
+    return { project, components: await this.componentsWithFork(project.id, userId) };
+  }
+
+  /** Every project in the tenant for the instructor authoring view. */
+  async listForInstructor(tenantId: string): Promise<InstructorProjectView[]> {
+    const projects = await this.deps.projects.listByTenant(tenantId);
+    return Promise.all(
+      projects.map(async (project) => ({
+        project,
+        components: await this.deps.components.listByProject(project.id),
+        forkCount: (await this.deps.forks.listByProject(project.id)).length,
+      })),
+    );
+  }
+
+  /** Author a new project. New projects start as drafts until published. */
+  async createProject(input: CreateProjectInput): Promise<ProjectWriteResult> {
+    const title = input.title?.trim();
+    if (!title) {
+      return { ok: false, reason: 'invalid_title', message: 'Title is required' };
+    }
+    const project = await this.deps.projects.create({
+      tenantId: input.tenantId,
+      title,
+      description: input.description?.trim() ?? '',
+      runtimeTier: input.runtimeTier ?? this.deps.defaultTier ?? 'tier_2_container',
+      status: 'draft',
+      deadline: parseDeadline(input.deadline),
+      maxScore: input.maxScore ?? 100,
+    });
+    return { ok: true, project };
+  }
+
+  /** Add a technology slot to a project; a fork copies its template. */
+  async addComponent(
+    tenantId: string,
+    projectId: string,
+    input: CreateComponentInput,
+  ): Promise<ComponentWriteResult> {
+    const project = await this.deps.projects.findById(projectId);
+    if (!project || project.tenantId !== tenantId) {
+      return { ok: false, reason: 'project_not_found', message: 'Project not found' };
+    }
+    const title = input.title?.trim();
+    if (!title) {
+      return { ok: false, reason: 'invalid_title', message: 'Title is required' };
+    }
+    // A component names either a catalog template or an existing workspace to
+    // copy; one of the two is required so a fork always has a source (§1.3).
+    const templateSlug = input.templateSlug?.trim() || null;
+    const templateWorkspaceId = input.templateWorkspaceId?.trim() || null;
+    if (!templateSlug && !templateWorkspaceId) {
+      return {
+        ok: false,
+        reason: 'template_required',
+        message: 'Provide a template slug or a template workspace id',
+      };
+    }
+    if (templateSlug && !findTemplate(templateSlug)) {
+      return {
+        ok: false,
+        reason: 'unknown_template',
+        message: `Unknown template "${templateSlug}"`,
+      };
+    }
+    const existing = await this.deps.components.listByProject(projectId);
+    const component = await this.deps.components.create({
+      tenantId,
+      projectId,
+      title,
+      technology: input.technology?.trim() || templateSlug || 'custom',
+      templateSlug,
+      templateWorkspaceId,
+      position: input.position ?? existing.length,
+    });
+    return { ok: true, component };
+  }
+
+  /** Publish a project so students can see and fork it. */
+  async publish(tenantId: string, projectId: string): Promise<ProjectWriteResult> {
+    const project = await this.deps.projects.findById(projectId);
+    if (!project || project.tenantId !== tenantId) {
+      return { ok: false, reason: 'project_not_found', message: 'Project not found' };
+    }
+    const published = await this.deps.projects.update(projectId, { status: 'published' });
+    return { ok: true, project: published };
+  }
+
+  /**
+   * Stop a fork's workspace so it can be submitted. The provider namespace is
+   * torn down but the durable volume is kept, so the files survive — `stopped`,
+   * not `failed`. Required before submit (ByteXL stops the session first, §1.2).
+   */
+  async stopWorkspace(
+    userId: string,
+    workspaceId: string,
+  ): Promise<StopResult> {
+    const workspace = await this.deps.workspaces.findById(workspaceId);
+    if (!workspace || workspace.userId !== userId) {
+      return {
+        ok: false,
+        reason: 'workspace_not_found',
+        message: 'Workspace not found',
+      };
+    }
+    if (workspace.status !== 'running' && workspace.status !== 'provisioning') {
+      return { ok: true, workspace };
+    }
+    if (this.deps.provider) {
+      try {
+        await this.deps.provider.terminate(workspace.id);
+      } catch {
+        // The provider may already be gone; the durable volume is untouched, so
+        // a failed terminate still leaves the workspace stoppable.
+      }
+    }
+    const stopped = await this.deps.workspaces.update(workspace.id, {
+      status: 'stopped',
+      ideUrl: null,
+      lastActivityAt: new Date(),
+    });
+    return { ok: true, workspace: stopped };
+  }
+
+  private async componentsWithFork(
+    projectId: string,
+    userId: string,
+  ): Promise<Array<ProjectComponentRecord & { fork: ProjectForkRecord | null }>> {
+    const components = await this.deps.components.listByProject(projectId);
+    return Promise.all(
+      components.map(async (component) => ({
+        ...component,
+        fork: await this.deps.forks.findByComponentAndUser(component.id, userId),
+      })),
+    );
+  }
+
   /** A fork plus its workspace, for the caller polling fork status. */
   async getForkStatus(
     forkId: string,
@@ -248,4 +463,11 @@ export class ProjectService {
     // WARM / IDLE: the environment exists but is not yet serving the IDE.
     return 'provisioning';
   }
+}
+
+/** Parse an ISO deadline, tolerating null/empty and rejecting bad input. */
+export function parseDeadline(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

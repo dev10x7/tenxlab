@@ -1,0 +1,265 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  api,
+  ApiError,
+  type ForkStatus,
+  type ProjectComponentView,
+  type ProjectSubmission,
+  type ProjectSummary,
+} from '@/lib/api';
+import { forkReadyState } from '@/lib/lms';
+
+/** Poll cadence while a workspace cold-starts (typically one to two minutes). */
+const POLL_MS = 5000;
+const MAX_WAIT_MS = 8 * 60 * 1000;
+
+type Phase = 'idle' | 'provisioning' | 'ready' | 'stopped' | 'failed';
+
+/**
+ * One project component for a student: fork its template into a durable
+ * workspace, open the online VS Code, stop the workspace, then submit it with
+ * optional GitHub/demo links. Mirrors the ByteXL Nimbus flow (fork → build →
+ * stop → submit), including the stop-before-submit rule.
+ */
+export function ProjectComponentCard({
+  project,
+  component,
+  onChanged,
+}: {
+  project: ProjectSummary;
+  component: ProjectComponentView;
+  onChanged: () => void;
+}) {
+  const [phase, setPhase] = useState<Phase>(component.fork ? 'provisioning' : 'idle');
+  const [status, setStatus] = useState<ForkStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  const poll = useCallback(
+    async (forkId: string, deadline: number) => {
+      if (Date.now() > deadline) {
+        setPhase('failed');
+        setError('The workspace is taking longer than expected. Please try again.');
+        return;
+      }
+      try {
+        const next = await api.forkStatus(forkId);
+        setStatus(next);
+        const state = forkReadyState(next);
+        if (state.failed) {
+          setPhase('failed');
+          setError('The workspace could not be started. Please try again.');
+          return;
+        }
+        if (state.ready) {
+          setPhase('ready');
+          return;
+        }
+        if (next.status === 'stopped') {
+          setPhase('stopped');
+          return;
+        }
+        timer.current = setTimeout(() => void poll(forkId, deadline), POLL_MS);
+      } catch {
+        timer.current = setTimeout(() => void poll(forkId, deadline), POLL_MS);
+      }
+    },
+    [],
+  );
+
+  // On mount, an existing fork is followed to readiness without re-forking.
+  useEffect(() => {
+    if (!component.fork) return;
+    void poll(component.fork.id, Date.now() + MAX_WAIT_MS);
+  }, [component.fork, poll]);
+
+  async function fork() {
+    setPhase('provisioning');
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await api.forkProjectComponent(project.id, component.id);
+      onChanged();
+      if (result.status === 'stopped') {
+        setPhase('stopped');
+        setStatus({ ...result, ideUrl: null } as ForkStatus);
+        return;
+      }
+      void poll(result.forkId, Date.now() + MAX_WAIT_MS);
+    } catch (err) {
+      setPhase('failed');
+      setError(
+        err instanceof ApiError && err.status === 403
+          ? 'You are not enrolled in this project’s institution.'
+          : 'Could not start the workspace. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!status?.workspaceId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.stopWorkspace(status.workspaceId);
+      setPhase('stopped');
+      setStatus({ ...status, status: 'stopped', ideUrl: null });
+      onChanged();
+    } catch {
+      setError('Could not stop the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>{component.title}</h3>
+        <span className="pill">{component.technology}</span>
+      </div>
+      <p className="muted" style={{ marginTop: 4 }}>
+        Template: {component.templateSlug ?? 'fork of your own workspace'}
+      </p>
+
+      {error ? <p className="error">{error}</p> : null}
+
+      {phase === 'idle' ? (
+        <button className="btn" onClick={fork} disabled={busy}>
+          Fork workspace
+        </button>
+      ) : null}
+
+      {phase === 'provisioning' ? (
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Starting your cloud workspace… this usually takes one to two minutes.
+        </p>
+      ) : null}
+
+      {phase === 'ready' && status?.ideUrl ? (
+        <div className="row" style={{ gap: 8 }}>
+          <a className="btn" href={status.ideUrl} target="_blank" rel="noreferrer">
+            Open in VS Code
+          </a>
+          <button className="btn secondary" onClick={stop} disabled={busy}>
+            Stop workspace
+          </button>
+        </div>
+      ) : null}
+
+      {phase === 'stopped' && status?.workspaceId ? (
+        <SubmissionForm
+          projectId={project.id}
+          componentId={component.id}
+          workspaceId={status.workspaceId}
+          maxScore={project.maxScore}
+          onSubmitted={onChanged}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** The submit form: title, description, and optional GitHub/demo links. */
+function SubmissionForm({
+  projectId,
+  componentId,
+  workspaceId,
+  maxScore,
+  onSubmitted,
+}: {
+  projectId: string;
+  componentId: string;
+  workspaceId: string;
+  maxScore: number;
+  onSubmitted: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
+  const [demoUrl, setDemoUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<ProjectSubmission | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.submitProject(projectId, componentId, {
+        workspaceId,
+        title: title.trim(),
+        description: description.trim(),
+        githubUrl: githubUrl.trim() || null,
+        demoUrl: demoUrl.trim() || null,
+      });
+      setDone(result);
+      onSubmitted();
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'This project is closed or your workspace is still active. Stop it and try again.'
+          : 'Could not submit. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <p className="muted" style={{ marginBottom: 0 }}>
+        Submitted “{done.title}” for evaluation (out of {maxScore}). Your trainer
+        will review it.
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <label htmlFor={`title-${componentId}`}>Submission title</label>
+      <input
+        id={`title-${componentId}`}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="e.g. Task API with CRUD"
+      />
+      <label htmlFor={`desc-${componentId}`}>Description</label>
+      <input
+        id={`desc-${componentId}`}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="What does your project do?"
+      />
+      <label htmlFor={`gh-${componentId}`}>GitHub URL (optional)</label>
+      <input
+        id={`gh-${componentId}`}
+        value={githubUrl}
+        onChange={(e) => setGithubUrl(e.target.value)}
+        placeholder="https://github.com/you/repo"
+      />
+      <label htmlFor={`demo-${componentId}`}>Demo URL (optional)</label>
+      <input
+        id={`demo-${componentId}`}
+        value={demoUrl}
+        onChange={(e) => setDemoUrl(e.target.value)}
+        placeholder="https://your-demo.example.com"
+      />
+      {error ? <p className="error">{error}</p> : null}
+      <button className="btn" type="submit" disabled={busy || !title.trim()}>
+        Submit for evaluation
+      </button>
+    </form>
+  );
+}

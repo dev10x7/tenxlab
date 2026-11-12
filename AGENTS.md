@@ -123,6 +123,43 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
   only reproduces in a real browser. Regression test:
   `deploy/kubelab/test/ide-gateway.test.mjs`.
 
+### Real-cluster bring-up (verified live 2026-11-12)
+
+Labs serve from a **real KubeLab on minikube**, not the stub. Verified end to
+end: login → launch (`tier_3_vcluster`) → WARM → **ACTIVE** → "Open your lab
+environment" → the code-server IDE boots in a real browser with the `exercise`
+workspace (`pod.yaml` seeded by bootstrap) and a working `kubectl` against the
+per-session **vcluster**. Reproduce:
+
+1. `sg docker -c "minikube start --driver=docker --cpus=2 --memory=6g --kubernetes-version=v1.31.0 --addons=ingress"`.
+   The `ingress` addon is required — KubeLab's IDE/agent ingresses need an
+   ingress controller. Node IP is `192.168.49.2`.
+2. `sg docker -c "kubectl apply -f deploy/kubelab/kubelab.yaml"`.
+3. Port-forward the control plane and create the admin the adapter logs in as:
+   `sg docker -c "kubectl -n kubelab port-forward svc/kubelab-service 8090:8090"`,
+   then `POST /api/admins` with `KUBELAB_ADMIN_EMAIL` / `KUBELAB_ADMIN_PASSWORD`
+   (idempotent only the first time — it 400s if the admin already exists).
+4. Start the API with `KUBELAB_ENABLED=true`, `KUBELAB_BASE_URL=http://localhost:8090`,
+   `LAB_ASSET_BASE_URL=http://host.minikube.internal:<api-port>` (the agent pod
+   fetches `bootstrap.sh`/`check.sh` from the LMS at this URL; `host.minikube.internal`
+   is how the cluster reaches the host), and `KUBELAB_IDE_PUBLIC_URL` set to the
+   public gateway.
+
+**Public port layout** (the sandbox exposes only work-1 → 12000 and work-2 → 12001):
+
+- **12000** — `apps/web` (`next start -p 12000`, `API_BASE_URL=http://localhost:4000`).
+- **4000** — `apps/api` (internal; web proxies `/api/*` to it).
+- **12001** — the IDE gateway (`IDE_PROXY_PORT=12001 node deploy/kubelab/ide-gateway.mjs`).
+  `KUBELAB_IDE_PUBLIC_URL=https://work-2-…` so browser IDE URLs are
+  `<work-2>/lab/<ingress-host>/`.
+
+The API must **not** bind 12001 — it would shadow the gateway (the adapter then
+still reports ACTIVE, but the IDE URL 404s). One API process only: a stale
+`node dist/main.js` on the port silently breaks the gateway.
+
+The exercise workspace can be inspected directly:
+`kubectl -n <lab-ns> exec <agent-pod> -c code-server -- kubectl get pods`.
+
 ## P2 — Editor, Labs & Assessments (verified 2026-11-11)
 
 The P2 exit criterion is **"a proctored exam runs end to end"**, verified by
@@ -184,12 +221,14 @@ request/response tier-1 contract.
   `@codemirror/lang-*` package in `apps/web/src/components/CodeEditor.tsx`;
   every one is MIT, so `license:check` stays green.
 
-## Phase E — Projects / Nimbus equivalent (E0+E1 landed 2026-11-14)
+## Phase E — Projects / Nimbus equivalent (E0–E4 landed 2026-11-14)
 
 The ByteXL "Nimbus" equivalent: an instructor-authored `Project` that a student
 **forks** into a durable `ProjectWorkspace`, builds in an online VS Code, and
 **submits** (title, description, workspace, optional GitHub/demo links) for a
 trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`.
+The surface is live at `/nimbus` for both roles (student: fork → build → stop →
+submit; instructor: author → publish → evaluate).
 
 - **E0 = domain + persistence only** (this commit). Contracts in
   `packages/contracts` (`Project`, `ProjectComponent`, `ProjectTemplate`,
@@ -233,6 +272,22 @@ trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`
 - **Submission is LMS-nav, not IDE.** Deadlines are server-authoritative and
   auto-close the project; submission snapshots a *closed* workspace (the
   stop-before-submit rule ByteXL surfaces as a "session closing" wait).
+- **E2–E4 = authoring, submission, HTTP surface, and the `/nimbus` UI.**
+  `ProjectService` gained `listForUser`/`listForInstructor` (tenant-scoped),
+  `getProjectView`, `createProject`, `addComponent`, `publishProject`, and
+  `stopWorkspace` (resume is the existing fork re-attach). `ProjectSubmissionService`
+  (`projects/project-submission.service.ts`) owns submit/list/evaluate: it
+  rejects a running workspace (`workspace_active`), a passed deadline, a
+  non-`published` project, and a workspace that is not the caller's own fork;
+  resubmitting replaces the prior row (one per `(component, student)`). Scores
+  are bounded by `project.maxScore`. `ProjectsController` gates authoring
+  (create/add-component/publish/templates) behind `requireInstructor`; student
+  reads are scoped to their own forks and submissions. **Route order matters**:
+  the static `templates`, `submissions`, `forks/:forkId`, and
+  `workspaces/:workspaceId/stop` routes must be declared before `:id`, or Nest
+  matches `:id` first. DI: `PROJECT` (needs `provider`, off when
+  `PROJECTS_ENABLED` is unset) and `PROJECT_SUBMISSION`. Every browser-facing
+  route has a matching proxy under `apps/web/src/app/api/projects/**`.
 
 ## Gotchas
 

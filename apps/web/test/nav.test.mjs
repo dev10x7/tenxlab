@@ -77,6 +77,16 @@ test('assessments and proctoring are live P2 surfaces (no phase badge)', () => {
 });
 
 test('P3 surfaces still carry their phase badge', () => {
-  const nimbus = navItems('student').find((i) => i.href === '/nimbus');
-  assert.equal(nimbus?.phase, 'P3');
+  const reports = navItems('student').find((i) => i.href === '/reports');
+  assert.equal(reports?.phase, 'P3');
+});
+
+test('nimbus is a live student and instructor surface (no phase badge)', () => {
+  const student = navItems('student').find((i) => i.href === '/nimbus');
+  assert.ok(student, 'student nav has /nimbus');
+  assert.equal(student.phase, undefined, '/nimbus is wired to the API');
+
+  const instructor = navItems('instructor').find((i) => i.href === '/nimbus');
+  assert.ok(instructor, 'instructor nav has /nimbus');
+  assert.equal(instructor.phase, undefined, '/nimbus is wired to the API');
 });
