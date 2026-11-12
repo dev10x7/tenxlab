@@ -13,6 +13,8 @@ import type {
   MembershipRepository,
   ProgressRepository,
   ReplayGuard,
+  SnippetRecord,
+  SnippetRepository,
   TenantRecord,
   TenantRepository,
   UserRecord,
@@ -216,6 +218,58 @@ export class InMemoryEnrollmentRepository implements EnrollmentRepository {
   }
   seed(e: EnrollmentRecord) {
     this.rows.push(e);
+  }
+}
+
+export class InMemorySnippetRepository implements SnippetRepository {
+  constructor(private readonly rows: SnippetRecord[] = []) {}
+  async create(input: {
+    userId: string;
+    language: string;
+    title: string;
+    source: string;
+    stdin: string;
+  }) {
+    const now = new Date();
+    const row: SnippetRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      language: input.language,
+      title: input.title,
+      source: input.source,
+      stdin: input.stdin,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async update(
+    id: string,
+    userId: string,
+    patch: Partial<Pick<SnippetRecord, 'title' | 'language' | 'source' | 'stdin'>>,
+  ) {
+    const row = this.rows.find((s) => s.id === id && s.userId === userId);
+    if (!row) return null;
+    Object.assign(row, patch, { updatedAt: new Date() });
+    return row;
+  }
+  async listByUser(userId: string) {
+    return this.rows
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  }
+  async findById(id: string, userId: string) {
+    return this.rows.find((s) => s.id === id && s.userId === userId) ?? null;
+  }
+  async delete(id: string, userId: string) {
+    const index = this.rows.findIndex((s) => s.id === id && s.userId === userId);
+    if (index === -1) return false;
+    this.rows.splice(index, 1);
+    return true;
+  }
+  seed(s: SnippetRecord) {
+    this.rows.push(s);
   }
 }
 

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Header,
@@ -11,6 +12,7 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Req,
   Res,
@@ -26,8 +28,9 @@ import { LabLaunchService } from '../labs/lab-launch.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
+import { EditorService } from '../editor/editor.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
-import { BATCH, CATALOG, GRADEBOOK, JWT, LAUNCH, SESSION, SSO } from './tokens';
+import { BATCH, CATALOG, EDITOR, GRADEBOOK, JWT, LAUNCH, SESSION, SSO } from './tokens';
 
 @Controller()
 export class JwksController {
@@ -286,6 +289,112 @@ export class BatchesController {
     if (session.role !== 'instructor' && session.role !== 'admin') {
       throw new ForbiddenException('Instructor or admin role required');
     }
+    return session;
+  }
+}
+
+/**
+ * The Editor surface: a single-pane practice playground. Run is stateless and
+ * backed by the tier-1 execution pool; snippets are private to their author
+ * (every read and write is scoped by the session's userId).
+ */
+@Controller('api/editor')
+export class EditorController {
+  constructor(
+    @Inject(EDITOR) private readonly editor: EditorService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get('languages')
+  languages() {
+    return this.editor.languages();
+  }
+
+  @Post('run')
+  async run(
+    @Body() body: { language?: string; source?: string; stdin?: string },
+    @Req() req: Request,
+  ) {
+    this.requireSession(req);
+    if (!body?.language) throw new BadRequestException('language is required');
+    if (typeof body.source !== 'string') {
+      throw new BadRequestException('source is required');
+    }
+    const outcome = await this.editor.run({
+      language: body.language,
+      source: body.source,
+      stdin: body.stdin ?? '',
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === 'unknown_language') {
+        throw new BadRequestException('Unknown language');
+      }
+      throw new HttpException(
+        'Code execution is not available',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    return outcome.result;
+  }
+
+  @Get('snippets')
+  async listSnippets(@Req() req: Request) {
+    return this.editor.listSnippets(this.requireSession(req).userId);
+  }
+
+  @Post('snippets')
+  @HttpCode(201)
+  async saveSnippet(
+    @Body()
+    body: { language?: string; title?: string; source?: string; stdin?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    if (typeof body?.source !== 'string') {
+      throw new BadRequestException('source is required');
+    }
+    return this.editor.saveSnippet({
+      userId: session.userId,
+      language: body.language ?? 'python',
+      title: body.title ?? 'Untitled',
+      source: body.source,
+      stdin: body.stdin ?? '',
+    });
+  }
+
+  @Get('snippets/:id')
+  async getSnippet(@Param('id') id: string, @Req() req: Request) {
+    const snippet = await this.editor.getSnippet(id, this.requireSession(req).userId);
+    if (!snippet) throw new NotFoundException('Snippet not found');
+    return snippet;
+  }
+
+  @Patch('snippets/:id')
+  async updateSnippet(
+    @Param('id') id: string,
+    @Body()
+    body: { language?: string; title?: string; source?: string; stdin?: string },
+    @Req() req: Request,
+  ) {
+    const snippet = await this.editor.updateSnippet(
+      id,
+      this.requireSession(req).userId,
+      body ?? {},
+    );
+    if (!snippet) throw new NotFoundException('Snippet not found');
+    return snippet;
+  }
+
+  @Delete('snippets/:id')
+  @HttpCode(204)
+  async deleteSnippet(@Param('id') id: string, @Req() req: Request): Promise<void> {
+    const ok = await this.editor.deleteSnippet(id, this.requireSession(req).userId);
+    if (!ok) throw new NotFoundException('Snippet not found');
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
     return session;
   }
 }

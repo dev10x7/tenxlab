@@ -8,6 +8,7 @@ import {
   InMemoryMembershipRepository,
   InMemoryProgressRepository,
   InMemoryReplayGuard,
+  InMemorySnippetRepository,
   InMemoryTenantRepository,
   InMemoryUserRepository,
 } from '../common/in-memory';
@@ -20,6 +21,7 @@ import {
   PrismaMembershipRepository,
   PrismaProgressRepository,
   PrismaReplayGuard,
+  PrismaSnippetRepository,
   PrismaTenantRepository,
   PrismaUserRepository,
 } from '../common/prisma-repositories';
@@ -42,6 +44,7 @@ export interface DemoState extends Repositories {
   progress: InMemoryProgressRepository;
   batches: InMemoryBatchRepository;
   enrollments: InMemoryEnrollmentRepository;
+  snippets: InMemorySnippetRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -117,6 +120,7 @@ export function createDemoState(): DemoState {
     progress: new InMemoryProgressRepository(),
     batches,
     enrollments,
+    snippets: new InMemorySnippetRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -133,6 +137,7 @@ export function createPrismaState(db: PrismaClient): Repositories {
     progress: new PrismaProgressRepository(db),
     batches: new PrismaBatchRepository(db),
     enrollments: new PrismaEnrollmentRepository(db),
+    snippets: new PrismaSnippetRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

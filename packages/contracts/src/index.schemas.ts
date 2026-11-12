@@ -43,6 +43,186 @@ export const LabLaunchJwtPayload = z.object({
 });
 export type LabLaunchJwtPayload = z.infer<typeof LabLaunchJwtPayload>;
 
+/**
+ * Editor languages.
+ *
+ * A curated list, not Piston's full inventory: each entry carries the display
+ * name, the Piston runtime alias, the CodeMirror language id, a starter
+ * template, and a sensible stdin placeholder. Keeping it curated means the
+ * picker shows exactly what the tier-1 pool is known to serve.
+ */
+export const EditorLanguage = z.object({
+  /** Stable id used by the client and stored on a snippet, e.g. `python`. */
+  id: z.string().min(1),
+  /** Human label, e.g. `Python 3`. */
+  label: z.string().min(1),
+  /** Piston runtime alias, e.g. `python`. */
+  pistonRuntime: z.string().min(1),
+  /** CodeMirror 6 language id, e.g. `python`. */
+  cmLanguage: z.string().min(1),
+  /** Editor file extension, e.g. `.py`. */
+  extension: z.string().min(1),
+  /** Starter code shown when the editor is empty. */
+  template: z.string(),
+  /** Placeholder describing the STDIN the template reads. */
+  stdinHint: z.string().default(''),
+});
+export type EditorLanguage = z.infer<typeof EditorLanguage>;
+
+/**
+ * The languages the Editor offers. Curated rather than "everything Piston can
+ * run": each entry is a template a student can actually start from, and the set
+ * is small enough to keep the picker useful. `pistonRuntime` matches Piston's
+ * runtime alias; `cmLanguage` matches a CodeMirror 6 language package.
+ */
+export const EDITOR_LANGUAGES: EditorLanguage[] = [
+  {
+    id: 'python',
+    label: 'Python 3',
+    pistonRuntime: 'python',
+    cmLanguage: 'python',
+    extension: '.py',
+    template: [
+      'import sys',
+      '',
+      'def main() -> None:',
+      '    data = sys.stdin.read().strip()',
+      '    # start your solution',
+      '    print(data)',
+      '    # end your solution',
+      '',
+      'if __name__ == "__main__":',
+      '    main()',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'javascript',
+    label: 'JavaScript (Node)',
+    pistonRuntime: 'javascript',
+    cmLanguage: 'javascript',
+    extension: '.js',
+    template: [
+      'const fs = require("fs");',
+      '',
+      'const input = fs.readFileSync(0, "utf8").trim();',
+      '// start your solution',
+      'console.log(input);',
+      '// end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'java',
+    label: 'Java',
+    pistonRuntime: 'java',
+    cmLanguage: 'java',
+    extension: '.java',
+    template: [
+      'import java.util.Scanner;',
+      '',
+      'public class Main {',
+      '    public static void main(String[] args) {',
+      '        Scanner in = new Scanner(System.in);',
+      '        String data = in.hasNextLine() ? in.nextLine() : "";',
+      '        // start your solution',
+      '        System.out.println(data);',
+      '        // end your solution',
+      '    }',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'c',
+    label: 'C (GCC)',
+    pistonRuntime: 'c',
+    cmLanguage: 'c',
+    extension: '.c',
+    template: [
+      '#include <stdio.h>',
+      '',
+      'int main(void) {',
+      '    char buf[1024];',
+      '    if (!fgets(buf, sizeof buf, stdin)) return 0;',
+      '    // start your solution',
+      '    fputs(buf, stdout);',
+      '    // end your solution',
+      '    return 0;',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'cpp',
+    label: 'C++ (GCC)',
+    pistonRuntime: 'c++',
+    cmLanguage: 'cpp',
+    extension: '.cpp',
+    template: [
+      '#include <iostream>',
+      '#include <string>',
+      '',
+      'int main() {',
+      '    std::string data;',
+      '    std::getline(std::cin, data);',
+      '    // start your solution',
+      '    std::cout << data << std::endl;',
+      '    // end your solution',
+      '    return 0;',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'sql',
+    label: 'SQL (SQLite)',
+    pistonRuntime: 'sqlite3',
+    cmLanguage: 'sql',
+    extension: '.sql',
+    template: [
+      '-- start your solution',
+      'SELECT 1 AS answer;',
+      '-- end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'SQL runs against a scratch SQLite database; stdin is unused.',
+  },
+];
+
+/** Look up a language by its stable id. */
+export function editorLanguage(id: string): EditorLanguage | undefined {
+  return EDITOR_LANGUAGES.find((l) => l.id === id);
+}
+
+/** A code-run request against the tier-1 execution pool. */
+export const CodeRunRequest = z.object({
+  language: z.string().min(1),
+  source: z.string().max(100_000),
+  stdin: z.string().max(100_000).default(''),
+});
+export type CodeRunRequest = z.infer<typeof CodeRunRequest>;
+
+/** Outcome of a code run. Mirrors Piston's fields, normalised. */
+export const CodeRunResult = z.object({
+  stdout: z.string(),
+  stderr: z.string(),
+  /** Process exit status; `null` when the run was killed (timeout/signal). */
+  exitCode: z.number().int().nullable(),
+  /** Wall-clock execution time in milliseconds. */
+  executionTimeMs: z.number().int().nonnegative(),
+  /** True when the run was killed for exceeding the time limit. */
+  timedOut: z.boolean(),
+  /** True when the language/runtime was unknown to the pool. */
+  unsupported: z.boolean(),
+});
+export type CodeRunResult = z.infer<typeof CodeRunResult>;
+
 /** Completion webhook: KubeLab -> LMS, on exercise_sessions update. */
 export const ExerciseStatus = z.enum(['PASSED', 'FAILED', 'ERROR']);
 export type ExerciseStatus = z.infer<typeof ExerciseStatus>;

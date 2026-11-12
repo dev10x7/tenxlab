@@ -10,6 +10,7 @@ import {
   PrismaMembershipRepository,
   PrismaProgressRepository,
   PrismaReplayGuard,
+  PrismaSnippetRepository,
   PrismaTenantRepository,
   PrismaUserRepository,
 } from './prisma-repositories';
@@ -166,6 +167,24 @@ test(
       const forUsers = await progress.listByUsers([created.id]);
       assert.equal(forUsers.length, 1);
       assert.equal(forUsers[0]?.score, 90);
+
+      // --- editor snippets round-trip and stay scoped to their owner
+      const snippets = new PrismaSnippetRepository(db);
+      const snippet = await snippets.create({
+        userId: created.id,
+        language: 'python',
+        title: 'Two Sum',
+        source: 'print(1)',
+        stdin: '',
+      });
+      assert.equal((await snippets.findById(snippet.id, created.id))?.title, 'Two Sum');
+      assert.equal(await snippets.findById(snippet.id, 'someone-else'), null);
+      const renamed = await snippets.update(snippet.id, created.id, { title: 'Renamed' });
+      assert.equal(renamed?.title, 'Renamed');
+      assert.equal(await snippets.update(snippet.id, 'someone-else', { title: 'nope' }), null);
+      assert.equal((await snippets.listByUser(created.id)).length, 1);
+      assert.equal(await snippets.delete(snippet.id, 'someone-else'), false);
+      assert.equal(await snippets.delete(snippet.id, created.id), true);
     } finally {
       // Cascades clean up memberships, progress, sessions, lessons, modules.
       await db.tenant.deleteMany({ where: { id: tenantId } });

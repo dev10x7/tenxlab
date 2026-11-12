@@ -54,8 +54,7 @@ const EDITOR: NavItem = {
   href: '/editor',
   label: 'Editor',
   icon: '⟨⟩',
-  blurb: 'Practise 70+ languages with STDIN, saved snippets, and AI help.',
-  phase: 'P2',
+  blurb: 'Write, run, and save code in the browser — with STDIN and snippets.',
 };
 
 const LABS: NavItem = {

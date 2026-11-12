@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { generateKeyPairSync } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { KubeLabAdapter } from '@tenxlab/lab-provider';
+import { KubeLabAdapter, PistonProvider } from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
 import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService } from '../identity/session.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
+import { EditorService } from '../editor/editor.service';
 import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
@@ -18,13 +19,14 @@ import {
   AuthController,
   BatchesController,
   CatalogController,
+  EditorController,
   JwksController,
   LabAssetController,
   LabController,
   PartnerSsoController,
   WebhookController,
 } from './controllers';
-import { BATCH, CATALOG, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, SESSION, SSO, STORE } from './tokens';
+import { BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
 
 export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH };
 
@@ -61,6 +63,7 @@ const STORE_PROVIDER = {
     LabAssetController,
     WebhookController,
     BatchesController,
+    EditorController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -150,6 +153,26 @@ const STORE_PROVIDER = {
           resolveLessonId: async (slug, tenantId) =>
             resolveLessonForSlug(store, slug, tenantId),
         }),
+    },
+    {
+      // Tier-1 execution pool. Null when disabled so the Editor still serves
+      // languages and snippets; only Run returns 503.
+      provide: RUNNER,
+      inject: [ENV],
+      useFactory: (env: Env) =>
+        env.PISTON_ENABLED
+          ? new PistonProvider({
+              baseUrl: env.PISTON_BASE_URL,
+              version: env.PISTON_VERSION,
+              runTimeoutMs: env.PISTON_RUN_TIMEOUT_MS,
+            })
+          : null,
+    },
+    {
+      provide: EDITOR,
+      inject: [STORE, RUNNER],
+      useFactory: (store: Repositories, runner: PistonProvider | null) =>
+        new EditorService({ snippets: store.snippets, runner }),
     },
   ],
 })

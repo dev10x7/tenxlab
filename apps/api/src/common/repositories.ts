@@ -7,6 +7,7 @@ import type {
   MembershipRepository,
   ProgressRepository,
   ReplayGuard,
+  SnippetRepository,
   TenantRepository,
   UserRepository,
 } from '../common/ports';
@@ -26,6 +27,7 @@ export interface Repositories {
   progress: ProgressRepository;
   batches: BatchRepository;
   enrollments: EnrollmentRepository;
+  snippets: SnippetRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

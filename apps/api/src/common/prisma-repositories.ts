@@ -14,6 +14,8 @@ import type {
   MembershipRepository,
   ProgressRepository,
   ReplayGuard,
+  SnippetRecord,
+  SnippetRepository,
   TenantRecord,
   TenantRepository,
   UserRecord,
@@ -265,6 +267,63 @@ export class PrismaLabSessionRepository implements LabSessionRepository {
   }
 }
 
+export class PrismaSnippetRepository implements SnippetRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: {
+    userId: string;
+    language: string;
+    title: string;
+    source: string;
+    stdin: string;
+  }): Promise<SnippetRecord> {
+    const s = await this.db.codeSnippet.create({
+      data: {
+        userId: input.userId,
+        language: input.language,
+        title: input.title,
+        source: input.source,
+        stdin: input.stdin,
+      },
+    });
+    return toSnippet(s);
+  }
+  async update(
+    id: string,
+    userId: string,
+    patch: Partial<Pick<SnippetRecord, 'title' | 'language' | 'source' | 'stdin'>>,
+  ): Promise<SnippetRecord | null> {
+    // updateMany scopes by userId in the WHERE, so a user cannot update a row
+    // they do not own; count tells us whether it matched.
+    const result = await this.db.codeSnippet.updateMany({
+      where: { id, userId },
+      data: {
+        title: patch.title,
+        language: patch.language,
+        source: patch.source,
+        stdin: patch.stdin,
+      },
+    });
+    if (result.count === 0) return null;
+    const s = await this.db.codeSnippet.findUnique({ where: { id } });
+    return s ? toSnippet(s) : null;
+  }
+  async listByUser(userId: string): Promise<SnippetRecord[]> {
+    const rows = await this.db.codeSnippet.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map(toSnippet);
+  }
+  async findById(id: string, userId: string): Promise<SnippetRecord | null> {
+    const s = await this.db.codeSnippet.findFirst({ where: { id, userId } });
+    return s ? toSnippet(s) : null;
+  }
+  async delete(id: string, userId: string): Promise<boolean> {
+    const result = await this.db.codeSnippet.deleteMany({ where: { id, userId } });
+    return result.count > 0;
+  }
+}
+
 export class PrismaEventLedger implements EventLedger {
   constructor(private readonly db: PrismaClient) {}
   async recordIfNew(eventId: string, source: string): Promise<boolean> {
@@ -305,6 +364,9 @@ type BatchRow = Awaited<
 >;
 type EnrollmentRow = Awaited<
   ReturnType<PrismaClient['enrollment']['findUniqueOrThrow']>
+>;
+type SnippetRow = Awaited<
+  ReturnType<PrismaClient['codeSnippet']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -377,5 +439,18 @@ function toEnrollment(e: EnrollmentRow): EnrollmentRecord {
     userId: e.userId,
     courseId: e.courseId,
     batchId: e.batchId ?? null,
+  };
+}
+
+function toSnippet(s: SnippetRow): SnippetRecord {
+  return {
+    id: s.id,
+    userId: s.userId,
+    language: s.language,
+    title: s.title,
+    source: s.source,
+    stdin: s.stdin,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
   };
 }

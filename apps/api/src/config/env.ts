@@ -69,6 +69,18 @@ const EnvSchema = z.object({
     .default('false')
     .transform((s) => s === 'true' || s === '1'),
 
+  // Tier-1 code execution pool (Piston, ADR-12) for the Editor surface.
+  PISTON_BASE_URL: z.string().default('http://localhost:2000'),
+  // Runtime version selector; `*` lets the pool pick the newest installed.
+  PISTON_VERSION: z.string().default('*'),
+  PISTON_RUN_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // When true, the Editor's Run button is backed by Piston. Off by default so
+  // tests and catalog-only deployments never call a sandbox.
+  PISTON_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
+
   // When true, the API persists to Postgres via Prisma (the system of record).
   // Off by default so tests and catalog-only deployments use the in-memory store.
   USE_DATABASE: z

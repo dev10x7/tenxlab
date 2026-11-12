@@ -75,9 +75,10 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Multi-language run/edit, 70+ langs | **Missing** | No editor surface at all yet |
-| STDIN before run | **Missing** | — |
-| Save/reopen practised code | **Missing** | — |
+| Multi-language run/edit | **Done** | Curated catalog (`EDITOR_LANGUAGES`) over Piston; CodeMirror 6 (`/editor`) |
+| 70+ langs | **Partial** | Six curated languages today; add entries as the pool grows |
+| STDIN before run | **Done** | STDIN panel → `POST /api/editor/run` |
+| Save/reopen practised code | **Done** | Per-user snippets, tenant-scoped (`code_snippets`) |
 | AI syntax help / unblock | **Missing** | AI plane has no tutor endpoint |
 
 ### 2.3 Labs
@@ -119,7 +120,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Quotas + budget warnings | **Done** | `runtime-policy/quota.ts` |
 | Idle termination | **Done** | `findIdleSessions` + operator sweep |
 | Cost telemetry | **Done** | `runtime-policy/cost.ts` |
-| Piston tier-1 worker | **Missing** | Router targets the tier; the backend does not exist — **decided (ADR-12, amended): Piston** (Judge0 rejected: GPL-3.0) |
+| Piston tier-1 worker | **Done** | `packages/lab-provider/src/piston.provider.ts` (`CodeExecutionProvider`, ADR-12); Judge0 rejected: GPL-3.0 |
 | Tier-2 pod provider | **Missing** | Same — targeted, not implemented |
 | Predictive scale-up before class | **Missing** | Operator is reactive only |
 
@@ -188,10 +189,11 @@ Make the existing pieces work end-to-end before adding surface.
 
 This is the largest parity gap and the most-used surface.
 
-- [ ] Editor service: wrap a code-run sandbox behind the `LabProvider`
-      abstraction (a new `PistonProvider` implementing the same interface).
-- [ ] Web editor: CodeMirror 6 (ADR-19), language picker, STDIN panel, run, save.
-- [ ] Code persistence: per-user snippets, reopenable.
+- [x] Editor service: run code through a `CodeExecutionProvider` (ADR-12) —
+      a narrow request/response seam, not `LabProvider` (a run is not a
+      session). `PistonProvider` is the only implementation.
+- [x] Web editor: CodeMirror 6 (ADR-19), language picker, STDIN panel, run, save.
+- [x] Code persistence: per-user snippets, reopenable (`code_snippets`).
 - [ ] Lab vs. assessment distinction: `lesson.kind` drives graded vs. practice
       UI, with hints on practice items.
 - [ ] Exit criterion: a student solves a DSA problem in-browser, with STDIN,
@@ -218,9 +220,10 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 
 ### Phase D — Runtime scale-out (3 ew)
 
-- [ ] Implement the tier-1 backend (**Piston**, ADR-12) behind
-      `LabProvider`; wire the router's `tier_1_microvm` to it. Tier-1 is a
+- [x] Implement the tier-1 backend (**Piston**, ADR-12) behind
+      `CodeExecutionProvider`; wired to the Editor. Tier-1 is a
       request/response provider — not a KubeLab session — per ADR-8.
+- [ ] Route `tier_1_microvm` launches (Lab surface) through the same provider.
 - [ ] Implement the tier-2 pod provider behind `LabProvider` (namespace +
       code-server pod + service + ingress, no Helm, no nested control plane).
 - [ ] Keep KubeLab unmodified: tier-3 only, reached through `KubeLabAdapter`.

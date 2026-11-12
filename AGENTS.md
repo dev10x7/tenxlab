@@ -139,6 +139,18 @@ request/response tier-1 contract.
 - The editor widget is **CodeMirror 6** (MIT), per ADR-19 — a single-pane
   practice playground, not an IDE. Monaco stays the fallback only if the Editor
   must feel identical to the lab's code-server workbench.
+- The tier-1 seam is `CodeExecutionProvider` (`packages/lab-provider`), **not**
+  `LabProvider`: a run is request/response, a lab is a long-lived session. Do
+  not force Piston into the session model.
+- Piston runs untrusted code, so its compose service sits behind the `runner`
+  profile (`docker compose --profile runner up`) and is off by default; the
+  API's `PISTON_ENABLED` gates the Run button. With it off, the Editor still
+  serves languages and snippets — only Run returns 503.
+- The Editor language catalog is curated (`EDITOR_LANGUAGES` in
+  `packages/contracts`): each entry pairs a Piston runtime alias with a
+  CodeMirror id and a starter template. Add a language there *and* import its
+  `@codemirror/lang-*` package in `apps/web/src/components/CodeEditor.tsx`;
+  every one is MIT, so `license:check` stays green.
 
 ## Gotchas
 

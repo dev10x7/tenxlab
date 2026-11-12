@@ -99,6 +99,36 @@ export interface Gradebook {
   rows: GradebookRow[];
 }
 
+export interface EditorLanguage {
+  id: string;
+  label: string;
+  pistonRuntime: string;
+  cmLanguage: string;
+  extension: string;
+  template: string;
+  stdinHint: string;
+}
+
+export interface CodeRunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  executionTimeMs: number;
+  timedOut: boolean;
+  unsupported: boolean;
+}
+
+export interface Snippet {
+  id: string;
+  userId: string;
+  language: string;
+  title: string;
+  source: string;
+  stdin: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -131,5 +161,34 @@ export const api = {
     request<{ ok: true }>(`/api/batches/${encodeURIComponent(batchId)}/students`, {
       method: 'POST',
       body: JSON.stringify({ userId, courseId }),
+    }),
+  editorLanguages: () => request<EditorLanguage[]>('/api/editor/languages'),
+  runCode: (input: { language: string; source: string; stdin: string }) =>
+    request<CodeRunResult>('/api/editor/run', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  snippets: () => request<Snippet[]>('/api/editor/snippets'),
+  saveSnippet: (input: {
+    language: string;
+    title: string;
+    source: string;
+    stdin: string;
+  }) =>
+    request<Snippet>('/api/editor/snippets', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateSnippet: (
+    id: string,
+    patch: Partial<{ language: string; title: string; source: string; stdin: string }>,
+  ) =>
+    request<Snippet>(`/api/editor/snippets/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteSnippet: (id: string) =>
+    request<void>(`/api/editor/snippets/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     }),
 };

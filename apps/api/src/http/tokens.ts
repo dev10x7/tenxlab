@@ -10,3 +10,5 @@ export const PROVIDER = 'TENXLAB_LAB_PROVIDER';
 export const PROGRESS = 'TENXLAB_PROGRESS';
 export const STORE = 'TENXLAB_STORE';
 export const BATCH = 'TENXLAB_BATCH';
+export const EDITOR = 'TENXLAB_EDITOR';
+export const RUNNER = 'TENXLAB_CODE_RUNNER';

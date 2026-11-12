@@ -71,6 +71,17 @@ export interface BatchRecord {
   endDate?: Date | null;
 }
 
+export interface SnippetRecord {
+  id: string;
+  userId: string;
+  language: string;
+  title: string;
+  source: string;
+  stdin: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface EnrollmentRecord {
   id: string;
   userId: string;
@@ -139,6 +150,26 @@ export interface BatchRepository {
   }): Promise<BatchRecord>;
   findById(id: string): Promise<BatchRecord | null>;
   listByTenant(tenantId: string): Promise<BatchRecord[]>;
+}
+
+export interface SnippetRepository {
+  create(input: {
+    userId: string;
+    language: string;
+    title: string;
+    source: string;
+    stdin: string;
+  }): Promise<SnippetRecord>;
+  update(
+    id: string,
+    userId: string,
+    patch: Partial<Pick<SnippetRecord, 'title' | 'language' | 'source' | 'stdin'>>,
+  ): Promise<SnippetRecord | null>;
+  /** A user's own snippets, newest first. */
+  listByUser(userId: string): Promise<SnippetRecord[]>;
+  /** Scoped by userId so one user can never read or delete another's snippet. */
+  findById(id: string, userId: string): Promise<SnippetRecord | null>;
+  delete(id: string, userId: string): Promise<boolean>;
 }
 
 export interface EnrollmentRepository {

@@ -98,3 +98,32 @@ export function gradebookCellLabel(cell: {
   if (cell.status === 'complete') return 'Done';
   return '—';
 }
+
+/** A snippet's display title, or a fallback for an untitled one. */
+export function snippetTitle(title: string | null | undefined): string {
+  const trimmed = (title ?? '').trim();
+  return trimmed.length > 0 ? trimmed : 'Untitled';
+}
+
+/**
+ * One-line status for a code run, for the editor's output header. Distinguishes
+ * a clean exit, a non-zero exit, a timeout, and an unsupported runtime.
+ */
+export function runStatusLabel(result: {
+  exitCode: number | null;
+  timedOut: boolean;
+  unsupported: boolean;
+  executionTimeMs: number;
+}): string {
+  if (result.unsupported) return 'Runtime unavailable';
+  if (result.timedOut) return 'Timed out';
+  if (result.exitCode === 0) return `Finished in ${result.executionTimeMs} ms`;
+  if (result.exitCode === null) return 'Stopped';
+  return `Exited with code ${result.exitCode}`;
+}
+
+/** Whether a run produced anything worth showing in the output pane. */
+export function runHasOutput(result: { stdout: string; stderr: string }): boolean {
+  return result.stdout.length > 0 || result.stderr.length > 0;
+}
+

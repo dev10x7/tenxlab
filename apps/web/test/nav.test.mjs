@@ -58,3 +58,9 @@ test('batches and grading are reachable P1 surfaces (no phase badge)', () => {
     assert.equal(item.phase, undefined, `${href} is a live P1 surface`);
   }
 });
+
+test('the editor is a live student surface (no phase badge)', () => {
+  const item = navItems('student').find((i) => i.href === '/editor');
+  assert.ok(item, 'student nav has /editor');
+  assert.equal(item.phase, undefined, '/editor is wired to the API');
+});

@@ -6,7 +6,8 @@
 # (Redis, MinIO), the API, the web client, and the AI plane. The API applies
 # Prisma migrations and seeds the demo catalog on first boot.
 #
-# Ports: web 3000, api 4000, ai 8000, postgres 5432, redis 6379, minio 9000/9001.
+# Ports: web 3000, api 4000, ai 8000, postgres 5432, redis 6379, minio 9000/9001,
+# piston 2000 (opt-in via the `runner` profile).
 #
 # services/lab-operator is intentionally not here yet: it exits until a
 # deployment bootstrap injects OperatorPorts (a KubeLab-backed provider plus a
@@ -83,6 +84,24 @@ services:
       echo 'MinIO buckets ready';
       "
 
+  # Tier-1 code execution pool (Piston, ADR-12). Opt-in: `docker compose
+  # --profile runner up`. Piston runs untrusted code, so it is kept out of the
+  # default stack and only started when the Editor's Run button is needed.
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    container_name: tenxlab-piston
+    profiles: ['runner']
+    # Piston needs to spawn sandboxes; the default seccomp profile blocks the
+    # clone/unshare it relies on, so it runs privileged and disables isolation.
+    privileged: true
+    restart: unless-stopped
+    tmpfs:
+      - /piston/jobs:exec
+    ports:
+      - '2000:2000'
+    volumes:
+      - ./data/piston:/piston
+
   api:
     build:
       context: .
@@ -107,6 +126,10 @@ services:
       # instance and set KUBELAB_ENABLED=true to provision real sandboxes.
       KUBELAB_ENABLED: 'false'
       KUBELAB_BASE_URL: http://kubelab.local
+      # Tier-1 code execution (Piston, ADR-12) for the Editor. The service below
+      # runs under the `runner` profile; keep this in sync with that profile.
+      PISTON_ENABLED: 'false'
+      PISTON_BASE_URL: http://piston:2000
     ports:
       - '4000:4000'
     healthcheck:

@@ -8,6 +8,9 @@ import {
   proxyFetchInit,
   gradebookRowSummary,
   gradebookCellLabel,
+  snippetTitle,
+  runStatusLabel,
+  runHasOutput,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -80,4 +83,41 @@ test('gradebookCellLabel prefers the score, then the status', () => {
   assert.equal(gradebookCellLabel({ status: 'complete', score: null }), 'Done');
   assert.equal(gradebookCellLabel({ status: 'in_progress', score: null }), 'In progress');
   assert.equal(gradebookCellLabel({ status: 'not_started', score: null }), '—');
+});
+
+test('snippetTitle falls back for blank titles', () => {
+  assert.equal(snippetTitle('  Two Sum  '), 'Two Sum');
+  assert.equal(snippetTitle(''), 'Untitled');
+  assert.equal(snippetTitle('   '), 'Untitled');
+  assert.equal(snippetTitle(null), 'Untitled');
+  assert.equal(snippetTitle(undefined), 'Untitled');
+});
+
+test('runStatusLabel distinguishes each run outcome', () => {
+  assert.equal(
+    runStatusLabel({ exitCode: 0, timedOut: false, unsupported: false, executionTimeMs: 42 }),
+    'Finished in 42 ms',
+  );
+  assert.equal(
+    runStatusLabel({ exitCode: 1, timedOut: false, unsupported: false, executionTimeMs: 5 }),
+    'Exited with code 1',
+  );
+  assert.equal(
+    runStatusLabel({ exitCode: null, timedOut: true, unsupported: false, executionTimeMs: 5000 }),
+    'Timed out',
+  );
+  assert.equal(
+    runStatusLabel({ exitCode: null, timedOut: false, unsupported: true, executionTimeMs: 0 }),
+    'Runtime unavailable',
+  );
+  assert.equal(
+    runStatusLabel({ exitCode: null, timedOut: false, unsupported: false, executionTimeMs: 0 }),
+    'Stopped',
+  );
+});
+
+test('runHasOutput is true when either stream has content', () => {
+  assert.equal(runHasOutput({ stdout: 'hi', stderr: '' }), true);
+  assert.equal(runHasOutput({ stdout: '', stderr: 'boom' }), true);
+  assert.equal(runHasOutput({ stdout: '', stderr: '' }), false);
 });
