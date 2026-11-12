@@ -161,7 +161,12 @@ request/response tier-1 contract.
   KubeLab. Verify any new runtime's license before adding it (this mistake is why
   the ADR existed in prose but the license was never checked).
 - Piston defaults (3 s CPU, 1024-char stdout) are too tight for teaching; raise
-  `run_timeout` / output caps per exercise.
+  `run_timeout` / output caps per exercise. These are **server ceilings**, not
+  requests: sending `run_timeout` above the configured limit makes Piston 400 the
+  whole run (`"run_timeout cannot exceed the configured limit of N"`). The
+  provider retries once without explicit limits when it sees that message, so a
+  stock Piston (3 s ceiling) still works with the API's 5 s default — keep that
+  fallback if you touch `piston.provider.ts`.
 - The editor widget is **CodeMirror 6** (MIT), per ADR-19 — a single-pane
   practice playground, not an IDE. Monaco stays the fallback only if the Editor
   must feel identical to the lab's code-server workbench.
@@ -212,6 +217,12 @@ request/response tier-1 contract.
   `kubelabRole` in the adapter.
 - Lab launch is async (KubeLab cold start is minutes). Never block the request
   on provisioning; return the session id and let the UI poll.
+- The IDE URL the adapter emits is a per-session ingress hostname that resolves
+  to the cluster node IP, which a remote browser cannot route to. Set
+  `KUBELAB_IDE_PUBLIC_URL` to the public gateway host and run
+  `deploy/kubelab/ide-gateway.mjs` (port 12001) so emitted URLs are
+  `<gateway>/lab/<ingress-host>/...`; readiness still probes the ingress
+  directly.
 - Inbound lab webhooks are signed with HMAC-SHA256 over the **raw** body and the
   header is `x-tenxlab-signature-256`; the payload `status` is uppercase
   (`PASSED`/`FAILED`/`ERROR`). Getting either wrong yields 401/422.
