@@ -195,6 +195,52 @@ remote. A "template" is an in-platform scaffold; a "fork" copies that scaffold
 "publish" is an OAuth push to the student's GitHub. This is simpler than a
 hosted-git design and removes a piece of infrastructure from our Phase E.
 
+### 1.4 Full-stack & infra templates (React+Spring+Mongo `hmUNO5WG0N0`, Alpine/NOS `PCv4lKAaT8w`)
+
+Transcripts supplied 2026-11-12. These answer **how multi-service workspaces are
+structured** — the E5.1 risk.
+
+**Multi-service = multiple independent workspaces, not one composed stack.**
+The full-stack video builds the app as **two separate Nimbus workspaces**:
+a Spring Boot + MongoDB workspace (the backend) and, started fresh, a **React
+workspace** ("pick react as your front end… I'll call it spring-apis-launch").
+There is **no single "MERN stack" workspace**. The two are wired together by the
+student:
+
+- The backend **exposes a public URL** ("this is a working URL which is exposed
+  to the Internet") — so each workspace can be reached from outside.
+- Because the front end and back end are **different workspaces → different
+  origins**, the student must add **`@CrossOrigin`** on the controller (and
+  `allowedHosts = true`) for browser CORS. The video stresses this as a required
+  step.
+- The React workspace installs its own dependencies ("let it install all the
+  dependencies"); the Alpine template ships **Debian with nothing installed**,
+  and the student `apt install`s what they need (`net-tools`, `inetutils`,
+  `dnsutils`).
+
+**Two template shapes, therefore:**
+
+1. **Language/framework templates** — pre-installed, dependency-ready (Flask,
+   Java, Spring Boot, Spring+Mongo, React). "Alpine" is the **bare base image**:
+   Debian, no language, `apt` available.
+2. **The "stack" is a recipe, not a template.** ByteXL's "SpringBoot + MongoDB +
+   ReactJS" guide is *two workspaces connected by the student*, not one
+   provisioned environment.
+
+**Consequence for us.** Our E5.1 ("multi-service frontend+backend+DB") should
+**not** build a composed multi-container workspace. The parity-faithful model is:
+**one workspace = one service/image**, each independently provisioned and
+independently exposed on its own URL, with the student wiring them together
+(and owning the CORS story). That is *simpler* than a composed stack and maps
+directly onto our existing `PodProvider`/vcluster per-session provisioning. It
+also means "one-click deploy" (§1.1) exposes **one service**, consistent with
+scoping hosting to single-service apps.
+
+**Note on NOS.** The "Network Operating System" guide is not a special runtime:
+it is the **Alpine (bare Debian) template + `apt install`** of network utils,
+practised in the terminal. So Nimbus's infra story overlaps our tier-2/tier-3
+labs but is delivered as an ordinary workspace, not a network simulator.
+
 ---
 
 ## 2. Gap analysis: ByteXL vs. current TenXLab
@@ -444,14 +490,15 @@ sub-milestones so each ends demonstrable and CI-green:
       **template or an existing workspace** (§1.3). Forks **must not** land in
       `lab_sessions` (the operator's 30-min idle sweep would reap them) —
       separate table + separate expiry policy.
-- [ ] **E2 — Template catalog + git publish.** A template registry (Flask, Java,
-      Spring Boot, Spring+Mongo, Spring+Mongo+React, NOS — mirroring ByteXL's
-      guides), seeded as `ProjectWorkspace.templateRef`; fork copies the scaffold
-      into the new workspace. **No hosted git backend** (§1.3): git is
-      workspace-local (student runs `git init`/`config` in the IDE), and
-      **publish = GitHub OAuth device-flow push to the student's own account**
-      (public/private + optional rename). Submission keeps GitHub/demo URLs as
-      optional free-text links.
+- [ ] **E2 — Template catalog + git publish.** A template registry with **two
+      shapes** (§1.4): (a) language/framework templates, dependency-ready
+      (Flask, Java, Spring Boot, Spring+Mongo, React); (b) a **bare base image**
+      ("Alpine" = Debian, no language, `apt` available) for infra/network work.
+      Seeded as `ProjectWorkspace.templateRef`; fork copies the scaffold into the
+      new workspace. **No hosted git backend** (§1.3): git is workspace-local
+      (student runs `git init`/`config` in the IDE), and **publish = GitHub OAuth
+      device-flow push to the student's own account** (public/private + optional
+      rename). Submission keeps GitHub/demo URLs as optional free-text links.
 - [ ] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
       description, workspace picker, optional GitHub link, optional demo URL**;
       **server-authoritative deadline** that auto-closes the project. Enforce the
@@ -469,10 +516,12 @@ sub-milestones so each ends demonstrable and CI-green:
       feedback) and instructor view (create, attach templates, publish,
       evaluate). Proxy routes under `app/api/projects/**`. **Submissions live in
       the LMS nav** (§1.2), not inside the IDE.
-- [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes a fork
-      via a per-fork ingress (reuse `PodProvider`'s namespace+ingress builders);
-      `demoUrl` = that ingress, analogous to ByteXL's `bytexl.live`. **Scope v1
-      to single-service apps**; multi-service frontend+backend+DB is E5.1. Can
+- [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes **one
+      workspace** (one service) via a per-workspace ingress (reuse `PodProvider`'s
+      namespace+ingress builders); `demoUrl` = that ingress, analogous to
+      ByteXL's `bytexl.live`. **Multi-service apps are N independent workspaces**
+      wired by the student with their own URLs + CORS (§1.4) — **not** a composed
+      multi-container workspace, so there is no E5.1 compose build to do. Can
       ship after parity.
 - [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
       widget (ByteXL's smarter dashboard) and **student attendance** (overall +
