@@ -10,6 +10,9 @@ Sources reviewed:
 - https://support.bytexl.app/ — Coding Abilities, Coding Tests, Project
   Evaluation & Submission, SafeExamBrowser Guide, Single Sign-On (Partner
   Integration), FAQs, Video Guides
+- https://bytexl.ai/nimbus + the byteXL YouTube channel (product page and the
+  video-guides index; transcripts were bot-blocked, so claims come from the
+  product page and the guides index — see §1.1)
 
 ---
 
@@ -59,7 +62,7 @@ ByteXL's help centre describes four student-facing modules:
 | **Editor** | Practise C, C++, Java, Python, web (HTML/jQuery/Bootstrap) and databases (MySQL, Oracle, MongoDB) | 70+ languages; saves code for later; AI help for syntax errors and to unblock |
 | **Labs** | Practice problems, ungraded | Hints available; attached to chapters |
 | **Assessments** | Graded tests with proctoring and auto-grading | Coding + MCQ + fill-in-the-blank + descriptive; copy/paste disabled, video recording, tab-switch detection, time limits |
-| **Nimbus** | Project building and hosting | Backend/frontend/DB hosted in cloud; VS Code ecosystem; auto-evaluation via **SonarQube** |
+| **Nimbus** | Project building and hosting | A separate product (`nimbus.bytexl.ai`): cloud VS Code workspace, template catalog (Flask/Java/Spring Boot/Mongo/React), built-in GitHub publish, one-click backend deploy, fork own workspaces, auto-evaluation via **SonarQube** (see §1.1) |
 
 Cross-cutting features their docs make explicit:
 
@@ -78,6 +81,58 @@ Cross-cutting features their docs make explicit:
 - **Project submission** — student attaches workspace, GitHub URL, demo URL.
 - **Reliability/ops** — DNS fallback advice, alternate load-balancer URL,
   email bounce handling.
+
+### 1.1 Nimbus deep dive (product page + video guides, fetched 2026-11-12)
+
+Nimbus is a **separate product with its own subdomain** (`nimbus.bytexl.ai`),
+marketed as a "Project Building Platform" inside the byteXL suite (byteXL App /
+Nimbus / vLabs / Levels / Clarity / Hiring / Hackathon / Builder). It is a
+**self-hosted, cloud VS Code workspace**, not a feature of the LMS. Verbatim
+claims from the product page:
+
+- **Personal workspaces in seconds** — a student starts coding without setup.
+- **"Projects in an online VS Code"** — an online Visual Studio Code
+  environment to create projects.
+- **No installs, no data loss** — no local software/compatibility issues; work
+  is server-side.
+- **Templates for real-world builds** — pick a template to start "enterprise
+  applications or mobile apps".
+- **Industry-standard evaluation** — "evaluated on tools like **SonarQube**".
+- **Mobile resume** — "resume working wherever they want, including mobile
+  phones".
+
+The **Video Guides index** enumerates the stacks Nimbus actually supports, which
+is the clearest signal of the template catalog:
+
+| # | Guide | Implied template |
+|---|---|---|
+| 1 | Working with Python Flask | Python backend |
+| 2 | Working with Java | Java |
+| 3 | Working with Spring Boot | JVM backend |
+| 4 | Spring Boot + MongoDB | backend + DB |
+| 5 | SpringBoot + MongoDB + ReactJS | full-stack (MERN-like) |
+| 6 | **How to publish the code to GitHub** | built-in **Source Control** tab → push to GitHub |
+| 7 | **NOS** | Network Operating System / infra projects |
+| 8 | **Nimbus Submissions** | the submission flow |
+
+The **Jan'26 platform-updates video** ("Deploy Projects in 1 Click, Fork
+Workspaces & Smarter Dashboard") confirms the three newest capabilities:
+
+- **One-click backend deployment** — "turn your backend projects live
+  instantly" and publish them.
+- **Project forking** — "fork templates **or your own workspaces**".
+- **Smarter dashboard** — "Up Next" and one-click "Resume Learning".
+
+**What this means for us.** Nimbus ≈ *a persistent, forkable VS Code workspace
+with a framework template catalog, built-in git (GitHub publish), one-click
+hosting, and SonarQube-style auto-evaluation, feeding a multi-artifact
+submission + trainer scoring flow.* Everything except hosting and the template
+catalog maps onto primitives we already own: the `LabProvider` seam
+(provisioning), the ports/repository pattern, the async-launch shape, and the
+AI plane's `quality.py`. Two deliberate differences: ByteXL ships Nimbus as a
+**separate product/subdomain**, whereas we fold it into one platform; and ByteXL
+uses **SonarQube**, whereas we extend `quality.py` (ADR-13) to keep the license
+gate permissive-only.
 
 ---
 
@@ -139,14 +194,19 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 
 ### 2.5 Projects (ByteXL "Nimbus")
 
+ByteXL's Nimbus feature set (from §1.1), mapped to us:
+
 | Capability | Status | Gap |
 |---|---|---|
-| Cloud workspace with VS Code | **Missing** | Tier-3 vcluster is the substrate; no project workspace model |
-| Template fork | **Missing** | — |
-| Hosting (frontend/backend/DB) | **Missing** | — |
+| Cloud VS Code workspace (persistent) | **Partial** | Tier-2 pod / tier-3 vcluster already run `code-server`; no *project* workspace model or long-lived lifecycle |
+| Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Missing** | No template registry or fork source |
+| Fork a template **or own workspace** | **Missing** | — |
+| Built-in Source Control → publish to GitHub | **Missing** | No git integration in the workspace; submission takes a GitHub URL as free text |
+| One-click backend deployment + live URL | **Missing** | — |
 | SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer — **decided (ADR-13): extend it, no SonarQube/Semgrep** |
 | Submissions: workspace + GitHub URL + demo URL | **Missing** | — |
 | Trainer evaluation + score | **Missing** | — |
+| Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget |
 
 ### 2.6 Runtime / scale
 
@@ -292,16 +352,52 @@ ByteXL's proctoring is their moat on exams; this is where we must match.
 - [ ] Load test: 500 concurrent launches; tier-1 boot < 2 s; claim < 1.5 s.
 - [ ] Exit criterion: the numbers above hold under load.
 
-### Phase E — Projects / Nimbus equivalent (4 ew)
+### Phase E — Projects / Nimbus equivalent (3–4 ew core, +1–3 hosting)
 
-- [ ] `Project` and `Workspace` domain objects; template workspace + fork.
-- [ ] Hosting: deploy a forked workspace to a subdomain (tier-3 vcluster).
-- [ ] Submissions: workspace link, GitHub URL, demo URL; trainer evaluation
-      with a score.
-- [ ] Quality gate: extend the in-house `quality.py` (**decided, ADR-13**); no
-      SonarQube/Semgrep, so the license gate stays permissive-only.
-- [ ] Exit criterion: instructor creates a project; student forks, builds,
-      submits; trainer scores it.
+Built as a forkable, IDE-backed project workspace that **reuses the
+`LabProvider` seam for provisioning** — no second execution plane. Deliver in
+sub-milestones so each ends demonstrable and CI-green:
+
+- [ ] **E0 — Domain + persistence.** Contracts (`Project`, `ProjectWorkspace`,
+      `ProjectFork`, `ProjectSubmission`) in `packages/contracts`; port
+      interfaces in `common/ports.ts`; in-memory + Prisma impls; Prisma models +
+      migration `…_projects`; seed a demo project. Unit tests only.
+- [ ] **E1 — Fork lifecycle.** `projects/project.service.ts` mirroring
+      `LabLaunchService`: validate membership + published status, provision via
+      injected `LabProvider` (tier-2 default, tier-3 opt-in), record a
+      `ProjectFork`, return immediately; `getFork` polls. Forks **must not** land
+      in `lab_sessions` (the operator's 30-min idle sweep would reap them) —
+      separate table + separate expiry policy.
+- [ ] **E2 — Template catalog + git publish.** A template registry (Flask, Java,
+      Spring Boot, Spring+Mongo, Spring+Mongo+React, NOS — mirroring ByteXL's
+      guides), seeded as `ProjectWorkspace.templateRef`; fork clones the template
+      into the workspace's git repo. Built-in Source Control → **publish to
+      GitHub** (ByteXL's guide #6) as an API action, not free-text submission.
+- [ ] **E3 — Submission + evaluation.** `submit(forkId, {workspaceRef, githubUrl,
+      demoUrl})`, tenant-scoped `listSubmissions`, role-gated `evaluate(id,
+      {score, feedback})`. Auto-quality via a new `ai-bridge` client calling the
+      AI plane `POST /v1/quality/score` (no client exists today; add
+      `AI_BASE_URL` to `env.ts`). Quality gate: extend `quality.py` (**ADR-13**);
+      no SonarQube/Semgrep, so the license gate stays permissive-only.
+- [ ] **E4 — HTTP + web.** `ProjectsController`, `PROJECT` token, module factory,
+      role gating matching existing checks; `env.ts` gains `PROJECTS_ENABLED`,
+      `PROJECTS_TIER`, `AI_BASE_URL`. Replace the `/nimbus` `SurfacePage`
+      placeholder: student view (list → detail → Fork → IDE link → submit →
+      feedback) and instructor view (create, attach templates, publish,
+      evaluate). Proxy routes under `app/api/projects/**`.
+- [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes a fork
+      via a per-fork ingress (reuse `PodProvider`'s namespace+ingress builders);
+      `demoUrl` = that ingress. **Scope v1 to single-service apps**;
+      multi-service frontend+backend+DB is E5.1. Can ship after parity.
+- [ ] **E6 — Dashboard resume + docs.** "Up Next"/"Resume Learning" widget
+      (ByteXL's smarter dashboard); README/AGENTS notes; parity checkboxes.
+- [ ] Exit criterion (unchanged): instructor creates a project; student forks,
+      builds, submits; trainer scores it.
+
+**Open decisions before E0:** (1) git backend for fork/template — recommend
+self-hosted **Gitea** over GitHub template repos; (2) hosting in v1 or deferred
+— recommend deferred (E5) so it cannot block parity; (3) fork tier — recommend
+**tier-2 default, tier-3 opt-in**; (4) long-lived-fork cost/quota policy.
 
 ### Phase F — AI differentiation (3 ew)
 
@@ -373,6 +469,11 @@ All previously open items now have an owner decision. Recorded as ADRs in
 5. ~~**KubeLab integration depth** — adapter-only vs. thin fork for native
    tier-2.~~ **Decided (ADR-8, 2026-11-11): adapter-only, no fork.** Revisit at
    Phase E if one exercise format across tiers outweighs a clean upstream.
+   **Phase-E revisit (2026-11-12): still adapter-only.** Nimbus-style projects
+   are *git-based, persistent workspaces* — the existing `LabProvider` seam
+   provisions them without a KubeLab fork, and the template/fork/hosting
+   concerns live entirely in our layer. A fork would buy nothing here, so ADR-8
+   stands and the revisit trigger is closed.
 6. **First segment → both (ADR-16).** Degree colleges and bootcamps from one
    platform, differentiated by plan/tenancy depth rather than a separate build.
 7. **SEB depth → browser proctoring for v1 (ADR-17).** Full Safe Exam Browser
