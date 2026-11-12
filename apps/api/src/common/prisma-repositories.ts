@@ -1,5 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import type {
+  BatchRecord,
+  BatchRepository,
+  EnrollmentRecord,
+  EnrollmentRepository,
   EventLedger,
   LabSessionRecord,
   LabSessionRepository,
@@ -144,6 +148,72 @@ export class PrismaProgressRepository implements ProgressRepository {
     });
     return toProgress(p);
   }
+  async listByUsers(userIds: string[]): Promise<LessonProgressRecord[]> {
+    if (userIds.length === 0) return [];
+    const rows = await this.db.lessonProgress.findMany({
+      where: { userId: { in: userIds } },
+    });
+    return rows.map(toProgress);
+  }
+}
+
+export class PrismaBatchRepository implements BatchRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: {
+    tenantId: string;
+    name: string;
+    departmentId?: string | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
+  }): Promise<BatchRecord> {
+    const b = await this.db.academicBatch.create({
+      data: {
+        tenantId: input.tenantId,
+        name: input.name,
+        departmentId: input.departmentId ?? null,
+        startDate: input.startDate ?? null,
+        endDate: input.endDate ?? null,
+      },
+    });
+    return toBatch(b);
+  }
+  async findById(id: string): Promise<BatchRecord | null> {
+    const b = await this.db.academicBatch.findUnique({ where: { id } });
+    return b ? toBatch(b) : null;
+  }
+  async listByTenant(tenantId: string): Promise<BatchRecord[]> {
+    const rows = await this.db.academicBatch.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toBatch);
+  }
+}
+
+export class PrismaEnrollmentRepository implements EnrollmentRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async assign(input: {
+    userId: string;
+    courseId: string;
+    batchId?: string | null;
+  }): Promise<EnrollmentRecord> {
+    // Upsert on the (userId, courseId) unique key: re-assigning the same course
+    // updates the batch instead of violating the constraint.
+    const e = await this.db.enrollment.upsert({
+      where: { userId_courseId: { userId: input.userId, courseId: input.courseId } },
+      update: input.batchId == null ? {} : { batchId: input.batchId },
+      create: {
+        userId: input.userId,
+        courseId: input.courseId,
+        batchId: input.batchId ?? null,
+      },
+    });
+    return toEnrollment(e);
+  }
+  async listByBatch(batchId: string): Promise<EnrollmentRecord[]> {
+    const rows = await this.db.enrollment.findMany({ where: { batchId } });
+    return rows.map(toEnrollment);
+  }
 }
 
 export class PrismaLabSessionRepository implements LabSessionRepository {
@@ -230,6 +300,12 @@ type ProgressRow = Awaited<
 type LabSessionRow = Awaited<
   ReturnType<PrismaClient['labSession']['findUniqueOrThrow']>
 >;
+type BatchRow = Awaited<
+  ReturnType<PrismaClient['academicBatch']['findUniqueOrThrow']>
+>;
+type EnrollmentRow = Awaited<
+  ReturnType<PrismaClient['enrollment']['findUniqueOrThrow']>
+>;
 
 function toTenant(t: TenantRow): TenantRecord {
   return {
@@ -281,5 +357,25 @@ function toLabSession(s: LabSessionRow): LabSessionRecord {
     startedAt: s.startedAt,
     lastActivityAt: s.lastActivityAt,
     ttlSeconds: s.ttlSeconds,
+  };
+}
+
+function toBatch(b: BatchRow): BatchRecord {
+  return {
+    id: b.id,
+    tenantId: b.tenantId,
+    name: b.name,
+    departmentId: b.departmentId ?? null,
+    startDate: b.startDate ?? null,
+    endDate: b.endDate ?? null,
+  };
+}
+
+function toEnrollment(e: EnrollmentRow): EnrollmentRecord {
+  return {
+    id: e.id,
+    userId: e.userId,
+    courseId: e.courseId,
+    batchId: e.batchId ?? null,
   };
 }

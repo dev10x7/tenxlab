@@ -1,5 +1,5 @@
 import type { ProgressRepository } from '../common/ports';
-import { DEMO_COURSES, type DemoCourse } from './demo-data';
+import { courseIdForSlug, DEMO_COURSES, type DemoCourse } from './demo-data';
 
 export interface LessonSummaryDto {
   id: string;
@@ -10,6 +10,8 @@ export interface LessonSummaryDto {
 }
 
 export interface CourseSummaryDto {
+  /** Stable system-of-record course id; used by enrolment, not display. */
+  id: string;
   slug: string;
   title: string;
   description: string;
@@ -50,6 +52,7 @@ export class CatalogService {
       });
     }
     return {
+      id: courseIdForSlug(course.slug),
       slug: course.slug,
       title: course.title,
       description: course.description,

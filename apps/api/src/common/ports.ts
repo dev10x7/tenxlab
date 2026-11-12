@@ -62,6 +62,22 @@ export interface LessonProgressRecord {
   completedAt?: Date | null;
 }
 
+export interface BatchRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  departmentId?: string | null;
+  startDate?: Date | null;
+  endDate?: Date | null;
+}
+
+export interface EnrollmentRecord {
+  id: string;
+  userId: string;
+  courseId: string;
+  batchId?: string | null;
+}
+
 export interface TenantRepository {
   findById(id: string): Promise<TenantRecord | null>;
   findByDomain(domain: string): Promise<TenantRecord | null>;
@@ -109,6 +125,34 @@ export interface ProgressRepository {
     lessonId: string,
     patch: Partial<LessonProgressRecord>,
   ): Promise<LessonProgressRecord>;
+  /** All progress rows for a set of users; backs the instructor gradebook. */
+  listByUsers(userIds: string[]): Promise<LessonProgressRecord[]>;
+}
+
+export interface BatchRepository {
+  create(input: {
+    tenantId: string;
+    name: string;
+    departmentId?: string | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
+  }): Promise<BatchRecord>;
+  findById(id: string): Promise<BatchRecord | null>;
+  listByTenant(tenantId: string): Promise<BatchRecord[]>;
+}
+
+export interface EnrollmentRepository {
+  /**
+   * Enrol a user on a course within a batch. Idempotent: a repeat for the same
+   * (user, course) pair returns the existing row rather than failing on the
+   * unique constraint, so a re-run of an assignment is safe.
+   */
+  assign(input: {
+    userId: string;
+    courseId: string;
+    batchId?: string | null;
+  }): Promise<EnrollmentRecord>;
+  listByBatch(batchId: string): Promise<EnrollmentRecord[]>;
 }
 
 /** Idempotency ledger for inbound events (webhooks). */

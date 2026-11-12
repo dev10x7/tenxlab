@@ -7,7 +7,7 @@
  * re-running it does not duplicate rows.
  */
 import { PrismaClient } from '@prisma/client';
-import { DEMO_COURSES } from './catalog/demo-data';
+import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from './catalog/demo-data';
 import { DEMO_USERS } from './identity/demo-users';
 
 export async function seed(db: PrismaClient): Promise<void> {
@@ -44,7 +44,7 @@ export async function seed(db: PrismaClient): Promise<void> {
 
   for (const course of DEMO_COURSES) {
     // Course ids are not in the demo corpus; derive a stable id from the slug.
-    const courseId = `course-${course.slug}`;
+    const courseId = courseIdForSlug(course.slug);
     await db.course.upsert({
       where: { id: courseId },
       update: { title: course.title, description: course.description, status: 'published' },
@@ -80,6 +80,36 @@ export async function seed(db: PrismaClient): Promise<void> {
         create: { id: lesson.id, moduleId: lesson.moduleId, ...fields },
       });
     }
+  }
+
+  // A demo batch with the seeded student enrolled, so the instructor gradebook
+  // is populated on first boot.
+  await db.academicBatch.upsert({
+    where: { id: DEMO_BATCH.id },
+    update: { name: DEMO_BATCH.name },
+    create: {
+      id: DEMO_BATCH.id,
+      tenantId: DEMO_BATCH.tenantId,
+      name: DEMO_BATCH.name,
+    },
+  });
+
+  const firstCourse = DEMO_COURSES[0];
+  if (firstCourse) {
+    await db.enrollment.upsert({
+      where: {
+        userId_courseId: {
+          userId: 'demo-student',
+          courseId: courseIdForSlug(firstCourse.slug),
+        },
+      },
+      update: { batchId: DEMO_BATCH.id },
+      create: {
+        userId: 'demo-student',
+        courseId: courseIdForSlug(firstCourse.slug),
+        batchId: DEMO_BATCH.id,
+      },
+    });
   }
 }
 

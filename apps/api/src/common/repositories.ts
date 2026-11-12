@@ -1,4 +1,6 @@
 import type {
+  BatchRepository,
+  EnrollmentRepository,
   EventLedger,
   LabSessionRepository,
   LessonRepository,
@@ -22,6 +24,8 @@ export interface Repositories {
   lessons: LessonRepository;
   sessions: LabSessionRepository;
   progress: ProgressRepository;
+  batches: BatchRepository;
+  enrollments: EnrollmentRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

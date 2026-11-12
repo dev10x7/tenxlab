@@ -118,7 +118,6 @@ const BATCHES: NavItem = {
   label: 'Batches',
   icon: '⬢',
   blurb: 'Manage student cohorts and their assignments.',
-  phase: 'P2',
 };
 
 const QUESTION_BANK: NavItem = {
@@ -134,7 +133,6 @@ const GRADING: NavItem = {
   label: 'Grading',
   icon: '✎',
   blurb: 'Review submissions, proctoring risk, and override scores.',
-  phase: 'P2',
 };
 
 const PROCTORING: NavItem = {

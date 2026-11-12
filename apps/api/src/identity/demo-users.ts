@@ -29,6 +29,14 @@ export const DEMO_USERS: DemoUser[] = [
     tenantId: 'demo-tenant',
     role: 'instructor',
   },
+  {
+    id: 'demo-admin',
+    email: 'admin@tenxlab.local',
+    fullName: 'Demo Admin',
+    password: 'demo1234',
+    tenantId: 'demo-tenant',
+    role: 'admin',
+  },
 ];
 
 export function findDemoUserByEmail(email: string): DemoUser | null {

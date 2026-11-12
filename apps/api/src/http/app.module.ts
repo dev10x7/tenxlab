@@ -7,6 +7,7 @@ import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService } from '../identity/session.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { BatchService } from '../batches/batch.service';
 import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
@@ -15,6 +16,7 @@ import { createDemoState, createPrismaState, resolveLessonId } from '../demo/sta
 import type { Repositories } from '../common/repositories';
 import {
   AuthController,
+  BatchesController,
   CatalogController,
   JwksController,
   LabAssetController,
@@ -22,9 +24,9 @@ import {
   PartnerSsoController,
   WebhookController,
 } from './controllers';
-import { CATALOG, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, SESSION, SSO, STORE } from './tokens';
+import { BATCH, CATALOG, ENV, GRADEBOOK, JWT, LAUNCH, PROVIDER, SESSION, SSO, STORE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH };
 
 const DEMO_STATE = createDemoState();
 
@@ -58,6 +60,7 @@ const STORE_PROVIDER = {
     LabController,
     LabAssetController,
     WebhookController,
+    BatchesController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -83,6 +86,21 @@ const STORE_PROVIDER = {
       inject: [STORE],
       useFactory: (store: Repositories) =>
         new CatalogService(store.progress, DEMO_COURSES),
+    },
+    {
+      provide: BATCH,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new BatchService(
+          store.batches,
+          store.enrollments,
+          store.memberships,
+          store.users,
+          store.progress,
+          // The gradebook columns are the lessons of the demo course the
+          // batches are built around.
+          DEMO_COURSES[0]?.lessons.map((l) => ({ id: l.id, title: l.title })) ?? [],
+        ),
     },
     {
       provide: SSO,

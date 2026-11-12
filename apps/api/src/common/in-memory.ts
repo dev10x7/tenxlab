@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  BatchRecord,
+  BatchRepository,
+  EnrollmentRecord,
+  EnrollmentRepository,
   EventLedger,
   LabSessionRecord,
   LabSessionRepository,
@@ -144,6 +148,74 @@ export class InMemoryProgressRepository implements ProgressRepository {
     };
     this.rows.push(row);
     return row;
+  }
+  async listByUsers(userIds: string[]) {
+    const wanted = new Set(userIds);
+    return this.rows.filter((p) => wanted.has(p.userId));
+  }
+}
+
+export class InMemoryBatchRepository implements BatchRepository {
+  constructor(private readonly rows: BatchRecord[] = []) {}
+  async create(input: {
+    tenantId: string;
+    name: string;
+    departmentId?: string | null;
+    startDate?: Date | null;
+    endDate?: Date | null;
+  }) {
+    const row: BatchRecord = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      name: input.name,
+      departmentId: input.departmentId ?? null,
+      startDate: input.startDate ?? null,
+      endDate: input.endDate ?? null,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((b) => b.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows.filter((b) => b.tenantId === tenantId);
+  }
+  seed(b: BatchRecord) {
+    this.rows.push(b);
+  }
+}
+
+export class InMemoryEnrollmentRepository implements EnrollmentRepository {
+  constructor(private readonly rows: EnrollmentRecord[] = []) {}
+  async assign(input: {
+    userId: string;
+    courseId: string;
+    batchId?: string | null;
+  }) {
+    const existing = this.rows.find(
+      (e) => e.userId === input.userId && e.courseId === input.courseId,
+    );
+    if (existing) {
+      // Preserve the idempotent contract: re-assigning may attach a batch but
+      // never creates a second row for the same course.
+      if (input.batchId != null) existing.batchId = input.batchId;
+      return existing;
+    }
+    const row: EnrollmentRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      courseId: input.courseId,
+      batchId: input.batchId ?? null,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByBatch(batchId: string) {
+    return this.rows.filter((e) => e.batchId === batchId);
+  }
+  seed(e: EnrollmentRecord) {
+    this.rows.push(e);
   }
 }
 

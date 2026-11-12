@@ -19,6 +19,7 @@ export interface LessonSummary {
 }
 
 export interface CourseSummary {
+  id: string;
   slug: string;
   title: string;
   description: string;
@@ -60,6 +61,44 @@ export interface LabSession {
   ideUrl: string | null;
 }
 
+export interface BatchSummary {
+  id: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  studentCount: number;
+}
+
+export interface RosterEntry {
+  userId: string;
+  fullName: string;
+  email: string;
+}
+
+export interface GradebookCell {
+  lessonId: string;
+  title: string;
+  status: string;
+  score: number | null;
+}
+
+export interface GradebookRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  completed: number;
+  total: number;
+  averageScore: number | null;
+  cells: GradebookCell[];
+}
+
+export interface Gradebook {
+  batchId: string;
+  batchName: string;
+  lessons: Array<{ id: string; title: string }>;
+  rows: GradebookRow[];
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -77,4 +116,20 @@ export const api = {
     }),
   labSession: (sessionId: string) =>
     request<LabSession>(`/api/labs/sessions/${encodeURIComponent(sessionId)}`),
+  batches: () => request<BatchSummary[]>('/api/batches'),
+  createBatch: (name: string) =>
+    request<BatchSummary>('/api/batches', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  students: () => request<RosterEntry[]>('/api/batches/students'),
+  batchRoster: (batchId: string) =>
+    request<RosterEntry[]>(`/api/batches/${encodeURIComponent(batchId)}/roster`),
+  gradebook: (batchId: string) =>
+    request<Gradebook>(`/api/batches/${encodeURIComponent(batchId)}/gradebook`),
+  assignStudent: (batchId: string, userId: string, courseId: string) =>
+    request<{ ok: true }>(`/api/batches/${encodeURIComponent(batchId)}/students`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, courseId }),
+    }),
 };

@@ -9,3 +9,4 @@ export const CATALOG = 'TENXLAB_CATALOG';
 export const PROVIDER = 'TENXLAB_LAB_PROVIDER';
 export const PROGRESS = 'TENXLAB_PROGRESS';
 export const STORE = 'TENXLAB_STORE';
+export const BATCH = 'TENXLAB_BATCH';

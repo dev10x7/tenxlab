@@ -164,6 +164,26 @@ label {
   margin-top: 12px;
 }
 
+.gradebook {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.gradebook th,
+.gradebook td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.gradebook thead th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .progress {
   height: 8px;
   border-radius: 999px;

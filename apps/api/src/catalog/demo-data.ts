@@ -69,6 +69,25 @@ export const DEMO_COURSES: DemoCourse[] = [
 ];
 
 /**
+ * The demo academic batch the seeded student belongs to, so the instructor
+ * gradebook has a roster on first boot without any manual setup.
+ */
+export const DEMO_BATCH = {
+  id: 'demo-batch-2026',
+  tenantId: 'demo-tenant',
+  name: 'Demo Batch 2026',
+};
+
+/**
+ * Stable course id for a catalog slug. Course ids are not part of the demo
+ * corpus (which is keyed by slug), so the system of record derives one here and
+ * every writer — the seed, the catalog DTO, enrolments — uses the same rule.
+ */
+export function courseIdForSlug(slug: string): string {
+  return `course-${slug}`;
+}
+
+/**
  * Exercise registry: maps an LMS exercise slug to the KubeLab lab/exercise to
  * materialise, plus the script URLs the KubeLab agent fetches from inside the
  * cluster. The scripts themselves are served by this API (see labs/assets).

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   HttpCode,
@@ -24,8 +25,9 @@ import { findDemoUserByEmail } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { BatchService } from '../batches/batch.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
-import { CATALOG, GRADEBOOK, JWT, LAUNCH, SESSION, SSO } from './tokens';
+import { BATCH, CATALOG, GRADEBOOK, JWT, LAUNCH, SESSION, SSO } from './tokens';
 
 @Controller()
 export class JwksController {
@@ -197,5 +199,93 @@ export class WebhookController {
       return res.status(result.status).json({ message: result.message });
     }
     return res.json({ received: true, duplicate: result.duplicate });
+  }
+}
+
+/**
+ * Cohort management and the instructor gradebook. Read endpoints are open to
+ * any signed-in member of the tenant; writes require instructor or admin, so a
+ * student cannot create a batch or alter a roster.
+ */
+@Controller('api/batches')
+export class BatchesController {
+  constructor(
+    @Inject(BATCH) private readonly batches: BatchService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get()
+  async list(@Req() req: Request) {
+    return this.batches.listBatches(this.requireSession(req).tenantId);
+  }
+
+  @Post()
+  async create(@Body() body: { name?: string }, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const name = body?.name?.trim();
+    if (!name) throw new BadRequestException('name is required');
+    return this.batches.createBatch({ tenantId: session.tenantId, name });
+  }
+
+  /** Students of the tenant, for the assignment picker. */
+  @Get('students')
+  async students(@Req() req: Request) {
+    return this.batches.listStudents(this.requireSession(req).tenantId);
+  }
+
+  @Get(':id/roster')
+  async roster(@Param('id') id: string, @Req() req: Request) {
+    const roster = await this.batches.roster(id, this.requireSession(req).tenantId);
+    if (!roster) throw new NotFoundException('Batch not found');
+    return roster;
+  }
+
+  @Get(':id/gradebook')
+  async gradebook(@Param('id') id: string, @Req() req: Request) {
+    const gradebook = await this.batches.gradebook(
+      id,
+      this.requireInstructor(req).tenantId,
+    );
+    if (!gradebook) throw new NotFoundException('Batch not found');
+    return gradebook;
+  }
+
+  @Post(':id/students')
+  @HttpCode(201)
+  async assign(
+    @Param('id') id: string,
+    @Body() body: { userId?: string; courseId?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    if (!body?.userId) throw new BadRequestException('userId is required');
+    if (!body?.courseId) throw new BadRequestException('courseId is required');
+    const result = await this.batches.assign({
+      batchId: id,
+      userId: body.userId,
+      courseId: body.courseId,
+      tenantId: session.tenantId,
+    });
+    if (!result.ok) {
+      if (result.reason === 'batch_not_found') {
+        throw new NotFoundException('Batch not found');
+      }
+      throw new BadRequestException('Only students of this institution can be assigned');
+    }
+    return { ok: true };
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
   }
 }

@@ -75,3 +75,26 @@ export function courseProgress(lessons: Array<{ status: string }>): number {
   const done = lessons.filter((l) => l.status === 'complete').length;
   return Math.min(100, Math.max(0, Math.round((done / lessons.length) * 100)));
 }
+
+/** One-line gradebook summary for a roster row, e.g. "1/2 lessons · avg 90%". */
+export function gradebookRowSummary(row: {
+  completed: number;
+  total: number;
+  averageScore: number | null;
+}): string {
+  const progress = `${row.completed}/${row.total} lessons`;
+  return row.averageScore == null
+    ? `${progress} · not graded`
+    : `${progress} · avg ${row.averageScore}%`;
+}
+
+/** Short label for a gradebook cell: the score, or the progress status. */
+export function gradebookCellLabel(cell: {
+  status: string;
+  score: number | null;
+}): string {
+  if (cell.score != null) return `${cell.score}%`;
+  if (cell.status === 'in_progress') return 'In progress';
+  if (cell.status === 'complete') return 'Done';
+  return '—';
+}

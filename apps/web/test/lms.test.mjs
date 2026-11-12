@@ -6,6 +6,8 @@ import {
   lessonStatusLabel,
   courseProgress,
   proxyFetchInit,
+  gradebookRowSummary,
+  gradebookCellLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -60,4 +62,22 @@ test('proxyFetchInit disables caching so session polls see fresh status', () => 
   });
   assert.equal(init.cache, 'no-store');
   assert.equal(init.redirect, 'manual');
+});
+
+test('gradebookRowSummary reports progress and average', () => {
+  assert.equal(
+    gradebookRowSummary({ completed: 1, total: 2, averageScore: 90 }),
+    '1/2 lessons · avg 90%',
+  );
+  assert.equal(
+    gradebookRowSummary({ completed: 0, total: 2, averageScore: null }),
+    '0/2 lessons · not graded',
+  );
+});
+
+test('gradebookCellLabel prefers the score, then the status', () => {
+  assert.equal(gradebookCellLabel({ status: 'complete', score: 88 }), '88%');
+  assert.equal(gradebookCellLabel({ status: 'complete', score: null }), 'Done');
+  assert.equal(gradebookCellLabel({ status: 'in_progress', score: null }), 'In progress');
+  assert.equal(gradebookCellLabel({ status: 'not_started', score: null }), '—');
 });

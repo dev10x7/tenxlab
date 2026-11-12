@@ -49,3 +49,12 @@ test('activeHref returns null when nothing matches', () => {
   assert.equal(activeHref('/login', 'student'), null);
   assert.equal(activeHref('/', 'student'), null);
 });
+
+test('batches and grading are reachable P1 surfaces (no phase badge)', () => {
+  const items = navItems('instructor');
+  for (const href of ['/batches', '/grading']) {
+    const item = items.find((i) => i.href === href);
+    assert.ok(item, `instructor nav has ${href}`);
+    assert.equal(item.phase, undefined, `${href} is a live P1 surface`);
+  }
+});

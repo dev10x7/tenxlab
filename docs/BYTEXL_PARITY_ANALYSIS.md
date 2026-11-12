@@ -67,6 +67,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | RS256 launch JWT + JWKS | **Done** | `/.well-known/jwks.json` |
 | Partner HS256 SSO | **Done** | `identity/partner-sso.service.ts` + jti replay guard |
 | Idempotent gradebook webhook | **Done** | `gradebook/gradebook-webhook.service.ts` |
+| Batches, enrolment & gradebook UI | **Done** | `batches/batch.service.ts` + `/batches`, `/grading` pages; tenant-scoped, role-gated |
 | Copyleft license gate | **Done** | `scripts/check-licenses.mjs` (175 pkgs, clean) |
 | Next.js web client | **Partial** | ByteXL-style shell: role-aware sidebar (Dashboard/Learn/Catalog; Editor/Assessments/Nimbus; Labs+More), plus Lab launch, catalog, and course pages |
 
@@ -170,14 +171,16 @@ engineer; adjust for team size.
 
 Make the existing pieces work end-to-end before adding surface.
 
-- [ ] Persist to Postgres: implement Prisma-backed adapters for the ports in
+- [x] Persist to Postgres: implement Prisma-backed adapters for the ports in
       `apps/api/src/common/ports.ts` (in-memory stays for tests).
-- [ ] Auth end-to-end: session cookie issued by `apps/api`, consumed by
+- [x] Auth end-to-end: session cookie issued by `apps/api`, consumed by
       `apps/web` via the existing `/api/*` proxy routes.
 - [ ] Partner SSO landing page in the web app (`?reason=` error handling already
       stubbed in `lms.ts`).
 - [ ] Lab launch button → KubeLab `/launch?token=` verified against a real
       KubeLab instance in staging.
+- [x] Batch & gradebook UI: create a batch, assign students, read the gradebook
+      (`/batches`, `/grading`), backed by `batches/batch.service.ts`.
 - [ ] Exit criterion: instructor creates a batch; student SSO-links, launches a
       lab, and a graded score lands in the gradebook, all against Postgres.
 

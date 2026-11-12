@@ -125,6 +125,12 @@ and drove the adapter against it end to end. Findings that shaped the adapter:
 ## Gotchas
 
 - Clean `dist/` before trusting a test count; stale compiled tests inflate it.
+- Enrolment is keyed on `(userId, courseId)` (unique), so re-assigning the same
+  student+course to a *different* batch moves the enrolment rather than adding a
+  second roster row. `BatchService.assign` is idempotent by design.
+- Course ids are derived from the catalog slug via `courseIdForSlug` in
+  `catalog/demo-data.ts`; the seed, the catalog DTO, and enrolment all use it, so
+  they must stay in step.
 - Next.js: any client component calling `useSearchParams()` must sit inside a
   `<Suspense>` boundary or `next build` fails prerendering.
 - The web shell (`AppShell`) lives in the root layout and persists across

@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PrismaClient } from '@prisma/client';
 import {
+  PrismaBatchRepository,
+  PrismaEnrollmentRepository,
   PrismaEventLedger,
   PrismaLabSessionRepository,
   PrismaLessonRepository,
@@ -136,6 +138,34 @@ test(
       const replay = new PrismaReplayGuard(db);
       assert.equal(await replay.claim(`jti-${suffix}`, 'partner'), true);
       assert.equal(await replay.claim(`jti-${suffix}`, 'partner'), false);
+
+      // --- batches and enrolments
+      const batches = new PrismaBatchRepository(db);
+      const batch = await batches.create({ tenantId, name: 'Integration Batch' });
+      assert.equal(batch.name, 'Integration Batch');
+      assert.equal((await batches.findById(batch.id))?.tenantId, tenantId);
+      assert.equal((await batches.listByTenant(tenantId)).length, 1);
+
+      const enrollments = new PrismaEnrollmentRepository(db);
+      const e1 = await enrollments.assign({
+        userId: created.id,
+        courseId,
+        batchId: batch.id,
+      });
+      assert.equal(e1.batchId, batch.id);
+      // Re-assigning the same course upserts rather than duplicating.
+      const e2 = await enrollments.assign({
+        userId: created.id,
+        courseId,
+        batchId: batch.id,
+      });
+      assert.equal(e2.id, e1.id);
+      assert.equal((await enrollments.listByBatch(batch.id)).length, 1);
+
+      // --- progress listByUsers feeds the gradebook
+      const forUsers = await progress.listByUsers([created.id]);
+      assert.equal(forUsers.length, 1);
+      assert.equal(forUsers[0]?.score, 90);
     } finally {
       // Cascades clean up memberships, progress, sessions, lessons, modules.
       await db.tenant.deleteMany({ where: { id: tenantId } });

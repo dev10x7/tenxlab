@@ -1,5 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
+  InMemoryBatchRepository,
+  InMemoryEnrollmentRepository,
   InMemoryEventLedger,
   InMemoryLabSessionRepository,
   InMemoryLessonRepository,
@@ -10,6 +12,8 @@ import {
   InMemoryUserRepository,
 } from '../common/in-memory';
 import {
+  PrismaBatchRepository,
+  PrismaEnrollmentRepository,
   PrismaEventLedger,
   PrismaLabSessionRepository,
   PrismaLessonRepository,
@@ -20,7 +24,7 @@ import {
   PrismaUserRepository,
 } from '../common/prisma-repositories';
 import type { Repositories } from '../common/repositories';
-import { DEMO_COURSES } from '../catalog/demo-data';
+import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from '../catalog/demo-data';
 import { DEMO_USERS } from '../identity/demo-users';
 
 /**
@@ -36,6 +40,8 @@ export interface DemoState extends Repositories {
   lessons: InMemoryLessonRepository;
   sessions: InMemoryLabSessionRepository;
   progress: InMemoryProgressRepository;
+  batches: InMemoryBatchRepository;
+  enrollments: InMemoryEnrollmentRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -80,6 +86,28 @@ export function createDemoState(): DemoState {
     ),
   );
 
+  const batches = new InMemoryBatchRepository([
+    {
+      id: DEMO_BATCH.id,
+      tenantId: DEMO_BATCH.tenantId,
+      name: DEMO_BATCH.name,
+      departmentId: null,
+      startDate: null,
+      endDate: null,
+    },
+  ]);
+
+  // The demo student is already in the demo batch, so the instructor gradebook
+  // has a roster the moment the stack boots.
+  const enrollments = new InMemoryEnrollmentRepository([
+    {
+      id: 'enrollment-demo-student',
+      userId: 'demo-student',
+      courseId: courseIdForSlug(DEMO_COURSES[0]?.slug ?? 'kubernetes-foundations'),
+      batchId: DEMO_BATCH.id,
+    },
+  ]);
+
   return {
     tenants,
     users,
@@ -87,6 +115,8 @@ export function createDemoState(): DemoState {
     lessons,
     sessions: new InMemoryLabSessionRepository(),
     progress: new InMemoryProgressRepository(),
+    batches,
+    enrollments,
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -101,6 +131,8 @@ export function createPrismaState(db: PrismaClient): Repositories {
     lessons: new PrismaLessonRepository(db),
     sessions: new PrismaLabSessionRepository(db),
     progress: new PrismaProgressRepository(db),
+    batches: new PrismaBatchRepository(db),
+    enrollments: new PrismaEnrollmentRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };
