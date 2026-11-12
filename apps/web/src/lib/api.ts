@@ -27,6 +27,20 @@ export interface CourseSummary {
   lessons: LessonSummary[];
 }
 
+/** A single lesson opened in the viewer. */
+export interface LessonDetail {
+  id: string;
+  title: string;
+  kind: 'video' | 'reading' | 'lab' | 'quiz';
+  status: 'not_started' | 'in_progress' | 'complete';
+  score?: number | null;
+  hint?: string;
+  body?: string;
+  assessmentId?: string;
+  courseSlug: string;
+  courseTitle: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -217,6 +231,10 @@ export const api = {
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
   courses: () => request<CourseSummary[]>('/api/catalog/courses'),
   course: (slug: string) => request<CourseSummary>(`/api/catalog/courses/${slug}`),
+  lesson: (slug: string, lessonId: string) =>
+    request<LessonDetail>(
+      `/api/catalog/courses/${encodeURIComponent(slug)}/lessons/${encodeURIComponent(lessonId)}`,
+    ),
   launchLab: (lessonId: string) =>
     request<LabSession>('/api/labs/launch', {
       method: 'POST',

@@ -79,6 +79,37 @@ test('catalog returns null for an unknown course', async () => {
   assert.equal(await catalog.getCourse('nope', 'u1'), null);
 });
 
+test('lesson detail returns the reading body and the owning course', async () => {
+  const catalog = new CatalogService(new InMemoryProgressRepository());
+  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l1', 'u1');
+  assert.equal(lesson?.title, 'What is Kubernetes?');
+  assert.equal(lesson?.kind, 'reading');
+  assert.equal(lesson?.courseSlug, 'kubernetes-foundations');
+  assert.match(lesson?.body ?? '', /control loop/);
+});
+
+test('lesson detail carries the assessment id for a quiz lesson', async () => {
+  const catalog = new CatalogService(new InMemoryProgressRepository());
+  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l3', 'u1');
+  assert.equal(lesson?.kind, 'quiz');
+  assert.equal(lesson?.assessmentId, 'k8s-quiz-1');
+});
+
+test('lesson detail reflects the student progress record', async () => {
+  const progress = new InMemoryProgressRepository();
+  await progress.upsert('u1', 'k8s-l2', { status: 'complete', score: 90 });
+  const catalog = new CatalogService(progress);
+  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l2', 'u1');
+  assert.equal(lesson?.status, 'complete');
+  assert.equal(lesson?.score, 90);
+});
+
+test('lesson detail returns null for a lesson the course does not own', async () => {
+  const catalog = new CatalogService(new InMemoryProgressRepository());
+  assert.equal(await catalog.getLesson('kubernetes-foundations', 'nope', 'u1'), null);
+  assert.equal(await catalog.getLesson('nope', 'k8s-l1', 'u1'), null);
+});
+
 test('demo course exposes exactly one launchable lab', () => {
   const labs = DEMO_COURSES.flatMap((c) => c.lessons).filter((l) => l.kind === 'lab');
   assert.equal(labs.length, 1);

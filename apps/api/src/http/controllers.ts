@@ -110,6 +110,21 @@ export class CatalogController {
     return course;
   }
 
+  @Get('courses/:slug/lessons/:lessonId')
+  async lesson(
+    @Param('slug') slug: string,
+    @Param('lessonId') lessonId: string,
+    @Req() req: Request,
+  ) {
+    const lesson = await this.catalog.getLesson(
+      slug,
+      lessonId,
+      this.requireSession(req).userId,
+    );
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    return lesson;
+  }
+
   private requireSession(req: Request): SessionPayload {
     const session = this.sessions.fromCookieHeader(req.headers.cookie);
     if (!session) throw new UnauthorizedException('Sign in required');

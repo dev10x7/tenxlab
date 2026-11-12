@@ -22,6 +22,13 @@ export interface DemoLesson {
   runtimeTier?: 'tier_1_microvm' | 'tier_2_container' | 'tier_3_vcluster';
   /** Progressive hint for a practice lab, revealed on request. */
   hint?: string;
+  /**
+   * Reading/video lesson text shown in the lesson viewer. Plain text; blank
+   * lines separate paragraphs and lines beginning with "- " render as bullets.
+   */
+  body?: string;
+  /** Quiz lessons only: the assessment id the viewer links to. */
+  assessmentId?: string;
 }
 
 export interface DemoModule {
@@ -55,6 +62,25 @@ export const DEMO_COURSES: DemoCourse[] = [
         kind: 'reading',
         type: 'reading',
         maxScore: 0,
+        body: [
+          'Kubernetes is a portable, extensible platform for running containerised',
+          'workloads. Instead of starting containers by hand, you describe the state',
+          'you want in a manifest and Kubernetes works continuously to match it.',
+          '',
+          'The core idea is the control loop: you declare a desired state, Kubernetes',
+          'observes the actual state, and it acts to close the gap. Everything else —',
+          'Pods, ReplicaSets, Services — is built from that one pattern.',
+          '',
+          'The objects you will use most:',
+          '- Pod — one or more containers that share a network and storage. The unit',
+          '  Kubernetes schedules.',
+          '- Deployment — a Pod template plus a desired replica count, so Pods are',
+          '  replaced automatically when they fail.',
+          '- Service — a stable name and virtual IP in front of a changing set of Pods.',
+          '',
+          'In the next lesson you will create a Pod yourself in a real cluster and see',
+          'the control loop at work.',
+        ].join('\n'),
       },
       {
         id: 'k8s-l2',
@@ -76,6 +102,7 @@ export const DEMO_COURSES: DemoCourse[] = [
         kind: 'quiz',
         type: 'quiz',
         maxScore: 100,
+        assessmentId: 'k8s-quiz-1',
       },
     ],
   },

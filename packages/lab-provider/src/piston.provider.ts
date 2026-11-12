@@ -43,18 +43,52 @@ export class PistonProvider implements CodeExecutionProvider {
   }
 
   async run(input: CodeRunInput): Promise<CodeRunResult> {
-    const body = {
+    const base = {
       language: input.runtime,
       version: this.version,
       files: [{ name: fileNameFor(input.runtime), content: input.source }],
       stdin: input.stdin ?? '',
-      run_timeout: input.runTimeoutMs ?? this.runTimeoutMs,
-      compile_timeout: this.compileTimeoutMs,
     };
 
-    let res: Response;
+    const res = await this.execute({
+      ...base,
+      run_timeout: input.runTimeoutMs ?? this.runTimeoutMs,
+      compile_timeout: this.compileTimeoutMs,
+    });
+
+    if (res.ok) {
+      const json = (await res.json()) as PistonResponse;
+      return normalize(json);
+    }
+
+    const text = await res.text().catch(() => '');
+
+    // Piston answers 400 with a message when the runtime is unknown; that is a
+    // normal outcome for a bad language pick, not a transport failure.
+    if (res.status === 400 && /runtime|language|version/i.test(text)) {
+      return unsupportedResult(text);
+    }
+
+    // A 400 saying a timeout exceeds the server's ceiling means this Piston is
+    // configured below our default (its stock run_timeout is 3000ms). The run is
+    // still valid, so retry once with the server's own limits rather than
+    // failing the student.
+    if (res.status === 400 && /cannot exceed the configured limit/i.test(text)) {
+      const retry = await this.execute(base);
+      if (retry.ok) {
+        const json = (await retry.json()) as PistonResponse;
+        return normalize(json);
+      }
+      const retryText = await retry.text().catch(() => '');
+      throw new LabProviderError(`Piston execute failed (${retry.status})`, retry.status, retryText);
+    }
+
+    throw new LabProviderError(`Piston execute failed (${res.status})`, res.status, text);
+  }
+
+  private async execute(body: Record<string, unknown>): Promise<Response> {
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/api/v2/execute`, {
+      return await this.fetchImpl(`${this.baseUrl}/api/v2/execute`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(body),
@@ -65,19 +99,6 @@ export class PistonProvider implements CodeExecutionProvider {
         502,
       );
     }
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      // Piston answers 400 with a message when the runtime is unknown; that is a
-      // normal outcome for a bad language pick, not a transport failure.
-      if (res.status === 400 && /runtime|language|version/i.test(text)) {
-        return unsupportedResult(text);
-      }
-      throw new LabProviderError(`Piston execute failed (${res.status})`, res.status, text);
-    }
-
-    const json = (await res.json()) as PistonResponse;
-    return normalize(json);
   }
 }
 

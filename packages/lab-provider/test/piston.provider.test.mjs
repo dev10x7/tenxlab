@@ -108,6 +108,25 @@ test('a 5xx from Piston raises a provider error', async () => {
   );
 });
 
+test('a run_timeout over the server ceiling retries without explicit limits', async () => {
+  let call = 0;
+  const fake = fakePiston(() => {
+    call += 1;
+    if (call === 1) {
+      return {
+        status: 400,
+        text: '{"message":"run_timeout cannot exceed the configured limit of 3000"}',
+      };
+    }
+    return { status: 200, body: { run: { stdout: 'ok\n', code: 0, signal: null } } };
+  });
+  const result = await provider(fake.impl).run({ runtime: 'python', source: 'print("ok")' });
+  assert.equal(fake.calls.length, 2);
+  assert.equal(fake.calls[0].body.run_timeout, 5000);
+  assert.equal(fake.calls[1].body.run_timeout, undefined);
+  assert.equal(result.stdout, 'ok\n');
+});
+
 test('run timeout defaults are overridable at construction', async () => {
   const fake = fakePiston(() => ({ status: 200, body: { run: { stdout: '', code: 0 } } }));
   await provider(fake.impl, { runTimeoutMs: 1234, compileTimeoutMs: 4321 }).run({

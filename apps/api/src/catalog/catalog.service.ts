@@ -20,6 +20,23 @@ export interface CourseSummaryDto {
   lessons: LessonSummaryDto[];
 }
 
+/** A single lesson opened in the viewer: its text plus where to go next. */
+export interface LessonDetailDto {
+  id: string;
+  title: string;
+  kind: 'video' | 'reading' | 'lab' | 'quiz';
+  status: 'not_started' | 'in_progress' | 'complete';
+  score?: number | null;
+  hint?: string;
+  /** Reading/video lesson text (plain text; blank lines separate paragraphs). */
+  body?: string;
+  /** Quiz lessons only: the assessment to sit. */
+  assessmentId?: string;
+  /** The course this lesson belongs to, for a back link. */
+  courseSlug: string;
+  courseTitle: string;
+}
+
 /**
  * Serves the course catalog (system of record) joined with the signed-in
  * student's progress. Reads are pure over the demo corpus plus the injected
@@ -39,6 +56,34 @@ export class CatalogService {
     const course = this.courses.find((c) => c.slug === slug);
     if (!course) return null;
     return this.toSummary(course, userId);
+  }
+
+  /**
+   * A single lesson opened in the viewer. Returns null when no course owns the
+   * lesson id, so a bad link is a clean 404 rather than an empty page.
+   */
+  async getLesson(
+    courseSlug: string,
+    lessonId: string,
+    userId: string,
+  ): Promise<LessonDetailDto | null> {
+    const course = this.courses.find((c) => c.slug === courseSlug);
+    const lesson = course?.lessons.find((l) => l.id === lessonId);
+    if (!course || !lesson) return null;
+
+    const record = await this.progress.findByUserAndLesson(userId, lesson.id);
+    return {
+      id: lesson.id,
+      title: lesson.title,
+      kind: lesson.kind,
+      status: normalizeStatus(record?.status),
+      score: record?.score ?? null,
+      hint: lesson.hint,
+      body: lesson.body,
+      assessmentId: lesson.assessmentId,
+      courseSlug: course.slug,
+      courseTitle: course.title,
+    };
   }
 
   private async toSummary(course: DemoCourse, userId: string): Promise<CourseSummaryDto> {

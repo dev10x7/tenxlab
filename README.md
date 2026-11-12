@@ -84,6 +84,27 @@ The API serves its JWKS at `/.well-known/jwks.json`.
 Seeded demo identities (local only): `student@tenxlab.local` / `demo1234`
 and `instructor@tenxlab.local` / `demo1234`.
 
+#### Enable the Editor's Run button (Piston)
+
+Code execution is off by default, so the Editor's Run button returns 503 until
+a tier-1 pool is configured. Start Piston and install the runtimes the editor
+offers, then run the API with it enabled:
+
+```bash
+docker compose --profile runner up -d piston
+curl -s http://localhost:2000/api/v2/runtimes                       # inspect
+for rt in 'python=3.10.0' 'javascript=18.15.0' 'java=15.0.2' \
+          'c=10.2.0' 'c++=10.2.0' 'sqlite3=3.36.0'; do
+  lang=${rt%%=*}; ver=${rt##*=}
+  curl -s -X POST http://localhost:2000/api/v2/packages \
+    -H 'content-type: application/json' \
+    -d "{\"language\":\"$lang\",\"version\":\"$ver\"}"
+done
+
+cd apps/api
+PISTON_ENABLED=true npm start
+```
+
 ### Run the web app
 
 ```bash

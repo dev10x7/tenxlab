@@ -44,9 +44,12 @@ export default function CoursePage({ params }: { params: { slug: string } }) {
             {lesson.kind === 'lab' ? (
               <LabLaunchButton lessonId={lesson.id} />
             ) : (
-              <button className="btn secondary" disabled>
+              <a
+                className="btn secondary"
+                href={`/courses/${course.slug}/lessons/${lesson.id}`}
+              >
                 Open lesson
-              </button>
+              </a>
             )}
           </div>
         ))}
