@@ -33,17 +33,21 @@ anti-cheat plagiarism, and a recruiter portal.
 **Where we are (2026-11-11):** P0–P2 are shipped and were verified live against
 KubeLab on minikube; **Phase D (runtime scale-out) is largely done** — tier
 router, tier-2 pod provider, and a warm-pool operator with real Postgres + k8s
-ports, all behind the `LabProvider` seam (ADR-8, adapter-only). What remains for
-parity is the **Nimbus-equivalent projects** (Phase E); what remains for
-differentiation is the **AI tutor + soft skills** (Phase F) and **contests /
-recruiter portal** (Phase G).
+ports, all behind the `LabProvider` seam (ADR-8, adapter-only). **Phase E core
+(E0–E4) has since shipped** — projects/`/nimbus` fork → build → stop → submit →
+evaluate runs end to end (`e2e.projects.test.ts`, `project-submission.service.ts`)
+and was verified live on minikube (tier-2 pod fork, then stop → resume). What
+remains for full Nimbus parity is **one-click hosting (E5), IDE git publish,
+fork cost/quota policy (E5b), and the dashboard resume + attendance widgets
+(E6)**; what remains for differentiation is the **AI tutor + soft skills**
+(Phase F) and **contests / recruiter portal** (Phase G).
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
 | Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (6 langs; AI help missing) |
 | Labs (ungraded practice + hints) | `/labs` | Done |
 | Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
-| Nimbus (build/host/evaluate projects) | `/nimbus` | **Missing** (Phase E) |
+| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core shipped** (E0–E4); hosting + git publish + attendance remain |
 | Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
 | Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
 | Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
@@ -301,22 +305,25 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 
 ### 2.5 Projects (ByteXL "Nimbus")
 
-ByteXL's Nimbus feature set (from §1.1), mapped to us:
+ByteXL's Nimbus feature set (from §1.1), mapped to us. **Phase E core shipped
+2026-11-13** (E0–E4): the project domain, fork lifecycle, submission +
+evaluation, and the `/nimbus` UI are live and verified end to end.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Cloud VS Code workspace (persistent) | **Partial** | Tier-2 pod / tier-3 vcluster already run `code-server`; no *project* workspace model or long-lived lifecycle |
-| Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Missing** | No template registry or fork source |
-| Fork a template **or own workspace** | **Missing** | — |
+| Cloud VS Code workspace (persistent) | **Done** | Forks provision tier-2 pod / tier-3 vcluster `code-server` through the `LabProvider` seam; re-fork resumes a stopped workspace. Durable-state retention policy is E5b |
+| Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Done** | `projects/templates.ts`: `python-flask`, `java`, `spring-boot`, `spring-boot-mongodb`, `react`, `debian-base` (the "Alpine"/NOS bare image) |
+| Fork a template **or own workspace** | **Done** | `ProjectComponent.templateSlug` (catalog) or `templateWorkspaceId` (fork-your-own, §1.3); one fork per (component, student) |
 | Built-in Source Control → publish to GitHub | **Missing** | ByteXL uses workspace-local git + **GitHub OAuth device flow** (§1.3); we take a GitHub URL as free text and have no IDE git integration |
-| One-click backend deployment + live URL | **Missing** | ByteXL demos on `bytexl.live`; we have no per-fork ingress/deploy action |
-| Submission form (title, description, workspace picker, links) | **Missing** | ByteXL's exact form is in §1.2 |
-| Submission deadline + auto-close | **Missing** | ByteXL closes the project server-side when the deadline passes (§1.2) |
-| Stop-before-submit lifecycle rule | **Missing** | ByteXL requires the workspace closed before submitting (§1.2) |
-| SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer — **decided (ADR-13): extend it, no SonarQube/Semgrep** |
-| Submissions: workspace + GitHub URL + demo URL | **Missing** | — |
-| Trainer evaluation + score | **Missing** | — |
-| Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget |
+| One-click backend deployment + live URL | **Missing** | ByteXL demos on `bytexl.live`; we have no per-fork ingress/deploy action (E5) |
+| Submission form (title, description, workspace picker, links) | **Done** | `project-submission.service.ts` + `ProjectComponentCard`; one submission per component |
+| Submission deadline + auto-close | **Done** | Server-authoritative `deadline_passed` gate (§1.2) |
+| Stop-before-submit lifecycle rule | **Done** | Rejects while the fork is `running`/`provisioning` with ByteXL's "wait for the session to close" message (§1.2) |
+| SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer; **no `ai-bridge` client yet**, so submission does not auto-call it (**ADR-13**) |
+| Submissions: workspace + GitHub URL + demo URL | **Done** | Optional GitHub/demo links captured |
+| Trainer evaluation + score | **Done** | Role-gated `evaluate(id, {score, feedback})` |
+| Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget (E6) |
+| Fork cost/quota policy (stop-when-idle) | **Missing** | Forks have no own idle limit yet; the operator sweep could reap them (E5b, ADR-20) |
 
 ### 2.6 Runtime / scale
 
@@ -494,9 +501,11 @@ sub-milestones so each ends demonstrable and CI-green:
       the workspace reports `running` and an `ideUrl`. Re-forking re-attaches to
       the existing workspace (unique per `(component, student)`); a failed
       provision is recorded as `failed`, never `stopped`. Gated by
-      `PROJECTS_ENABLED` / `PROJECTS_TIER`. Stop/resume + the expiry policy that
-      keeps forks out of the lab operator's idle sweep land with E5b.
-- [ ] **E2 — Template catalog + git publish.** A template registry with **two
+      `PROJECTS_ENABLED` / `PROJECTS_TIER`. **Stop/resume is done** — re-forking a
+      stopped workspace re-provisions it against the same id (verified live on
+      minikube); the expiry policy that keeps forks out of the lab operator's
+      idle sweep still lands with E5b.
+- [x] **E2 — Template catalog + git publish.** A template registry with **two
       shapes** (§1.4): (a) language/framework templates, dependency-ready
       (Flask, Java, Spring Boot, Spring+Mongo, React); (b) a **bare base image**
       ("Alpine" = Debian, no language, `apt` available) for infra/network work.
@@ -507,7 +516,10 @@ sub-milestones so each ends demonstrable and CI-green:
       in the IDE), and **publish = GitHub OAuth device-flow push to the student's
       own account** (public/private + optional rename). Submission keeps
       GitHub/demo URLs as optional free-text links.
-- [ ] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
+      → **Template catalog done** (`projects/templates.ts`, both shapes);
+      **IDE git publish still open** (no in-IDE Source Control integration; the
+      GitHub URL is free text today).
+- [x] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
       description, workspace picker, optional GitHub link, optional demo URL** —
       one submission per component, so the picker lists the student's forks for
       the project's components. **Server-authoritative deadline** that
@@ -519,13 +531,18 @@ sub-milestones so each ends demonstrable and CI-green:
       `POST /v1/quality/score` (no client exists today; add `AI_BASE_URL` to
       `env.ts`). Quality gate: extend `quality.py` (**ADR-13**); no
       SonarQube/Semgrep, so the license gate stays permissive-only.
-- [ ] **E4 — HTTP + web.** `ProjectsController`, `PROJECT` token, module factory,
+      → **Submission, deadline, stop-before-submit, and evaluate done**
+      (`project-submission.service.ts`); **auto-quality (`ai-bridge`) still
+      open**.
+- [x] **E4 — HTTP + web.** `ProjectsController`, `PROJECT` token, module factory,
       role gating matching existing checks; `env.ts` gains `PROJECTS_ENABLED`,
       `PROJECTS_TIER`, `AI_BASE_URL`. Replace the `/nimbus` `SurfacePage`
       placeholder: student view (list → detail → Fork → IDE link → submit →
       feedback) and instructor view (create, attach templates, publish,
       evaluate). Proxy routes under `app/api/projects/**`. **Submissions live in
       the LMS nav** (§1.2), not inside the IDE.
+      → **Done** — `/nimbus` is a real role-aware page (`PROJECTS_ENABLED` /
+      `PROJECTS_TIER` wired; `AI_BASE_URL` lands with E3's auto-quality).
 - [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes **one
       workspace** (one service) via a per-workspace ingress (reuse `PodProvider`'s
       namespace+ingress builders); `demoUrl` = that ingress, analogous to
