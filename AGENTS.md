@@ -160,6 +160,65 @@ still reports ACTIVE, but the IDE URL 404s). One API process only: a stale
 The exercise workspace can be inspected directly:
 `kubectl -n <lab-ns> exec <agent-pod> -c code-server -- kubectl get pods`.
 
+### Startup scripts (verified live 2026-11-13)
+
+`scripts/dev-up.sh` brings the whole stack up in one shot — Docker daemon →
+minikube (+ingress) → KubeLab → IDE gateway → API → web — and is idempotent, so
+re-running it only starts what is down. Companions:
+
+- `scripts/dev-up.sh --status` — report each component up/down.
+- `scripts/dev-smoke.sh [--no-lab]` — drive the two exit criteria over real
+  HTTP: the project fork → build → stop → submit → evaluate loop, and the
+  tier-3 lesson launch → vcluster ACTIVE with a browser-reachable IDE URL.
+  `--no-lab` skips the multi-minute vcluster leg.
+- `scripts/dev-down.sh [--all]` — stop the app processes (keeps minikube);
+  `--all` also stops minikube and Docker.
+
+Things the script encodes that bite when done by hand:
+
+- **Docker group.** The socket is `root:docker`. Right after `usermod -aG docker`
+  the current shell is still outside the group, so `docker`/`minikube`/`kubectl`
+  fail with "permission denied". The script detects this and wraps those commands
+  in `sg docker -c '...'` (no re-login needed). Set `DOCKER_WRAP="sg docker"` to
+  force it.
+- **Tier-2 pod provider auth.** The demo project forks a `tier_2_container`
+  workspace served by our `PodProvider`, which talks to the API server directly.
+  Off-cluster it needs a token, so the script applies `deploy/lab-operator/rbac.yaml`,
+  mints a ServiceAccount token (`kubectl -n tenxlab-system create token …`), and
+  writes a self-contained kubeconfig to `$LOG_DIR/kubeconfig-token.yaml`
+  (`server` + `token` + `certificate-authority-data`). The parser in
+  `packages/lab-provider` only understands those three fields — it ignores
+  client-certificate kubeconfigs, so minikube's default `~/.kube/config` will not
+  work for the pod provider.
+- **Namespace RBAC needs `patch`.** Resume (re-fork of a stopped workspace)
+  re-applies the namespace, and `apply()` PATCHes an object that already exists.
+  A ClusterRole with only `create` on `namespaces` makes resume fail with
+  `403 … cannot patch resource "namespaces"`. The role grants
+  `get,list,watch,create,update,patch,delete`.
+- **Namespace deletion is async.** `terminate` deletes the namespace but it
+  lingers in `Terminating` while resources finalise; a resume that re-applies
+  immediately races that state and 403s. `PodProvider.terminate` now blocks until
+  the namespace is actually gone (`terminateTimeoutMs`/`terminatePollMs`).
+- **`KUBERNETES_SERVICE_HOST` is set in the sandbox.** The dev container itself
+  runs inside a pod, so `KubernetesClient` prefers the *in-cluster* path and
+  targets the wrong cluster (10.3.0.1). The script launches the API with
+  `env -u KUBERNETES_SERVICE_HOST -u KUBERNETES_SERVICE_PORT` so it falls back to
+  the token kubeconfig. This is why the pod provider hung on the first attempt.
+- **Ingress webhook race.** `kubectl apply` of KubeLab fails with
+  `failed calling webhook "validate.nginx.ingress.kubernetes.io"` if applied
+  before the ingress controller is Ready. The script waits for the controller,
+  then re-applies.
+- **KubeLab admin create is not idempotent.** `POST /api/admins` 400/401s once any
+  admin exists, so the script verifies by calling `auth-with-password` instead of
+  by the create status.
+- **Status casing differs by surface.** Lab session status is uppercase
+  (`WARM`/`ACTIVE`/`FAILED`); project workspace status is lowercase
+  (`provisioning`/`running`/`stopped`/`failed`). Compare case-insensitively in
+  scripts.
+- **A `running` workspace may still be pulling.** The provider flips to `running`
+  when the ingress exists; the code-server image pull means the ingress answers
+  `503` for a while. Probe the IDE URL until it stops returning 503/000.
+
 ## P2 — Editor, Labs & Assessments (verified 2026-11-11)
 
 The P2 exit criterion is **"a proctored exam runs end to end"**, verified by

@@ -63,6 +63,25 @@ KUBECONFIG=$HOME/.kube/config docker compose --profile operator up --build
 
 Tear down with `docker compose down` (add `-v` to drop the Postgres volume).
 
+### One-shot dev bring-up (minikube + KubeLab + IDE gateway)
+
+When you need the **real lab execution plane** (KubeLab on minikube) rather than
+just the compose services, use the startup script. It starts the Docker daemon,
+minikube with the ingress addon, the KubeLab control plane, the IDE gateway, the
+API (KubeLab + projects enabled) and the web client — and is idempotent:
+
+```bash
+scripts/dev-up.sh            # bring everything up
+scripts/dev-up.sh --status   # report each component up/down
+scripts/dev-smoke.sh         # end-to-end test (add --no-lab to skip the slow vcluster)
+scripts/dev-down.sh          # stop app processes (--all also stops minikube + Docker)
+```
+
+It handles the fiddly parts for you: docker-group access via `sg docker`, minting
+a ServiceAccount token so the tier-2 pod provider can reach the cluster, and
+unsetting `KUBERNETES_SERVICE_HOST` so the API targets minikube. See the
+"Startup scripts" section of `AGENTS.md` for the full list of gotchas it encodes.
+
 ### Run the services individually
 
 ```bash

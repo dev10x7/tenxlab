@@ -160,6 +160,31 @@ export class ProjectService {
     );
     if (existing) {
       const workspace = await this.deps.workspaces.findById(existing.workspaceId);
+      // Re-forking a stopped or failed workspace resumes it: the durable volume
+      // survived, so re-provision against the same id rather than re-attaching
+      // to a dead environment.
+      if (
+        workspace &&
+        (workspace.status === 'stopped' || workspace.status === 'failed') &&
+        this.deps.provider
+      ) {
+        const resumed = await this.deps.workspaces.update(workspace.id, {
+          status: 'provisioning',
+          ideUrl: null,
+          lastActivityAt: new Date(),
+        });
+        void this.provision(resumed, existing, component, tier).catch(() => {
+          // provision() records the failure on the workspace row.
+        });
+        return {
+          ok: true,
+          forkId: existing.id,
+          workspaceId: resumed.id,
+          status: resumed.status,
+          tier: (resumed.runtimeTier as RuntimeTier | undefined) ?? tier,
+          ideUrl: null,
+        };
+      }
       return {
         ok: true,
         forkId: existing.id,

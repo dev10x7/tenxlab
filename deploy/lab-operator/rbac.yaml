@@ -1,0 +1,53 @@
+# RBAC only for the Tier-2 pod provider (no Deployment).
+#
+# The API's PodProvider talks to the Kubernetes API server directly. When the
+# API runs *outside* the cluster (e.g. `node apps/api/dist/main.js` on the dev
+# host) it authenticates with a ServiceAccount token instead of the in-cluster
+# mounted one. This file creates just the ServiceAccount and its ClusterRole so
+# scripts/dev-up.sh can mint a token and point KUBECONFIG at it.
+#
+# The full deploy/lab-operator/operator.yaml additionally deploys the warm-pool
+# reconciler as a long-lived workload; that is not needed to exercise the
+# request path.
+#
+# Apply with:
+#   kubectl apply -f deploy/lab-operator/rbac.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenxlab-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenxlab-lab-operator
+  namespace: tenxlab-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenxlab-lab-operator
+rules:
+  - apiGroups: ['']
+    resources: ['namespaces']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+  - apiGroups: ['']
+    resources: ['pods', 'services', 'persistentvolumeclaims', 'events']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+  - apiGroups: ['networking.k8s.io']
+    resources: ['ingresses']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tenxlab-lab-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenxlab-lab-operator
+subjects:
+  - kind: ServiceAccount
+    name: tenxlab-lab-operator
+    namespace: tenxlab-system

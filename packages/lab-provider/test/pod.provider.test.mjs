@@ -174,6 +174,25 @@ test('terminate deletes the namespace, cascading to its objects', async () => {
   ]);
 });
 
+test('terminate waits for the namespace to disappear (Terminating race)', async () => {
+  // The namespace lingers after DELETE while its resources finalise; terminate
+  // must block until it is gone so a resume does not re-apply onto a Terminating
+  // namespace.
+  let present = true;
+  let gets = 0;
+  const cluster = {
+    async delete() {},
+    async get() {
+      gets += 1;
+      // Still present on the first two reads, gone thereafter.
+      if (gets > 2) present = false;
+      return present ? { kind: 'Namespace' } : null;
+    },
+  };
+  await provider(cluster, { terminatePollMs: 5 }).terminate('sess-1');
+  assert.ok(gets >= 3, `expected to poll until gone, got ${gets} reads`);
+});
+
 test('namespaceFor produces a valid DNS-1123 label from an arbitrary id', () => {
   assert.equal(namespaceFor('sess-1'), 'tenxlab-t2-sess-1');
   assert.equal(namespaceFor('Sess_1.A'), 'tenxlab-t2-sess-1-a');

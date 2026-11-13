@@ -163,6 +163,32 @@ test('re-forking re-attaches to the existing workspace instead of leaking one', 
   assert.equal((await workspaces.listByUser('t1', 'u1')).length, 1);
 });
 
+test('re-forking a stopped workspace resumes it instead of attaching to a dead one', async () => {
+  const { provider, specs } = fakeProvider();
+  const { svc, workspaces } = fixture({ provider });
+
+  const first = await svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  await waitFor(async () => (await workspaces.findById(first.workspaceId))?.status === 'running');
+
+  const stopped = await svc.stopWorkspace('u1', first.workspaceId);
+  assert.equal(stopped.ok, true);
+  assert.equal((await workspaces.findById(first.workspaceId))?.status, 'stopped');
+
+  const resumed = await svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(resumed.ok, true);
+  if (!resumed.ok) return;
+  assert.equal(resumed.forkId, first.forkId);
+  assert.equal(resumed.workspaceId, first.workspaceId);
+  assert.equal(resumed.status, 'provisioning');
+
+  await waitFor(async () => (await workspaces.findById(first.workspaceId))?.status === 'running');
+  // Two provisions: the initial fork and the resume.
+  assert.equal(specs.length, 2);
+  assert.equal((await workspaces.listByUser('t1', 'u1')).length, 1);
+});
+
 test('fork rejects a draft project', async () => {
   const { svc } = fixture({ project: { status: 'draft' } });
   const res = await svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });

@@ -38,6 +38,9 @@ export interface PodProviderOptions {
   /** How long to wait for the IDE to answer before returning a WARM handle. */
   readinessTimeoutMs?: number;
   readinessPollMs?: number;
+  /** How long terminate waits for a deleted namespace to actually disappear. */
+  terminateTimeoutMs?: number;
+  terminatePollMs?: number;
   /** Injected for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -46,6 +49,8 @@ const NAMESPACE_PREFIX = 'tenxlab-t2-';
 const PORT = 8080;
 const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 2_000;
+const TERMINATE_TIMEOUT_MS = 60_000;
+const TERMINATE_POLL_MS = 1_000;
 
 /**
  * Tier-2 lab provider: one isolated Pod per session (code-server + terminal),
@@ -73,6 +78,8 @@ export class PodProvider implements LabProvider {
   private readonly codeServerImage: string;
   private readonly readinessTimeoutMs: number;
   private readonly readinessPollMs: number;
+  private readonly terminateTimeoutMs: number;
+  private readonly terminatePollMs: number;
 
   constructor(private readonly opts: PodProviderOptions) {
     this.cluster = opts.cluster;
@@ -82,6 +89,8 @@ export class PodProvider implements LabProvider {
     this.codeServerImage = opts.codeServerImage ?? 'codercom/code-server:latest';
     this.readinessTimeoutMs = opts.readinessTimeoutMs ?? READY_TIMEOUT_MS;
     this.readinessPollMs = opts.readinessPollMs ?? READY_POLL_MS;
+    this.terminateTimeoutMs = opts.terminateTimeoutMs ?? TERMINATE_TIMEOUT_MS;
+    this.terminatePollMs = opts.terminatePollMs ?? TERMINATE_POLL_MS;
   }
 
   /** The browser-facing IDE URL for a session (raw id or provider ref). */
@@ -159,7 +168,16 @@ export class PodProvider implements LabProvider {
 
   /** Delete the namespace; the pod, PVC, service and ingress cascade with it. */
   async terminate(sessionId: string): Promise<void> {
-    await this.cluster.delete('Namespace', namespaceFor(sessionId), '');
+    const ns = namespaceFor(sessionId);
+    await this.cluster.delete('Namespace', ns, '');
+    // Deletion is asynchronous: the namespace lingers in Terminating while its
+    // resources finalise. A resume (re-fork) that re-applies immediately would
+    // race that state, so block until the namespace is actually gone.
+    const deadline = Date.now() + this.terminateTimeoutMs;
+    while (Date.now() < deadline) {
+      if ((await this.cluster.get('Namespace', ns, '')) === null) return;
+      await new Promise((r) => setTimeout(r, this.terminatePollMs));
+    }
   }
 
   private hostFor(sessionId: string): string {
