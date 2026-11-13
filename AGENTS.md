@@ -274,6 +274,13 @@ request/response tier-1 contract.
   profile (`docker compose --profile runner up`) and is off by default; the
   API's `PISTON_ENABLED` gates the Run button. With it off, the Editor still
   serves languages and snippets — only Run returns 503.
+- `scripts/dev-up.sh` brings Piston up itself (step 4b: `docker compose --profile
+  runner up -d piston`) and starts the API with `PISTON_ENABLED=true`, so the
+  Editor's Run works in the dev stack. If compose is unavailable the step warns
+  and the API falls back to Run → 503. The pinned image
+  (`ghcr.io/engineer-man/piston:latest`) already ships the six runtimes the
+  Editor offers (`python`, `javascript`, `java`, `c`, `c++`, `sqlite3`) — no
+  `packages` install step needed; check with `GET /api/v2/runtimes`.
 - The Editor language catalog is curated (`EDITOR_LANGUAGES` in
   `packages/contracts`): each entry pairs a Piston runtime alias with a
   CodeMirror id and a starter template. Add a language there *and* import its

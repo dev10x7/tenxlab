@@ -223,6 +223,20 @@ else
   ok "gateway on :${IDE_PROXY_PORT}"
 fi
 
+# --- 4b. Tier-1 execution pool (Piston) --------------------------------------
+# Backs the Editor's Run button. Optional: if Docker Compose is unavailable the
+# step warns and the API starts with PISTON_ENABLED=false (Run returns 503).
+say "Tier-1 execution pool (Piston)"
+if curl -sf -o /dev/null "http://localhost:2000/api/v2/runtimes"; then
+  ok "piston (:2000) up"
+elif command -v docker >/dev/null 2>&1 && docker_run compose version >/dev/null 2>&1; then
+  docker_run compose --profile runner up -d piston >/dev/null 2>&1 \
+    && wait_for_http "http://localhost:2000/api/v2/runtimes" 30 "piston (:2000)" \
+    || warn "piston did not start; Editor Run will return 503"
+else
+  warn "docker compose unavailable; skipping piston (Editor Run will return 503)"
+fi
+
 # --- 5. API ------------------------------------------------------------------
 say "API"
 pkill -f "apps/api/dist/main.js" 2>/dev/null || true
@@ -243,6 +257,8 @@ env -u KUBERNETES_SERVICE_HOST -u KUBERNETES_SERVICE_PORT \
   PROJECTS_ENABLED=true \
   PROJECTS_TIER="$PROJECTS_TIER" \
   POD_PROVIDER_ENABLED="${POD_PROVIDER_ENABLED:-true}" \
+  PISTON_ENABLED="${PISTON_ENABLED:-true}" \
+  PISTON_BASE_URL="${PISTON_BASE_URL:-http://localhost:2000}" \
   KUBECONFIG="${KUBECONFIG_TOKEN:-$LOG_DIR/kubeconfig-token.yaml}" \
   nohup node apps/api/dist/main.js > "$LOG_DIR/api.log" 2>&1 &
 wait_for_http "http://localhost:${PORT}/api/auth/session" 20 "api (:$PORT)" || die "api failed to start (see $LOG_DIR/api.log)"
