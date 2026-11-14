@@ -14,7 +14,9 @@ Sources reviewed:
   videos** were transcribed on 2026-11-14 (`yt-dlp` auto-captions) — **Nov'25
   (`zVxnA0EPW-c`, uploaded 2025-12-10)**, **Jan'26 (`upHVe0Z1i24`, uploaded
   2026-02-10)** — plus the **Clarity** launch video (`g81vjevprWU`, uploaded
-  2026-11-10) and https://clarity.bytexl.ai. See §1.5.
+  2026-11-10) and https://clarity.bytexl.ai. See §1.5. The **editor walkthrough
+  (`DF193RQOXSk`, uploaded 2025-05-17)** transcript was supplied separately —
+  see §1.6.
 
 ---
 
@@ -334,6 +336,34 @@ nudge**; **(3) a database-workspace template shape** (MySQL/Postgres/SQL
 Server/Mongo). The AI Mentor's **diagram/image generation** and Clarity's
 **CEFR rubric** sharpen Phase F. All are folded into §2.10 and Phase E6/F below.
 
+### 1.6 Editor walkthrough (`DF193RQOXSk`, uploaded 2025-05-17)
+
+Transcript supplied 2026-11-14. This is the "Coding Abilities" surface (§1.1),
+a **browser IDE with a contextual AI assistant**:
+
+- **70+ languages, zero setup** (0:08): "select your preferred language, and
+  you're ready to go. No installations, no setup" — including "popular web and
+  database languages."
+- **Contextual AI assistant** (0:19–0:53): "more than just a helper" — it helps
+  **write better code, debug errors, and understand what the code is doing**.
+  Worked example: a student's Java string-reversal program errors; the AI
+  **explains the issue and returns a corrected version of the code "ready to
+  use."**
+- **Layout** (supplied): main code workspace centre-left; the **AI feedback pane
+  on the right** shows the explanation *and the corrected snippet*; language
+  selection, run, and runtime-input controls sit top/bottom. Source and
+  explanation are shown **side-by-side**.
+
+**The design tension — and our resolution.** ByteXL's assistant **hands the
+student corrected, ready-to-run code**. Our planned Phase F tutor is
+deliberately the opposite — root cause plus a guiding question, **never a
+pasteable solution** (anti-leak guardrails). Both are defensible: a direct fix
+is a legitimate aid in a *practice editor*, but the same endpoint reached from a
+*graded assessment* would be a leak. Resolution: one tutor endpoint with a
+**mode** — `assist` (ByteXL-like; editor/practice; may return corrected code)
+vs `socratic` (guardrailed; the only mode reachable from an assessment). Folded
+into Phase F.
+
 ---
 
 ## 2. Gap analysis: ByteXL vs. current TenXLab
@@ -365,13 +395,17 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 
 ### 2.2 Editor (ByteXL "Editor")
 
+Source: the editor walkthrough (§1.6) plus the "Coding Abilities" support
+section.
+
 | Capability | Status | Gap |
 |---|---|---|
 | Multi-language run/edit | **Done** | Curated catalog (`EDITOR_LANGUAGES`) over Piston; CodeMirror 6 (`/editor`) |
 | 70+ langs | **Partial** | Six curated languages today; add entries as the pool grows |
+| Zero-setup run | **Done** | Browser editor + server-side Piston; no install for the student |
 | STDIN before run | **Done** | STDIN panel → `POST /api/editor/run` |
 | Save/reopen practised code | **Done** | Per-user snippets, tenant-scoped (`code_snippets`) |
-| AI syntax help / unblock | **Missing** | AI plane has no tutor endpoint |
+| Contextual AI assistant (explain + fix) | **Missing** | No tutor endpoint; ByteXL shows the explanation **and corrected code side-by-side** (§1.6). Our Phase F plan is `socratic`-only — add an `assist` mode for the practice editor |
 
 ### 2.3 Labs
 
@@ -505,7 +539,9 @@ the Editor's "AI help" have no user-facing entry point yet:
 - **No recruiter portal.** `/resumes` is a `SurfacePage` placeholder; the Skill
   Passport aggregate it reads is Phase G.
 - **Editor AI help** is absent (the AI plane has plagiarism/quality/speech but no
-  tutor endpoint). Phase F.
+  tutor endpoint). Phase F. Note the §1.6 tension: ByteXL's editor assistant
+  returns **corrected code**, whereas our tutor is planned as `socratic`-only —
+  resolve with an `assist` mode for the practice editor.
 - **Dead directory:** `apps/api/src/assessment/` is empty and unreferenced (the
   live module is `assessments/`). Safe to delete.
 
@@ -717,6 +753,10 @@ sub-milestones so each ends demonstrable and CI-green:
 
 - [ ] Socratic tutor endpoint with anti-leak guardrails (root cause + guiding
       question, never pasteable solution code) + a guardrail eval suite.
+- [ ] **Tutor `assist` mode** (editor §1.6): the practice editor needs
+      ByteXL's behaviour — explain the error **and** return corrected code,
+      shown side-by-side. Same endpoint, `assist` mode; only the guardrailed
+      `socratic` mode is reachable from a graded assessment.
 - [ ] **Visual mentor** (Nov'25 §1.5): let the mentor **generate diagrams and
       images** to explain a topic, not just text — ByteXL's AI Mentor is visual.
 - [ ] VS Code sidebar client (webview) inside the lab container, streaming.

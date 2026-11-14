@@ -199,6 +199,11 @@ implements it. The authoritative phase tracker is
 * **Planned:** a tutor endpoint on the AI plane with Socratic guardrails
   (root cause + guiding question, never copy-pasteable solution code), plus a
   VS Code sidebar (webview) inside the lab container.
+* **Mode split (ByteXL editor walkthrough, `DF193RQOXSk`):** ByteXL's editor
+  assistant explains the error *and* returns corrected, ready-to-run code
+  side-by-side. The practice editor should match that via an **`assist` mode**;
+  the guardrailed **`socratic` mode** is the only one reachable from a graded
+  assessment. See `docs/BYTEXL_PARITY_ANALYSIS.md` §1.6.
 * **Why it matters:** the highest-risk AI item; it is Phase F and the primary
   product differentiator. Guardrails need a red-team eval suite before launch.
 
