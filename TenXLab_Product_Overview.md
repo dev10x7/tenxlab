@@ -282,8 +282,14 @@ in order:
    snapshot-on-stop, and the storage dimension.
 2. **Nimbus polish** — AI-generate project title/description, preview-before-
    publish, and submission-nav parity.
-3. **Phase E6** — dashboard "Up Next"/"Resume Learning" widget and student
+3. **Phase E6** — dashboard "Up Next"/"Resume Learning" widget, the Nimbus
+   landing dashboard (workspaces + deployed apps + live projects), and student
    attendance (overall + session-level).
+4. **Release-video delta (2026-11-14)** — from ByteXL's monthly release videos:
+   an **exam start passcode** (E6b), **database workspaces + template
+   categories** (E6c), a **visual AI Mentor** and **CEFR** soft-skills rubric
+   (Phase F), and **university/batch ranks** + a **profile-completion tile**
+   (Phase G). See `docs/BYTEXL_PARITY_ANALYSIS.md` §1.5/§2.10.
 
 Then Phase F (Socratic tutor + soft skills) and Phase G (contests, anti-cheat,
 recruiter portal).

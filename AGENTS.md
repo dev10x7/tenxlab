@@ -296,6 +296,17 @@ trainer to score. Plan and competitor research: `docs/BYTEXL_PARITY_ANALYSIS.md`
 The surface is live at `/nimbus` for both roles (student: fork → build → stop →
 submit; instructor: author → publish → evaluate).
 
+**Release-video refresh (2026-11-14).** The monthly release videos were
+transcribed (see `docs/BYTEXL_PARITY_ANALYSIS.md` §1.5/§2.10). Beyond E0–E6 they
+add: a Nimbus **landing dashboard** (workspaces + deployed apps + live projects,
+deploy/download/delete quick actions), **database workspaces**
+(MySQL/Postgres/SQL Server/Mongo), a **visual AI Mentor** (diagrams + images),
+**university/batch ranks** + a **profile-completion tile**, an **exam start
+passcode**, and **Clarity** — a standalone CEFR-graded English-communication
+product. None block the Nimbus parity exit criterion; they are folded into E6b
+(passcode), E6c (database templates), F (visual mentor, CEFR), and G (ranks,
+profile tile).
+
 - **E0 = domain + persistence only** (this commit). Contracts in
   `packages/contracts` (`Project`, `ProjectComponent`, `ProjectTemplate`,
   `ProjectWorkspace`, `ProjectFork`, `ProjectSubmission`,

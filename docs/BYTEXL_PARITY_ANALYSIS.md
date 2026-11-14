@@ -10,9 +10,11 @@ Sources reviewed:
 - https://support.bytexl.app/ — Coding Abilities, Coding Tests, Project
   Evaluation & Submission, SafeExamBrowser Guide, Single Sign-On (Partner
   Integration), FAQs, Video Guides
-- https://bytexl.ai/nimbus + the byteXL YouTube channel (product page and the
-  video-guides index; transcripts were bot-blocked, so claims come from the
-  product page and the guides index — see §1.1)
+- https://bytexl.ai/nimbus + the byteXL YouTube channel. The **monthly release
+  videos** were transcribed on 2026-11-14 (`yt-dlp` auto-captions) — **Nov'25
+  (`zVxnA0EPW-c`, uploaded 2025-12-10)**, **Jan'26 (`upHVe0Z1i24`, uploaded
+  2026-02-10)** — plus the **Clarity** launch video (`g81vjevprWU`, uploaded
+  2026-11-10) and https://clarity.bytexl.ai. See §1.5.
 
 ---
 
@@ -50,6 +52,16 @@ submission the trainer evaluates. What remains for full Nimbus parity is
 **per-fork stop-when-idle cost/quota policy (E5b) and the dashboard resume +
 attendance widgets (E6)**; what remains for differentiation is the **AI tutor +
 soft skills** (Phase F) and **contests / recruiter portal** (Phase G).
+
+**Release-video refresh (2026-11-14, §1.5).** Transcribing the monthly release
+videos surfaced scope our backlog never captured: the **Nov'25** video adds a
+Nimbus **landing dashboard** (workspaces + deployed apps + live projects, with
+deploy/download/delete quick actions), **database workspaces**
+(MySQL/Postgres/SQL Server/Mongo), a **visual AI Mentor** (diagrams + images),
+**university/batch ranks** and a **profile-completion tile** on the dashboard,
+and an **exam start passcode**; **Clarity** (`clarity.bytexl.ai`) is a new
+standalone **CEFR-graded English-communication** product. These are tracked in
+**§2.10** and folded into Phases E6/F/G.
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
@@ -132,8 +144,8 @@ is the clearest signal of the template catalog:
 | 8 | **Nimbus Submissions** | the submission flow |
 
 The **Jan'26 platform-updates video** ("Deploy Projects in 1 Click, Fork
-Workspaces & Smarter Dashboard"; transcript supplied 2026-11-12) confirms the
-newest capabilities:
+Workspaces & Smarter Dashboard", `upHVe0Z1i24`, uploaded 2026-02-10; transcript
+supplied 2026-11-12) confirms the newest capabilities:
 
 - **One-click backend deployment** (0:12–0:31) — make projects live and publish
   applications instantly for a portfolio.
@@ -253,6 +265,74 @@ scoping hosting to single-service apps.
 it is the **Alpine (bare Debian) template + `apt install`** of network utils,
 practised in the terminal. So Nimbus's infra story overlaps our tier-2/tier-3
 labs but is delivered as an ordinary workspace, not a network simulator.
+
+### 1.5 Monthly release videos (Nov'25, Jan'26) + Clarity
+
+Transcribed 2026-11-14. These are the two most recent product signals and they
+go well beyond the original Nimbus/submission guides. The **Nov'25** video
+("Platform Release Updates – November 2025", `zVxnA0EPW-c`, uploaded
+2025-12-10) is the richest single source of recent scope; the **Jan'26** video
+(`upHVe0Z1i24`, uploaded 2026-02-10) adds three more.
+
+**Nov'25 (`zVxnA0EPW-c`) — by timestamp:**
+
+- **Nimbus dashboard makeover** (0:20–0:38): a landing view showing *all* your
+  **workspaces, assigned projects, deployed apps, and live projects**; **quick
+  actions** to **deploy / download / delete** a workspace instantly.
+- **Manual stop** (0:39–0:47): stop a running workspace on demand — "no more
+  waiting for it to close automatically before submitting for evaluation."
+  (This *is* our stop-before-submit rule, with the student in control of the
+  stop rather than waiting.)
+- **Published workspaces + Publish Apps** (0:49–0:59): a list of published
+  workspaces and a one-click **Publish Apps** button → "showcase your live apps
+  to the world in just one click" (our E5 hosting).
+- **VS Code feel** (1:00–1:10): full-screen, smooth editor (our `code-server`).
+- **Create-workspace categories + database workspaces** (1:11–1:28): **create
+  new workspace** → pick a category (**front end, backend, full stack, other
+  templates**); plus **database workspaces with MySQL, PostgreSQL, SQL Server or
+  MongoDB built in**. This is a **template-catalog expansion** beyond our six
+  slugs, and adds a first-class **database-workspace** shape.
+- **AI Mentor** (1:28–1:39): more powerful and **more visual** — can **generate
+  diagrams and images** to explain complex topics (our Phase F Socratic tutor is
+  narrower; ByteXL's is a *visual* mentor).
+- **Dashboard: university rank + batch rank** (1:42–1:52): **compete with peers**
+  via leaderboards — our Phase G contests territory, but here it is a
+  *dashboard ranking* feature, not a timed contest.
+- **Profile completion tile** (1:52–2:09): a profile-completion widget whose
+  explicit purpose is **recruiter visibility** — a complete profile makes the
+  student "eligible to be discovered by companies." This is ByteXL's Skill
+  Passport / recruiter surface, surfaced as a *nudge*, not a portal.
+- **Exam passcode** (2:09–2:28): **enter a passcode before starting any test**,
+  "ensuring your scores are secure and rankings are earned on an even playing
+  field." An **assessment hardening** item we do not have.
+
+**Jan'26 (`upHVe0Z1i24`) — by timestamp** (transcript supplied; auto-captions
+were rate-limited, so this reuses the supplied summary, consistent with §1.1):
+
+- **One-click backend deployment** (0:12–0:32) — take projects live instantly
+  for portfolios (our E5).
+- **Student attendance reports** (0:32–0:46) — overall summary + session-level
+  detail in the student portal (*select organisations*) — our E6.
+- **Project forking** (0:46–1:11) — fork templates **or your own workspaces**
+  (our fork-your-own, §1.3).
+- **Smarter dashboard** (1:11–1:47) — **"Up Next for You"** and **"Resume
+  Learning"** — our E6.
+
+**Clarity (`g81vjevprWU`, 2026-11-10) — a new product line.** Clarity by byteXL
+(`clarity.bytexl.ai`) is **English-communication practice for colleges**: the
+four skills (**listening, speaking, reading, writing**) with **feedback on every
+answer** and a **CEFR level (A1–C2) per skill**; **faculty see per-class
+progress**; **placement teams see readiness**. Practice sets include read-aloud,
+retell-a-talk, email-to-a-manager, group discussion, job-interview practice.
+This overlaps our **AI-plane `speech.py` soft-skills scoring** (Phase F) but
+ships as a *standalone product* with a CEFR rubric and faculty dashboards.
+
+**What this changes for us.** Three genuinely new scope areas appear that our
+backlog never captured: **(1) assessment hardening — exam passcode**;
+**(2) dashboard gamification — university/batch ranks + profile-completion
+nudge**; **(3) a database-workspace template shape** (MySQL/Postgres/SQL
+Server/Mongo). The AI Mentor's **diagram/image generation** and Clarity's
+**CEFR rubric** sharpen Phase F. All are folded into §2.10 and Phase E6/F below.
 
 ---
 
@@ -376,6 +456,25 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 This is a genuine scope discovery: it is not in our product overview, so it was
 never planned. It is small (an attendance record per student per session, plus
 two views) but must be added to the backlog to reach parity. See Phase E6.
+
+### 2.10 Release-video delta (Nov'25 + Jan'26 + Clarity, §1.5)
+
+Scope surfaced by the newest release videos that our backlog never captured.
+These are the items to reconcile before declaring Nimbus parity.
+
+| Capability | Status | Gap / note |
+|---|---|---|
+| Nimbus landing dashboard (workspaces, projects, deployed apps, live projects) | **Partial** | `/nimbus` lists projects + forks + submissions; there is no single landing view aggregating deployed apps and live projects, and no deploy/download/delete quick actions |
+| Download workspace (export files) | **Missing** | No export/download action on a workspace |
+| Manual stop from the dashboard | **Done** | `stopWorkspace` + "Stop workspace" on each fork card |
+| Publish Apps (published-workspaces list + one-click publish) | **Partial** | Deploy/undeploy ships (E5); no aggregate "published workspaces / live apps" list |
+| Template categories (front end / backend / full stack / other) | **Partial** | Six slugs exist; no category grouping in the picker |
+| Database workspaces (MySQL / Postgres / SQL Server / MongoDB) | **Missing** | No database template shape; our catalog is language/framework + bare base image only |
+| AI Mentor — diagram/image generation | **Missing** | Phase F tutor is text-only in our plan; ByteXL's mentor is *visual* |
+| Dashboard university rank + batch rank | **Missing** | No ranking/leaderboard on the dashboard; overlaps Phase G contests |
+| Profile-completion tile (recruiter visibility) | **Missing** | Recruiter portal is Phase G; no profile-completion nudge |
+| Exam passcode before starting a test | **Missing** | Assessments have proctoring + timers but no start passcode |
+| Clarity — CEFR-graded English practice (4 skills) | **Partial** | AI-plane `speech.py` scores speech; no CEFR rubric, no listening/reading/writing practice, no faculty dashboard |
 
 ---
 
@@ -580,11 +679,22 @@ sub-milestones so each ends demonstrable and CI-green:
       + the Nimbus `UsageCard` surface the period spend and budget warning. What
       remains is the **per-fork** stop-when-idle/idle-limit policy and the storage
       dimension.
-- [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
-      widget (ByteXL's smarter dashboard) and **student attendance** (overall +
-      session-level) — a new small model + student/instructor views, discovered
-      from the Jan'26 video and absent from our backlog (§2.9). Plus
-      README/AGENTS notes and parity checkboxes.
+- [ ] **E6 — Dashboard + attendance + release-video delta (§2.10).** ByteXL's
+      smarter dashboard: **"Up Next"/"Resume Learning"**, the Nimbus **landing
+      dashboard** (workspaces + deployed apps + live projects with
+      deploy/download/delete quick actions), **university/batch ranks**, and a
+      **profile-completion tile** (recruiter visibility). Plus **student
+      attendance** (overall + session-level) — a new small model + student and
+      instructor views, discovered from the Jan'26 video and absent from our
+      backlog (§2.9). Plus README/AGENTS notes and parity checkboxes.
+- [ ] **E6b — Assessment hardening: exam start passcode (Nov'25 §1.5).** Require
+      a passcode before a test begins, so "scores are secure and rankings are
+      earned on an even playing field". Small: a per-assessment passcode field +
+      a pre-start gate on the exam route.
+- [ ] **E6c — Template catalog expansion (Nov'25 §1.5).** Add the **database
+      workspace** shape (MySQL / PostgreSQL / SQL Server / MongoDB) and
+      **category grouping** (front end / backend / full stack / other) to the
+      create-workspace picker.
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 
@@ -607,9 +717,11 @@ sub-milestones so each ends demonstrable and CI-green:
 
 - [ ] Socratic tutor endpoint with anti-leak guardrails (root cause + guiding
       question, never pasteable solution code) + a guardrail eval suite.
+- [ ] **Visual mentor** (Nov'25 §1.5): let the mentor **generate diagrams and
+      images** to explain a topic, not just text — ByteXL's AI Mentor is visual.
 - [ ] VS Code sidebar client (webview) inside the lab container, streaming.
 - [ ] Speech/soft-skills scoring wired to the web widget and the student
-      profile.
+      profile; **CEFR rubric** (A1–C2 per skill) to match Clarity (§1.5).
 - [ ] Plagiarism: run at batch scope on submission, flag > 85 % similarity with
       side-by-side diff links.
 - [ ] Exit criterion: verified tutor guardrails (red-team prompts) and a
@@ -619,8 +731,11 @@ sub-milestones so each ends demonstrable and CI-green:
 
 - [ ] Contest lifecycle (`start_time`/`end_time` gating) + Redis sorted-set
       leaderboard updated from the completion webhook, < 500 ms.
+- [ ] **Dashboard ranks** (Nov'25 §1.5): university rank + batch rank tiles on
+      the student dashboard — the lighter, always-on cousin of a timed contest.
 - [ ] Skill Passport: indexed summary table aggregating verified labs, contest
-      ranks, and AI communication scores.
+      ranks, and AI communication scores; drive the **profile-completion tile**
+      that makes a student recruiter-visible (§2.10).
 - [ ] Recruiter role: read-only filters (institution, graduation year, min lab
       score, min communication score) + CSV export / interview invite.
 - [ ] Exit criterion: a live contest with a real-time leaderboard and a
