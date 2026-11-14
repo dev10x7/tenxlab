@@ -143,7 +143,9 @@ function objectPath(manifest: Record<string, unknown>, name: string, namespace?:
 }
 
 function kindGroup(kind: string): string {
-  return kind === 'Ingress' ? '/apis/networking.k8s.io/v1' : '/api/v1';
+  if (kind === 'Ingress') return '/apis/networking.k8s.io/v1';
+  if (kind === 'Job' || kind === 'CronJob') return '/apis/batch/v1';
+  return '/api/v1';
 }
 
 const PLURALS: Record<string, string> = {
@@ -152,6 +154,8 @@ const PLURALS: Record<string, string> = {
   Pod: 'pods',
   Service: 'services',
   Ingress: 'ingresses',
+  Job: 'jobs',
+  CronJob: 'cronjobs',
 };
 
 function kindPlural(kind: string): string {

@@ -3,6 +3,9 @@ import {
   LabProviderError,
   type ExposedService,
   type ExposeInput,
+  type GitPublisher,
+  type GitPublishInput,
+  type GitPublishResult,
   type LabProvider,
   type ServiceExposer,
 } from './types';
@@ -47,6 +50,9 @@ export interface PodProviderOptions {
   /** How long terminate waits for a deleted namespace to actually disappear. */
   terminateTimeoutMs?: number;
   terminatePollMs?: number;
+  /** How long publish waits for the git-push job to complete. */
+  gitPushTimeoutMs?: number;
+  gitPushPollMs?: number;
   /** Injected for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -57,6 +63,10 @@ const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 2_000;
 const TERMINATE_TIMEOUT_MS = 60_000;
 const TERMINATE_POLL_MS = 1_000;
+const GIT_PUSH_TIMEOUT_MS = 120_000;
+const GIT_PUSH_POLL_MS = 2_000;
+const GIT_PUSH_JOB = 'git-publish';
+const GIT_PUSH_IMAGE = 'alpine/git:latest';
 
 /**
  * Tier-2 lab provider: one isolated Pod per session (code-server + terminal),
@@ -74,7 +84,7 @@ const TERMINATE_POLL_MS = 1_000;
  *
  * Teardown deletes the namespace, which cascades to everything inside it.
  */
-export class PodProvider implements LabProvider, ServiceExposer {
+export class PodProvider implements LabProvider, ServiceExposer, GitPublisher {
   readonly name = 'pod';
 
   private readonly cluster: ClusterClient;
@@ -86,6 +96,8 @@ export class PodProvider implements LabProvider, ServiceExposer {
   private readonly readinessPollMs: number;
   private readonly terminateTimeoutMs: number;
   private readonly terminatePollMs: number;
+  private readonly gitPushTimeoutMs: number;
+  private readonly gitPushPollMs: number;
 
   constructor(private readonly opts: PodProviderOptions) {
     this.cluster = opts.cluster;
@@ -97,6 +109,8 @@ export class PodProvider implements LabProvider, ServiceExposer {
     this.readinessPollMs = opts.readinessPollMs ?? READY_POLL_MS;
     this.terminateTimeoutMs = opts.terminateTimeoutMs ?? TERMINATE_TIMEOUT_MS;
     this.terminatePollMs = opts.terminatePollMs ?? TERMINATE_POLL_MS;
+    this.gitPushTimeoutMs = opts.gitPushTimeoutMs ?? GIT_PUSH_TIMEOUT_MS;
+    this.gitPushPollMs = opts.gitPushPollMs ?? GIT_PUSH_POLL_MS;
   }
 
   /** The browser-facing IDE URL for a session (raw id or provider ref). */
@@ -228,6 +242,74 @@ export class PodProvider implements LabProvider, ServiceExposer {
     const ns = namespaceFor(sessionId);
     await this.cluster.delete('Ingress', 'deploy', ns);
     await this.cluster.delete('Service', 'deploy', ns);
+  }
+
+  /**
+   * Publish the workspace's files to an external git remote (git publish).
+   *
+   * The workspace volume is mounted into a short-lived Job that commits the
+   * tracked files and pushes them to `remoteUrl` with the student's token. The
+   * token never leaves the cluster: it is passed only to the Job's pod. The Job
+   * is deleted when the push finishes (success or failure) so nothing lingers.
+   */
+  async publish(input: GitPublishInput): Promise<GitPublishResult> {
+    const ns = namespaceFor(input.sessionId);
+    const pod = await this.cluster.get('Pod', 'code-server', ns);
+    if (pod === null) {
+      throw new LabProviderError(
+        `Workspace ${input.sessionId} is not running; nothing to publish`,
+        409,
+      );
+    }
+    const branch = input.branch || 'main';
+    const message = input.message || 'Publish from TenXLab';
+    await this.cluster.delete('Job', GIT_PUSH_JOB, ns);
+    await this.cluster.apply(gitPushJobManifest(ns, input, branch, message));
+
+    const result = await this.awaitGitPush(ns, branch);
+    await this.cluster.delete('Job', GIT_PUSH_JOB, ns);
+    if (!result.ok) {
+      throw new LabProviderError(`git push failed: ${result.reason}`, 502);
+    }
+    return { repoUrl: input.remoteUrl };
+  }
+
+  /**
+   * Wait for the push Job to succeed or fail. A Job reports a `Complete` or
+   * `Failed` condition; either resolves the wait. A timeout is treated as a
+   * failure so the caller is never left hanging on a wedged push.
+   */
+  private async awaitGitPush(
+    ns: string,
+    branch: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const deadline = Date.now() + this.gitPushTimeoutMs;
+    for (;;) {
+      const job = await this.cluster.get('Job', GIT_PUSH_JOB, ns);
+      const condition = jobCondition(job);
+      if (condition === 'Complete') return { ok: true };
+      if (condition === 'Failed') {
+        return { ok: false, reason: await this.gitPushLog(ns) };
+      }
+      if (Date.now() > deadline) {
+        return { ok: false, reason: `timed out pushing to ${branch}` };
+      }
+      await sleep(this.gitPushPollMs);
+    }
+  }
+
+  /** Best-effort failure detail from the Job pod, for an actionable error. */
+  private async gitPushLog(ns: string): Promise<string> {
+    const pod = await this.cluster.get('Pod', GIT_PUSH_JOB, ns);
+    const reason = readPath(pod, ['status', 'containerStatuses']);
+    if (Array.isArray(reason)) {
+      for (const status of reason) {
+        const terminated = (status as Record<string, unknown>)?.state;
+        const msg = readPath(terminated, ['terminated', 'message']);
+        if (typeof msg === 'string' && msg) return msg;
+      }
+    }
+    return 'the push job reported a failure';
   }
 
   private async awaitIde(ideUrl: string): Promise<boolean> {
@@ -427,6 +509,96 @@ function deployIngressManifest(
       ],
     },
   };
+}
+
+/**
+ * The Job that commits and pushes the workspace volume.
+ *
+ * It mounts the same `workspace` PVC the code-server pod uses, so it pushes
+ * exactly the files the student sees in the IDE. The push uses a tokenized
+ * remote (`https://x-access-token:<token>@host/...`) passed via env, so the
+ * token does not appear in the process arguments. The Job is deleted by
+ * `publish` once it finishes.
+ */
+function gitPushJobManifest(
+  ns: string,
+  input: GitPublishInput,
+  branch: string,
+  message: string,
+): Record<string, unknown> {
+  const tokenizedRemote = tokenizeRemote(input.remoteUrl, input.token);
+  const script = [
+    'set -e',
+    'cd /workspace',
+    'git config --global user.email "student@tenxlab.local"',
+    'git config --global user.name "TenXLab Student"',
+    'git init -q',
+    `git checkout -q -B ${shellQuote(branch)}`,
+    'git add -A',
+    'git commit -q -m "$GIT_MESSAGE" || true',
+    `git push -q "$GIT_REMOTE" ${shellQuote(branch)} --force`,
+  ].join('\n');
+  return {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: {
+      name: GIT_PUSH_JOB,
+      namespace: ns,
+      labels: labels(input.sessionId),
+    },
+    spec: {
+      backoffLimit: 0,
+      ttlSecondsAfterFinished: 300,
+      template: {
+        metadata: { labels: labels(input.sessionId) },
+        spec: {
+          restartPolicy: 'Never',
+          containers: [
+            {
+              name: 'git-push',
+              image: GIT_PUSH_IMAGE,
+              command: ['/bin/sh', '-c'],
+              args: [script],
+              env: [
+                { name: 'GIT_MESSAGE', value: message },
+                { name: 'GIT_REMOTE', value: tokenizedRemote },
+              ],
+              volumeMounts: [{ name: 'workspace', mountPath: '/workspace' }],
+            },
+          ],
+          volumes: [
+            { name: 'workspace', persistentVolumeClaim: { claimName: 'workspace' } },
+          ],
+        },
+      },
+    },
+  };
+}
+
+/** Insert an access token into an HTTPS remote so the push authenticates. */
+export function tokenizeRemote(remoteUrl: string, token: string): string {
+  if (!remoteUrl.startsWith('https://')) return remoteUrl;
+  return remoteUrl.replace('https://', `https://x-access-token:${token}@`);
+}
+
+/** Single-quote a shell argument, escaping embedded quotes. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** A Job's terminal condition type, or null while it is still running. */
+function jobCondition(job: Record<string, unknown> | null): string | null {
+  const conditions = readPath(job, ['status', 'conditions']);
+  if (!Array.isArray(conditions)) return null;
+  for (const c of conditions) {
+    if (typeof c !== 'object' || c === null) continue;
+    const type = (c as Record<string, unknown>)['type'];
+    const status = (c as Record<string, unknown>)['status'];
+    if (status === 'True' && (type === 'Complete' || type === 'Failed')) {
+      return type as string;
+    }
+  }
+  return null;
 }
 
 // ------------------------------------------------------------------- helpers

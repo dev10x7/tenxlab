@@ -245,3 +245,10 @@ export function projectDeadlineLabel(
   return `Due ${date.toLocaleDateString()}`;
 }
 
+/** Format USD cents as a display string, e.g. 1234 -> "$12.34". */
+export function formatUsd(cents: number): string {
+  const sign = cents < 0 ? '-' : '';
+  const abs = Math.abs(Math.round(cents));
+  return `${sign}$${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
+}
+

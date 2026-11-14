@@ -4,6 +4,8 @@ import {
   InMemoryBatchRepository,
   InMemoryEnrollmentRepository,
   InMemoryEventLedger,
+  InMemoryGitConnectionRepository,
+  InMemoryGitPublishRepository,
   InMemoryLabSessionRepository,
   InMemoryLessonRepository,
   InMemoryMembershipRepository,
@@ -24,6 +26,8 @@ import {
   PrismaBatchRepository,
   PrismaEnrollmentRepository,
   PrismaEventLedger,
+  PrismaGitConnectionRepository,
+  PrismaGitPublishRepository,
   PrismaLabSessionRepository,
   PrismaLessonRepository,
   PrismaMembershipRepository,
@@ -67,6 +71,8 @@ export interface DemoState extends Repositories {
   projectWorkspaces: InMemoryProjectWorkspaceRepository;
   projectForks: InMemoryProjectForkRepository;
   projectSubmissions: InMemoryProjectSubmissionRepository;
+  gitConnections: InMemoryGitConnectionRepository;
+  gitPublishes: InMemoryGitPublishRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -78,6 +84,7 @@ export function createDemoState(): DemoState {
       name: 'Demo College',
       domain: 'demo-college',
       maxConcurrentLabs: 50,
+      monthlyBudgetCents: 0,
       plan: 'standard',
       status: 'active',
     },
@@ -150,6 +157,8 @@ export function createDemoState(): DemoState {
     projectWorkspaces: new InMemoryProjectWorkspaceRepository(),
     projectForks: new InMemoryProjectForkRepository(),
     projectSubmissions: new InMemoryProjectSubmissionRepository(),
+    gitConnections: new InMemoryGitConnectionRepository(),
+    gitPublishes: new InMemoryGitPublishRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -174,6 +183,8 @@ export function createPrismaState(db: PrismaClient): Repositories {
     projectWorkspaces: new PrismaProjectWorkspaceRepository(db),
     projectForks: new PrismaProjectForkRepository(db),
     projectSubmissions: new PrismaProjectSubmissionRepository(db),
+    gitConnections: new PrismaGitConnectionRepository(db),
+    gitPublishes: new PrismaGitPublishRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

@@ -9,6 +9,8 @@ export interface TenantRecord {
   name: string;
   domain: string;
   maxConcurrentLabs: number;
+  /** Monthly spend ceiling in USD cents. 0 means unlimited. */
+  monthlyBudgetCents: number;
   plan: string;
   status: string;
 }
@@ -194,6 +196,40 @@ export interface ProjectSubmissionRecord {
   evaluatedAt: Date | null;
 }
 
+/**
+ * A student's connected GitHub account (git publish, ByteXL's Source Control
+ * push). The access token is stored encrypted; only the login is readable.
+ */
+export interface GitConnectionRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  provider: string;
+  /** GitHub login the token belongs to, e.g. `octocat`. */
+  login: string;
+  /** AES-GCM ciphertext of the access token. Never the raw token. */
+  tokenCiphertext: string;
+  scopes: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** One publish of a workspace to a student's GitHub repository. */
+export interface GitPublishRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  workspaceId: string;
+  /** `owner/repo` the code was pushed to. */
+  repoFullName: string;
+  repoUrl: string;
+  branch: string;
+  status: string;
+  commitSha: string | null;
+  error: string | null;
+  createdAt: Date;
+}
+
 export interface TenantRepository {
   findById(id: string): Promise<TenantRecord | null>;
   findByDomain(domain: string): Promise<TenantRecord | null>;
@@ -225,6 +261,8 @@ export interface LabSessionRepository {
   create(input: Omit<LabSessionRecord, 'id'>): Promise<LabSessionRecord>;
   findById(id: string): Promise<LabSessionRecord | null>;
   countActiveByTenant(tenantId: string): Promise<number>;
+  /** All sessions for a tenant, oldest first; backs cost roll-ups. */
+  listByTenant(tenantId: string): Promise<LabSessionRecord[]>;
   update(
     id: string,
     patch: Partial<LabSessionRecord>,
@@ -385,4 +423,22 @@ export interface ProjectSubmissionRepository {
   /** A user's own submissions in a tenant, newest first (student view). */
   listByUser(tenantId: string, userId: string): Promise<ProjectSubmissionRecord[]>;
   update(id: string, patch: Partial<ProjectSubmissionRecord>): Promise<ProjectSubmissionRecord>;
+}
+
+export interface GitConnectionRepository {
+  /** A user's connection for one provider (at most one per provider). */
+  findByUser(userId: string, provider: string): Promise<GitConnectionRecord | null>;
+  /** Upsert on (userId, provider): reconnecting replaces the stored token. */
+  upsert(
+    input: Omit<GitConnectionRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<GitConnectionRecord>;
+  delete(userId: string, provider: string): Promise<boolean>;
+}
+
+export interface GitPublishRepository {
+  create(input: Omit<GitPublishRecord, 'id' | 'createdAt'>): Promise<GitPublishRecord>;
+  /** A workspace's publish history, newest first. */
+  listByWorkspace(workspaceId: string): Promise<GitPublishRecord[]>;
+  /** The most recent successful publish of a workspace, if any. */
+  latestByWorkspace(workspaceId: string): Promise<GitPublishRecord | null>;
 }

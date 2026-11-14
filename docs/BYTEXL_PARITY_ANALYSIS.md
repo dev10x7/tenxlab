@@ -39,17 +39,21 @@ evaluate runs end to end (`e2e.projects.test.ts`, `project-submission.service.ts
 and was verified live on minikube (tier-2 pod fork, then stop → resume).
 **E5 (one-click hosting) has since shipped** — a Deploy action exposes a running
 workspace's service on a public URL via the provider-neutral `ServiceExposer`
-seam. What remains for full Nimbus parity is **IDE git publish, fork cost/quota
-policy (E5b), and the dashboard resume + attendance widgets (E6)**; what remains
-for differentiation is the **AI tutor + soft skills** (Phase F) and **contests /
-recruiter portal** (Phase G).
+seam. **IDE git publish has since shipped** — a Source Control control connects
+GitHub via OAuth device flow and pushes the workspace to the student's own
+account (ADR-8, adapter-only), and **tenant cost/quota is now surfaced and
+enforced** at lab launch. What remains for full Nimbus parity is **per-fork
+stop-when-idle cost/quota policy (E5b), auto-evaluation, and the dashboard
+resume + attendance widgets (E6)**; what remains for differentiation is the
+**AI tutor + soft skills** (Phase F) and **contests / recruiter portal**
+(Phase G).
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
 | Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (6 langs; AI help missing) |
 | Labs (ungraded practice + hints) | `/labs` | Done |
 | Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
-| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core shipped** (E0–E4); hosting + git publish + attendance remain |
+| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core + hosting + git publish shipped** (E0–E5); fork cost/quota policy + attendance remain |
 | Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
 | Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
 | Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
@@ -316,7 +320,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Cloud VS Code workspace (persistent) | **Done** | Forks provision tier-2 pod / tier-3 vcluster `code-server` through the `LabProvider` seam; re-fork resumes a stopped workspace. Durable-state retention policy is E5b |
 | Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Done** | `projects/templates.ts`: `python-flask`, `java`, `spring-boot`, `spring-boot-mongodb`, `react`, `debian-base` (the "Alpine"/NOS bare image) |
 | Fork a template **or own workspace** | **Done** | `ProjectComponent.templateSlug` (catalog) or `templateWorkspaceId` (fork-your-own, §1.3); one fork per (component, student) |
-| Built-in Source Control → publish to GitHub | **Missing** | ByteXL uses workspace-local git + **GitHub OAuth device flow** (§1.3); we take a GitHub URL as free text and have no IDE git integration |
+| Built-in Source Control → publish to GitHub | **Done** | GitHub OAuth **device flow** connects the student's account; one-click publish pushes the workspace and records every attempt (§1.3). No hosted git backend (ADR-8) |
 | One-click backend deployment + live URL | **Done** | "Deploy" exposes the running workspace's service on a per-workspace `-deploy` ingress via the `ServiceExposer` seam (`PodProvider.expose`), reusing the shared gateway; `deployUrl` is the analogue of ByteXL's `bytexl.live` and is captured on the workspace (E5) |
 | Submission form (title, description, workspace picker, links) | **Done** | `project-submission.service.ts` + `ProjectComponentCard`; one submission per component |
 | Submission deadline + auto-close | **Done** | Server-authoritative `deadline_passed` gate (§1.2) |
@@ -325,7 +329,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Submissions: workspace + GitHub URL + demo URL | **Done** | Optional GitHub/demo links captured |
 | Trainer evaluation + score | **Done** | Role-gated `evaluate(id, {score, feedback})` |
 | Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget (E6) |
-| Fork cost/quota policy (stop-when-idle) | **Missing** | Forks have no own idle limit yet; the operator sweep could reap them (E5b, ADR-20) |
+| Fork cost/quota policy (stop-when-idle) | **Partial** | Tenant-level monthly budget now enforced at launch + shown in the Nimbus `UsageCard`; per-fork stop-when-idle/idle limit and the storage dimension remain (E5b, ADR-20) |
 
 ### 2.6 Runtime / scale
 
@@ -333,7 +337,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 |---|---|---|
 | Tier router | **Done** | `packages/runtime-policy/tier-router.ts` |
 | Warm pool planning + reconciler | **Done** | `runtime-policy/warm-pool.ts`, `services/lab-operator` (12 tests, real PG + k8s ports) |
-| Quotas + budget warnings | **Done** | `runtime-policy/quota.ts` |
+| Quotas + budget warnings | **Done** | `runtime-policy/quota.ts`; enforced at lab launch by `UsageService.checkLaunch` (concurrency + monthly budget) |
 | Idle termination | **Done** | `findIdleSessions` + operator sweep |
 | Cost telemetry | **Done** | `runtime-policy/cost.ts` |
 | Piston tier-1 worker | **Done** | `packages/lab-provider/src/piston.provider.ts` (`CodeExecutionProvider`, ADR-12); Judge0 rejected: GPL-3.0 |
@@ -519,8 +523,10 @@ sub-milestones so each ends demonstrable and CI-green:
       own account** (public/private + optional rename). Submission keeps
       GitHub/demo URLs as optional free-text links.
       → **Template catalog done** (`projects/templates.ts`, both shapes);
-      **IDE git publish still open** (no in-IDE Source Control integration; the
-      GitHub URL is free text today).
+      **IDE git publish done** — `git-publish.service.ts` + `GitHubClient`
+      device flow + `SecretBox`-encrypted token storage, surfaced as a Source
+      Control control on each fork (`GitPublishControl`). Every attempt
+      (success or failure) is recorded as a `GitPublish` row.
 - [x] **E3 — Submission + evaluation.** Mirror ByteXL's form (§1.2): **title,
       description, workspace picker, optional GitHub link, optional demo URL** —
       one submission per component, so the picker lists the student's forks for
@@ -560,6 +566,12 @@ sub-milestones so each ends demonstrable and CI-green:
       (add `storage_exceeded`), `findIdleSessions` (separate limit table), and
       `costSession`; add a `persistent: true` mode to `PodProvider` (Deployment
       + PVC, scale 0/1).
+      → **Tenant-level half done:** `tenants.monthlyBudgetCents` + `UsageService`
+      roll up `costSession` over the tenant's sessions, `checkLaunch` enforces
+      the concurrency + monthly-budget gates at lab launch, and `/api/labs/usage`
+      + the Nimbus `UsageCard` surface the period spend and budget warning. What
+      remains is the **per-fork** stop-when-idle/idle-limit policy and the storage
+      dimension.
 - [ ] **E6 — Dashboard resume + attendance + docs.** "Up Next"/"Resume Learning"
       widget (ByteXL's smarter dashboard) and **student attendance** (overall +
       session-level) — a new small model + student/instructor views, discovered

@@ -19,6 +19,7 @@ export async function seed(db: PrismaClient): Promise<void> {
       name: 'Demo College',
       domain: 'demo-college',
       maxConcurrentLabs: 50,
+      monthlyBudgetCents: 0,
       plan: 'standard',
       status: 'active',
     },

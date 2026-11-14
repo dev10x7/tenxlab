@@ -9,8 +9,13 @@ import {
   type ProjectTemplate,
   type Session,
   type StudentProjectView,
+  type TenantUsage,
 } from '@/lib/api';
-import { projectDeadlineLabel, submissionStatusLabel } from '@/lib/lms';
+import {
+  formatUsd,
+  projectDeadlineLabel,
+  submissionStatusLabel,
+} from '@/lib/lms';
 import { ProjectComponentCard } from '@/components/ProjectComponentCard';
 
 /**
@@ -180,6 +185,8 @@ function InstructorProjects() {
 
       {error ? <p className="error">{error}</p> : null}
 
+      <UsageCard />
+
       <CreateProjectCard templates={templates} onCreated={load} />
 
       <h2 style={{ marginTop: 32 }}>Your projects</h2>
@@ -226,6 +233,44 @@ function InstructorProjects() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Tenant cost and quota for the billing period — the capacity-planning view. */
+function UsageCard() {
+  const [usage, setUsage] = useState<TenantUsage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .usage()
+      .then(setUsage)
+      .catch(() => setError('Could not load usage. Please try again.'));
+  }, []);
+
+  if (error) return <p className="error">{error}</p>;
+  if (!usage) return null;
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Usage this month</h3>
+      <p className="muted" style={{ marginBottom: 8 }}>
+        {formatUsd(usage.totalCents)} spent · {usage.activeSessions} active lab
+        {usage.activeSessions === 1 ? '' : 's'}
+      </p>
+      {usage.budget ? (
+        <>
+          <div className="progress">
+            <span style={{ width: `${Math.min(100, usage.budget.percent)}%` }} />
+          </div>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {usage.budget.percent}% of{' '}
+            {formatUsd(usage.budget.monthlyBudgetCents)} budget
+            {usage.budget.level === 'exceeded' ? ' — limit reached' : ''}
+          </p>
+        </>
+      ) : null}
     </div>
   );
 }

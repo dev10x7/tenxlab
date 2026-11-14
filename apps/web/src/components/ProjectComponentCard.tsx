@@ -5,6 +5,9 @@ import {
   api,
   ApiError,
   type ForkStatus,
+  type GitDeviceGrant,
+  type GitPublish,
+  type GitStatus,
   type ProjectComponentView,
   type ProjectSubmission,
   type ProjectSummary,
@@ -163,6 +166,7 @@ export function ProjectComponentCard({
               setStatus((s) => (s ? { ...s, deployUrl, deployPort } : s))
             }
           />
+          <GitPublishControl workspaceId={status.workspaceId} />
         </div>
       ) : null}
 
@@ -272,6 +276,125 @@ function DeployControl({
           Deploy
         </button>
       </div>
+      {error ? <p className="error">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Git publish (ByteXL's Source Control push): publish the running workspace to
+ * the student's own GitHub. The first use walks them through a device-flow
+ * connect; afterwards a single click creates/reuses the repo and pushes.
+ */
+function GitPublishControl({ workspaceId }: { workspaceId: string }) {
+  const [status, setStatus] = useState<GitStatus | null>(null);
+  const [grant, setGrant] = useState<GitDeviceGrant | null>(null);
+  const [publish, setPublish] = useState<GitPublish | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .gitStatus()
+      .then(setStatus)
+      .catch(() => setStatus({ connected: false, login: null, provider: 'github' }));
+  }, []);
+
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    try {
+      setGrant(await api.gitConnectStart());
+    } catch {
+      setError('Could not start GitHub sign-in. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishConnect() {
+    if (!grant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.gitConnectComplete(grant.deviceCode);
+      setStatus({ connected: result.connected, login: result.login, provider: result.provider });
+      setGrant(null);
+    } catch (err) {
+      // 202 means the student has not approved the code yet; keep polling.
+      setError(
+        err instanceof ApiError && err.status === 202
+          ? 'Waiting for you to approve the code on GitHub…'
+          : 'Could not connect GitHub. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doPublish() {
+    setBusy(true);
+    setError(null);
+    try {
+      setPublish(await api.gitPublish(workspaceId));
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Start the workspace before publishing.'
+          : 'Could not publish to GitHub. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  if (!status.connected) {
+    return (
+      <div style={{ marginTop: 12 }}>
+        <p className="muted" style={{ marginBottom: 4 }}>
+          Publish your code to your own GitHub.
+        </p>
+        {grant ? (
+          <div>
+            <p style={{ marginBottom: 4 }}>
+              Enter code <strong>{grant.userCode}</strong> at{' '}
+              <a href={grant.verificationUri} target="_blank" rel="noreferrer">
+                {grant.verificationUri}
+              </a>
+            </p>
+            <button className="btn" onClick={finishConnect} disabled={busy}>
+              I’ve authorised — finish connecting
+            </button>
+          </div>
+        ) : (
+          <button className="btn" onClick={connect} disabled={busy}>
+            Connect GitHub
+          </button>
+        )}
+        {error ? <p className="error">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="muted" style={{ marginBottom: 4 }}>
+        GitHub: <strong>{status.login}</strong>
+      </p>
+      {publish?.status === 'succeeded' ? (
+        <p style={{ marginBottom: 0 }}>
+          Published to{' '}
+          <a href={publish.repoUrl} target="_blank" rel="noreferrer">
+            {publish.repoFullName} →
+          </a>
+        </p>
+      ) : (
+        <button className="btn" onClick={doPublish} disabled={busy}>
+          Publish to GitHub
+        </button>
+      )}
       {error ? <p className="error">{error}</p> : null}
     </div>
   );

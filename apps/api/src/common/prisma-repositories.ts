@@ -7,6 +7,10 @@ import type {
   EnrollmentRecord,
   EnrollmentRepository,
   EventLedger,
+  GitConnectionRecord,
+  GitConnectionRepository,
+  GitPublishRecord,
+  GitPublishRepository,
   LabSessionRecord,
   LabSessionRepository,
   LessonProgressRecord,
@@ -262,6 +266,13 @@ export class PrismaLabSessionRepository implements LabSessionRepository {
         status: { in: ['WARM', 'ACTIVE', 'IDLE'] },
       },
     });
+  }
+  async listByTenant(tenantId: string): Promise<LabSessionRecord[]> {
+    const rows = await this.db.labSession.findMany({
+      where: { tenantId },
+      orderBy: { startedAt: 'asc' },
+    });
+    return rows.map(toLabSession);
   }
   async update(
     id: string,
@@ -594,6 +605,52 @@ export class PrismaProjectSubmissionRepository
   }
 }
 
+export class PrismaGitConnectionRepository implements GitConnectionRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async findByUser(userId: string, provider: string): Promise<GitConnectionRecord | null> {
+    const row = await this.db.gitConnection.findUnique({
+      where: { userId_provider: { userId, provider } },
+    });
+    return row ? toGitConnection(row) : null;
+  }
+  async upsert(
+    input: Omit<GitConnectionRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<GitConnectionRecord> {
+    const row = await this.db.gitConnection.upsert({
+      where: { userId_provider: { userId: input.userId, provider: input.provider } },
+      create: input,
+      update: input,
+    });
+    return toGitConnection(row);
+  }
+  async delete(userId: string, provider: string): Promise<boolean> {
+    const result = await this.db.gitConnection.deleteMany({ where: { userId, provider } });
+    return result.count > 0;
+  }
+}
+
+export class PrismaGitPublishRepository implements GitPublishRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: Omit<GitPublishRecord, 'id' | 'createdAt'>): Promise<GitPublishRecord> {
+    const row = await this.db.gitPublish.create({ data: input });
+    return toGitPublish(row);
+  }
+  async listByWorkspace(workspaceId: string): Promise<GitPublishRecord[]> {
+    const rows = await this.db.gitPublish.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toGitPublish);
+  }
+  async latestByWorkspace(workspaceId: string): Promise<GitPublishRecord | null> {
+    const row = await this.db.gitPublish.findFirst({
+      where: { workspaceId, status: 'succeeded' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row ? toGitPublish(row) : null;
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -635,6 +692,12 @@ type ProjectForkRow = Awaited<
 type ProjectSubmissionRow = Awaited<
   ReturnType<PrismaClient['projectSubmission']['findUniqueOrThrow']>
 >;
+type GitConnectionRow = Awaited<
+  ReturnType<PrismaClient['gitConnection']['findUniqueOrThrow']>
+>;
+type GitPublishRow = Awaited<
+  ReturnType<PrismaClient['gitPublish']['findUniqueOrThrow']>
+>;
 
 function toTenant(t: TenantRow): TenantRecord {
   return {
@@ -642,6 +705,7 @@ function toTenant(t: TenantRow): TenantRecord {
     name: t.name,
     domain: t.domain,
     maxConcurrentLabs: t.maxConcurrentLabs,
+    monthlyBudgetCents: t.monthlyBudgetCents,
     plan: t.plan,
     status: t.status,
   };
@@ -823,5 +887,35 @@ function toProjectSubmission(s: ProjectSubmissionRow): ProjectSubmissionRecord {
     feedback: s.feedback ?? null,
     submittedAt: s.submittedAt,
     evaluatedAt: s.evaluatedAt ?? null,
+  };
+}
+
+function toGitConnection(c: GitConnectionRow): GitConnectionRecord {
+  return {
+    id: c.id,
+    tenantId: c.tenantId,
+    userId: c.userId,
+    provider: c.provider,
+    login: c.login,
+    tokenCiphertext: c.tokenCiphertext,
+    scopes: c.scopes,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
+}
+
+function toGitPublish(p: GitPublishRow): GitPublishRecord {
+  return {
+    id: p.id,
+    tenantId: p.tenantId,
+    userId: p.userId,
+    workspaceId: p.workspaceId,
+    repoFullName: p.repoFullName,
+    repoUrl: p.repoUrl,
+    branch: p.branch,
+    status: p.status,
+    commitSha: p.commitSha ?? null,
+    error: p.error ?? null,
+    createdAt: p.createdAt,
   };
 }

@@ -7,6 +7,10 @@ import type {
   EnrollmentRecord,
   EnrollmentRepository,
   EventLedger,
+  GitConnectionRecord,
+  GitConnectionRepository,
+  GitPublishRecord,
+  GitPublishRepository,
   LabSessionRecord,
   LabSessionRepository,
   LessonRecord,
@@ -127,6 +131,11 @@ export class InMemoryLabSessionRepository implements LabSessionRepository {
         s.tenantId === tenantId &&
         (s.status === 'WARM' || s.status === 'ACTIVE' || s.status === 'IDLE'),
     ).length;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .filter((s) => s.tenantId === tenantId)
+      .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
   }
   async update(id: string, patch: Partial<LabSessionRecord>) {
     const row = this.rows.find((s) => s.id === id);
@@ -545,5 +554,54 @@ export class InMemoryProjectSubmissionRepository
   }
   seed(s: ProjectSubmissionRecord) {
     this.rows.push(s);
+  }
+}
+
+export class InMemoryGitConnectionRepository implements GitConnectionRepository {
+  constructor(private readonly rows: GitConnectionRecord[] = []) {}
+  async findByUser(userId: string, provider: string) {
+    return this.rows.find((r) => r.userId === userId && r.provider === provider) ?? null;
+  }
+  async upsert(input: Omit<GitConnectionRecord, 'id' | 'createdAt' | 'updatedAt'>) {
+    const now = new Date();
+    const existing = this.rows.find(
+      (r) => r.userId === input.userId && r.provider === input.provider,
+    );
+    if (existing) {
+      Object.assign(existing, input, { updatedAt: now });
+      return existing;
+    }
+    const row: GitConnectionRecord = {
+      id: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async delete(userId: string, provider: string) {
+    const idx = this.rows.findIndex((r) => r.userId === userId && r.provider === provider);
+    if (idx < 0) return false;
+    this.rows.splice(idx, 1);
+    return true;
+  }
+}
+
+export class InMemoryGitPublishRepository implements GitPublishRepository {
+  constructor(private readonly rows: GitPublishRecord[] = []) {}
+  async create(input: Omit<GitPublishRecord, 'id' | 'createdAt'>) {
+    const row: GitPublishRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async listByWorkspace(workspaceId: string) {
+    return this.rows
+      .filter((r) => r.workspaceId === workspaceId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  async latestByWorkspace(workspaceId: string) {
+    const list = await this.listByWorkspace(workspaceId);
+    return list.find((r) => r.status === 'succeeded') ?? null;
   }
 }

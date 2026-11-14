@@ -365,6 +365,21 @@ submit; instructor: author → publish → evaluate).
   down). Routes: `POST`/`DELETE /api/projects/workspaces/:workspaceId/deploy`.
   **Multi-service apps stay N independent workspaces** (§1.4) — there is no
   composed multi-container deploy. Fork cost/quota policy is still E5b.
+- **Nimbus git publish** (`github/git-publish.service.ts`). "Source Control"
+  connects GitHub via the **OAuth device flow** (`GitHubClient`, `DeviceCodeGrant`)
+  and stores the token **encrypted** with `SecretBox` on a `GitConnection` row;
+  one-click publish pushes the workspace to the student's own repo through the
+  provider-neutral `GitPublisher` seam (`LabProvider & GitPublisher`), reusing a
+  repo if one exists. `GitPublish` records **every** attempt, success or failure,
+  so a failed push is never silently dropped. DI: `GIT` (needs `GITHUB` +
+  `SECRET_BOX`); browser routes proxy under `apps/web/src/app/api/git/**`, and
+  `GitPublishControl` lives on each fork card.
+- **Cost/quota** (Nimbus). `tenants.monthlyBudgetCents` (0 = unlimited) is the
+  ceiling; `UsageService` (`labs/usage.service.ts`) rolls `costSession` up over
+  the tenant's sessions for the current calendar month and `checkLaunch` enforces
+  both the concurrency and budget gates before a lab starts. `GET /api/labs/usage`
+  backs the Nimbus `UsageCard`. The pure math stays in `runtime-policy`; the
+  service only supplies data, so the gate and the dashboard read one source.
 
 ## Gotchas
 

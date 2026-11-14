@@ -3,6 +3,8 @@ import type {
   BatchRepository,
   EnrollmentRepository,
   EventLedger,
+  GitConnectionRepository,
+  GitPublishRepository,
   LabSessionRepository,
   LessonRepository,
   MembershipRepository,
@@ -42,6 +44,8 @@ export interface Repositories {
   projectWorkspaces: ProjectWorkspaceRepository;
   projectForks: ProjectForkRepository;
   projectSubmissions: ProjectSubmissionRepository;
+  gitConnections: GitConnectionRepository;
+  gitPublishes: GitPublishRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

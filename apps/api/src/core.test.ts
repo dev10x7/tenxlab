@@ -7,6 +7,7 @@ import { PodProvider, RoutingProvider } from '@tenxlab/lab-provider';
 import { JwtService } from './crypto/jwt.service';
 import { PartnerSsoService } from './identity/partner-sso.service';
 import { LabLaunchService } from './labs/lab-launch.service';
+import { UsageService } from './labs/usage.service';
 import { GradebookWebhookService } from './gradebook/gradebook-webhook.service';
 import {
   InMemoryEventLedger,
@@ -89,6 +90,7 @@ function ssoFixture() {
     name: 'Acme College',
     domain: 'acme-college',
     maxConcurrentLabs: 10,
+    monthlyBudgetCents: 0,
     plan: 'standard',
     status: 'active',
   });
@@ -194,6 +196,7 @@ test('partner SSO rejects unknown user when JIT is disabled', async () => {
     name: 'Acme',
     domain: 'acme-college',
     maxConcurrentLabs: 10,
+    monthlyBudgetCents: 0,
     plan: 'standard',
     status: 'active',
   });
@@ -225,6 +228,7 @@ function labFixture(maxConcurrentLabs = 10) {
     name: 'Acme',
     domain: 'acme-college',
     maxConcurrentLabs,
+    monthlyBudgetCents: 0,
     plan: 'standard',
     status: 'active',
   });
@@ -321,6 +325,7 @@ test('lab launch provisions through the provider and records the IDE URL', async
         name: 'Acme',
         domain: 'acme',
         maxConcurrentLabs: 10,
+        monthlyBudgetCents: 0,
         plan: 'standard',
         status: 'active',
       },
@@ -385,6 +390,7 @@ test('a tier-2 lesson routes to the pod provider and records its IDE URL', async
         name: 'Acme',
         domain: 'acme',
         maxConcurrentLabs: 10,
+        monthlyBudgetCents: 0,
         plan: 'standard',
         status: 'active',
       },
@@ -432,6 +438,7 @@ test('lab launch records FAILED when provisioning throws', async () => {
         name: 'Acme',
         domain: 'acme',
         maxConcurrentLabs: 10,
+        monthlyBudgetCents: 0,
         plan: 'standard',
         status: 'active',
       },
@@ -487,6 +494,60 @@ test('lab launch enforces the tenant concurrency quota', async () => {
   });
   assert.equal(second.ok, false);
   if (!second.ok) assert.equal(second.reason, 'tenant_quota_exceeded');
+});
+
+test('lab launch blocks a tenant over its monthly budget', async () => {
+  const tenants = new InMemoryTenantRepository([
+    {
+      id: 'tenant_1',
+      name: 'Acme',
+      domain: 'acme-college',
+      maxConcurrentLabs: 10,
+      monthlyBudgetCents: 1,
+      plan: 'standard',
+      status: 'active',
+    },
+  ]);
+  const sessions = new InMemoryLabSessionRepository();
+  const svc = new LabLaunchService({
+    lessons: new InMemoryLessonRepository([
+      {
+        id: 'lesson_1',
+        moduleId: 'mod_1',
+        title: 'Create a Pod',
+        type: 'interactive_lab',
+        exerciseSlug: 'create-simple-pod',
+        runtimeTier: 'tier_3_vcluster',
+        maxScore: 100,
+      },
+    ]),
+    memberships: new InMemoryMembershipRepository([
+      { id: 'm1', userId: 'user_1', tenantId: 'tenant_1', role: 'student', status: 'active' },
+    ]),
+    tenants,
+    sessions,
+    provider: null,
+    usage: new UsageService({ tenants, sessions }),
+  });
+  // A single past session already exceeds the 1-cent ceiling.
+  await sessions.create({
+    tenantId: 'tenant_1',
+    userId: 'user_1',
+    exerciseSlug: 'create-simple-pod',
+    tier: 'tier_3_vcluster',
+    status: 'TERMINATED',
+    startedAt: new Date(),
+    lastActivityAt: new Date(Date.now() + 60_000),
+    ttlSeconds: 1800,
+  });
+
+  const res = await svc.launch({
+    userId: 'user_1',
+    tenantId: 'tenant_1',
+    lessonId: 'lesson_1',
+  });
+  assert.equal(res.ok, false);
+  if (!res.ok) assert.equal(res.reason, 'tenant_quota_exceeded');
 });
 
 test('lab launch requires an active membership', async () => {

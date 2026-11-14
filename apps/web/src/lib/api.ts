@@ -320,6 +320,50 @@ export interface StudentSubmissionView {
   workspace: { id: string; status: WorkspaceStatus } | null;
 }
 
+/** GitHub connection state for git publish. */
+export interface GitStatus {
+  connected: boolean;
+  login: string | null;
+  provider: string;
+}
+
+/** A device-flow grant: the code the student types at GitHub. */
+export interface GitDeviceGrant {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresIn: number;
+  interval: number;
+}
+
+/** One publish of a workspace to the student's GitHub. */
+export interface GitPublish {
+  id: string;
+  workspaceId: string;
+  repoFullName: string;
+  repoUrl: string;
+  branch: string;
+  status: 'succeeded' | 'failed';
+  commitSha: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+/** Tenant cost and quota for the current billing period. */
+export interface TenantUsage {
+  tenantId: string;
+  periodStart: string;
+  totalCents: number;
+  byTier: Record<string, number>;
+  activeSessions: number;
+  budget: {
+    monthlyBudgetCents: number;
+    spentCents: number;
+    percent: number;
+    level: 'ok' | 'warning' | 'exceeded';
+  } | null;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -489,4 +533,31 @@ export const api = {
     request<ProjectSummary>(`/api/projects/${encodeURIComponent(projectId)}/publish`, {
       method: 'POST',
     }),
+  /** Git publish: the caller's GitHub connection state. */
+  gitStatus: () => request<GitStatus>('/api/git/status'),
+  /** Git publish: begin a device-flow connection. */
+  gitConnectStart: () =>
+    request<GitDeviceGrant>('/api/git/connect/start', { method: 'POST' }),
+  /** Git publish: finish a device-flow connection. */
+  gitConnectComplete: (deviceCode: string) =>
+    request<{ connected: boolean; login: string | null; provider: string }>(
+      '/api/git/connect/complete',
+      { method: 'POST', body: JSON.stringify({ deviceCode }) },
+    ),
+  /** Git publish: disconnect the GitHub account. */
+  gitDisconnect: () =>
+    request<{ connected: boolean }>('/api/git/connect', { method: 'DELETE' }),
+  /** Git publish: publish a running workspace to the student's GitHub. */
+  gitPublish: (workspaceId: string, input?: { repoName?: string; branch?: string }) =>
+    request<GitPublish>(
+      `/api/git/workspaces/${encodeURIComponent(workspaceId)}/publish`,
+      { method: 'POST', body: JSON.stringify(input ?? {}) },
+    ),
+  /** Git publish: the caller's publish history for a workspace. */
+  gitPublishes: (workspaceId: string) =>
+    request<GitPublish[]>(
+      `/api/git/workspaces/${encodeURIComponent(workspaceId)}/publishes`,
+    ),
+  /** Tenant cost and quota for the current billing period. */
+  usage: () => request<TenantUsage>('/api/labs/usage'),
 };

@@ -7,6 +7,7 @@ import {
   PistonProvider,
   PodProvider,
   RoutingProvider,
+  type GitPublisher,
   type LabProvider,
   type ServiceExposer,
 } from '@tenxlab/lab-provider';
@@ -22,8 +23,12 @@ import { ProctoringService } from '../proctoring/proctoring.service';
 import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
+import { UsageService } from '../labs/usage.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
+import { GitHubClient } from '../github/github.client';
+import { GitPublishService } from '../github/git-publish.service';
+import { SecretBox } from '../crypto/secret-box';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { createDemoState, createPrismaState, resolveLessonId } from '../demo/state';
 import type { Repositories } from '../common/repositories';
@@ -33,6 +38,7 @@ import {
   BatchesController,
   CatalogController,
   EditorController,
+  GitController,
   JwksController,
   LabAssetController,
   LabController,
@@ -41,9 +47,9 @@ import {
   ProjectsController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, RUNNER, SESSION, SSO, STORE } from './tokens';
+import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH, GIT, GITHUB, SECRET_BOX, USAGE };
 
 const DEMO_STATE = createDemoState();
 
@@ -82,6 +88,7 @@ const STORE_PROVIDER = {
     AssessmentController,
     ProctoringController,
     ProjectsController,
+    GitController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -168,15 +175,27 @@ const STORE_PROVIDER = {
       },
     },
     {
+      provide: USAGE,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new UsageService({ tenants: store.tenants, sessions: store.sessions }),
+    },
+    {
       provide: LAUNCH,
-      inject: [ENV, STORE, PROVIDER],
-      useFactory: (env: Env, store: Repositories, provider: LabProvider | null) =>
+      inject: [ENV, STORE, PROVIDER, USAGE],
+      useFactory: (
+        env: Env,
+        store: Repositories,
+        provider: LabProvider | null,
+        usage: UsageService,
+      ) =>
         new LabLaunchService({
           lessons: store.lessons,
           memberships: store.memberships,
           tenants: store.tenants,
           sessions: store.sessions,
           provider: env.KUBELAB_ENABLED ? provider : null,
+          usage,
         }),
     },
     {
@@ -257,6 +276,42 @@ const STORE_PROVIDER = {
           memberships: store.memberships,
         }),
     },
+    {
+      provide: SECRET_BOX,
+      inject: [ENV],
+      useFactory: (env: Env) => new SecretBox(env.TOKEN_ENCRYPTION_SECRET),
+    },
+    {
+      provide: GITHUB,
+      inject: [ENV],
+      useFactory: (env: Env) =>
+        new GitHubClient({
+          clientId: env.GITHUB_CLIENT_ID,
+          apiBase: env.GITHUB_API_BASE,
+          oauthBase: env.GITHUB_OAUTH_BASE,
+        }),
+    },
+    {
+      provide: GIT,
+      inject: [STORE, PROVIDER, GITHUB, SECRET_BOX],
+      useFactory: (
+        store: Repositories,
+        provider: LabProvider | null,
+        github: GitHubClient,
+        secretBox: SecretBox,
+      ) =>
+        new GitPublishService({
+          connections: store.gitConnections,
+          publishes: store.gitPublishes,
+          workspaces: store.projectWorkspaces,
+          // Publish reuses the same provider when it can push a workspace; a
+          // provider that cannot (e.g. a KubeLab-only deployment) leaves the
+          // control hidden and the endpoint answers publish_unavailable.
+          publisher: isGitPublisher(provider) ? provider : null,
+          github,
+          secretBox,
+        }),
+    },
   ],
 })
 export class AppModule {}
@@ -285,6 +340,13 @@ function resolveKubeLabUser(userId: string): {
   const user = findDemoUserById(userId);
   if (user) return { email: user.email, name: user.fullName, role: user.role };
   return { email: `${userId}@tenxlab.local`, name: userId };
+}
+
+/** Structural check: can this provider push a workspace to a git remote? */
+function isGitPublisher(
+  provider: LabProvider | null,
+): provider is LabProvider & GitPublisher {
+  return typeof (provider as Partial<GitPublisher> | null)?.publish === 'function';
 }
 
 function devKeys(kid: string) {

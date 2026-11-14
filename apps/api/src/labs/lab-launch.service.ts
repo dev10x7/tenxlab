@@ -8,6 +8,7 @@ import type {
   MembershipRepository,
   TenantRepository,
 } from '../common/ports';
+import type { UsageService } from './usage.service';
 
 export interface LaunchRequest {
   userId: string;
@@ -42,6 +43,8 @@ export interface LaunchDeps {
   provider?: LabProvider | null;
   /** Seconds an idle session may live before termination. */
   idleTtlSeconds?: number;
+  /** Budget/quota gate. When present, launch enforces the monthly budget too. */
+  usage?: UsageService;
 }
 
 /**
@@ -85,6 +88,14 @@ export class LabLaunchService {
         reason: 'tenant_quota_exceeded',
         message: `Tenant concurrent-lab limit (${tenant.maxConcurrentLabs}) reached`,
       };
+    }
+
+    // Budget gate: a tenant over its monthly spend ceiling cannot start new labs.
+    if (this.deps.usage) {
+      const denial = await this.deps.usage.checkLaunch(req.tenantId, 0);
+      if (denial) {
+        return { ok: false, reason: 'tenant_quota_exceeded', message: denial.message };
+      }
     }
 
     const tier = routeTier({

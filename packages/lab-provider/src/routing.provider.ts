@@ -3,6 +3,9 @@ import {
   LabProviderError,
   type ExposedService,
   type ExposeInput,
+  type GitPublisher,
+  type GitPublishInput,
+  type GitPublishResult,
   type LabProvider,
   type ServiceExposer,
 } from './types';
@@ -19,11 +22,13 @@ import {
  * *lab* would need a pod-based runtime we do not yet run, so it fails loudly
  * rather than silently borrowing tier-2 capacity.
  *
- * It also implements `ServiceExposer` (E5): only some providers can publish a
- * service, so `expose`/`unexpose` delegate to whichever route supports it. A
- * deploy is a tier-2 (pod) concern today, so the tier-2 provider answers.
+ * It also implements `ServiceExposer` (E5) and `GitPublisher` (git publish):
+ * only some providers can publish a service or push a workspace, so
+ * `expose`/`unexpose` and `publish` delegate to whichever route supports it. A
+ * deploy and a git push are tier-2 (pod) concerns today, so the tier-2 provider
+ * answers.
  */
-export class RoutingProvider implements LabProvider, ServiceExposer {
+export class RoutingProvider implements LabProvider, ServiceExposer, GitPublisher {
   readonly name = 'routing';
 
   constructor(
@@ -112,10 +117,31 @@ export class RoutingProvider implements LabProvider, ServiceExposer {
       if (isExposer(provider)) await provider.unexpose(sessionId);
     }
   }
+
+  /** The first configured provider that can push a workspace, if any. */
+  private publisher(): GitPublisher | null {
+    for (const provider of this.all()) {
+      if (isPublisher(provider)) return provider;
+    }
+    return null;
+  }
+
+  async publish(input: GitPublishInput): Promise<GitPublishResult> {
+    const publisher = this.publisher();
+    if (!publisher) {
+      throw new LabProviderError('No lab provider can publish a workspace', 503);
+    }
+    return publisher.publish(input);
+  }
 }
 
 /** Structural check: does this provider implement `ServiceExposer`? */
 function isExposer(provider: LabProvider): provider is LabProvider & ServiceExposer {
   const candidate = provider as Partial<ServiceExposer>;
   return typeof candidate.expose === 'function' && typeof candidate.unexpose === 'function';
+}
+
+/** Structural check: does this provider implement `GitPublisher`? */
+function isPublisher(provider: LabProvider): provider is LabProvider & GitPublisher {
+  return typeof (provider as Partial<GitPublisher>).publish === 'function';
 }

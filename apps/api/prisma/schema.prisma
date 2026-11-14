@@ -17,14 +17,15 @@ datasource db {
 // ---------------------------------------------------------------- Tenancy
 
 model Tenant {
-  id                String   @id @default(uuid())
-  name              String
-  domain            String   @unique
-  maxConcurrentLabs Int      @default(50)
-  plan              String   @default("standard")
-  status            String   @default("active")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  name               String
+  domain             String   @unique
+  maxConcurrentLabs  Int      @default(50)
+  monthlyBudgetCents Int      @default(0) // 0 = unlimited
+  plan               String   @default("standard")
+  status             String   @default("active")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   departments       Department[]
   users             Membership[]
@@ -472,4 +473,43 @@ model ProjectSubmission {
   @@index([tenantId, projectId])
   @@index([tenantId, userId])
   @@map("project_submissions")
+}
+
+// A student's connected GitHub account, used to publish a workspace to their
+// own GitHub (ByteXL's Source Control push). The access token is stored as
+// AES-GCM ciphertext, never in the clear.
+model GitConnection {
+  id              String   @id @default(uuid())
+  tenantId        String
+  userId          String
+  provider        String   @default("github")
+  login           String
+  tokenCiphertext String
+  scopes          String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([tenantId, userId])
+  @@map("git_connections")
+}
+
+// One publish of a workspace to a student's GitHub repository. A row is written
+// on success and on failure, so the student always sees why a push did not land.
+model GitPublish {
+  id           String   @id @default(uuid())
+  tenantId     String
+  userId       String
+  workspaceId  String
+  repoFullName String
+  repoUrl      String
+  branch       String   @default("main")
+  status       String   @default("succeeded") // succeeded | failed
+  commitSha    String?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([tenantId, userId])
+  @@map("git_publishes")
 }

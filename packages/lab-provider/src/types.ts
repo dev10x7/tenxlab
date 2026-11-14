@@ -80,6 +80,43 @@ export interface ServiceExposer {
   unexpose(sessionId: string): Promise<void>;
 }
 
+/**
+ * Publish a running workspace's files to an external git remote (git publish).
+ *
+ * ByteXL pushes from the IDE's Source Control tab to the student's own GitHub
+ * account. We mirror that with a provider-side job that commits the workspace
+ * volume and pushes to a repo the LMS created on the student's behalf, so the
+ * LMS holds the student's token only for the duration of the push. Like
+ * `ServiceExposer`, this is a separate seam because not every provider can run a
+ * push (a tier-1 Piston run cannot) and the workspace must be running.
+ */
+export interface GitPublishInput {
+  /** Provider ref of the running session (e.g. the tier-2 namespace). */
+  sessionId: string;
+  /** HTTPS remote to push to, e.g. `https://github.com/me/repo.git`. */
+  remoteUrl: string;
+  /** Branch to push, e.g. `main`. */
+  branch: string;
+  /** Access token the push authenticates with. */
+  token: string;
+  /** Commit message for the publish commit. */
+  message?: string;
+}
+
+export interface GitPublishResult {
+  /** The remote URL the code was pushed to. */
+  repoUrl: string;
+  /** The commit the push produced, when the provider reports one. */
+  commitSha?: string;
+}
+
+export interface GitPublisher {
+  /** Human-readable provider id, e.g. "pod". */
+  readonly name: string;
+  /** Commit the workspace and push it to `remoteUrl`. */
+  publish(input: GitPublishInput): Promise<GitPublishResult>;
+}
+
 /** Error thrown when the provider returns a non-2xx response. */
 export class LabProviderError extends Error {
   constructor(

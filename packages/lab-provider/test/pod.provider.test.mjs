@@ -271,3 +271,99 @@ test('unexpose deletes the deploy Service and Ingress', async () => {
     { kind: 'Service', name: 'deploy', namespace: 'tenxlab-t2-sess-1' },
   ]);
 });
+
+// --------------------------------------------------------- publish (git push)
+
+test('tokenizeRemote injects the token into an HTTPS remote', async () => {
+  const { tokenizeRemote } = await import('../dist/index.js');
+  assert.equal(
+    tokenizeRemote('https://github.com/me/repo.git', 'tok'),
+    'https://x-access-token:tok@github.com/me/repo.git',
+  );
+  // A non-HTTPS remote is left untouched (nothing to inject into).
+  assert.equal(tokenizeRemote('git@github.com:me/repo.git', 'tok'), 'git@github.com:me/repo.git');
+});
+
+test('publish applies a git-push Job mounting the workspace PVC', async () => {
+  const cluster = fakeCluster();
+  // Drive the Job to Complete as soon as it is applied, so publish resolves.
+  const originalApply = cluster.apply;
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    if (manifest.kind === 'Job') {
+      await originalApply({
+        apiVersion: 'batch/v1',
+        kind: 'Job',
+        metadata: { name: 'git-publish', namespace: 'tenxlab-t2-sess-1' },
+        status: { conditions: [{ type: 'Complete', status: 'True' }] },
+      });
+    }
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+  cluster.calls.applied.length = 0;
+  cluster.calls.deleted.length = 0;
+
+  const result = await p.publish({
+    sessionId: 'sess-1',
+    remoteUrl: 'https://github.com/me/repo.git',
+    branch: 'main',
+    token: 'tok',
+    message: 'Publish from TenXLab',
+  });
+
+  const job = cluster.calls.applied.find((m) => m.kind === 'Job');
+  assert.ok(job, 'a Job is applied');
+  assert.equal(job.metadata.namespace, 'tenxlab-t2-sess-1');
+  assert.equal(job.spec.template.spec.volumes[0].persistentVolumeClaim.claimName, 'workspace');
+  // The token rides in an env var, never in the process args.
+  const env = job.spec.template.spec.containers[0].env;
+  assert.ok(env.some((e) => e.name === 'GIT_REMOTE' && e.value.includes('x-access-token:tok@')));
+  assert.ok(!job.spec.template.spec.containers[0].args[0].includes('tok'));
+
+  assert.equal(result.repoUrl, 'https://github.com/me/repo.git');
+  // The Job is cleaned up after the push.
+  assert.ok(cluster.calls.deleted.some((d) => d.kind === 'Job' && d.name === 'git-publish'));
+});
+
+test('publish refuses a session whose pod is not running', async () => {
+  const p = provider(fakeCluster());
+  await assert.rejects(
+    () =>
+      p.publish({
+        sessionId: 'sess-1',
+        remoteUrl: 'https://github.com/me/repo.git',
+        branch: 'main',
+        token: 'tok',
+      }),
+    /not running/,
+  );
+});
+
+test('publish surfaces a failed push job as an error', async () => {
+  const cluster = fakeCluster();
+  const originalApply = cluster.apply;
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    if (manifest.kind === 'Job') {
+      await originalApply({
+        apiVersion: 'batch/v1',
+        kind: 'Job',
+        metadata: { name: 'git-publish', namespace: 'tenxlab-t2-sess-1' },
+        status: { conditions: [{ type: 'Failed', status: 'True' }] },
+      });
+    }
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+  await assert.rejects(
+    () =>
+      p.publish({
+        sessionId: 'sess-1',
+        remoteUrl: 'https://github.com/me/repo.git',
+        branch: 'main',
+        token: 'tok',
+      }),
+    /git push failed/,
+  );
+});

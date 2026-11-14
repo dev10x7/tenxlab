@@ -25,6 +25,7 @@ import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService, type SessionPayload } from '../identity/session.service';
 import { findDemoUserByEmail } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
+import { UsageService } from '../labs/usage.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { BatchService } from '../batches/batch.service';
@@ -33,12 +34,14 @@ import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService, isProctorEventType } from '../proctoring/proctoring.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
+import { GitPublishService } from '../github/git-publish.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
 import {
   ASSESSMENT,
   BATCH,
   CATALOG,
   EDITOR,
+  GIT,
   GRADEBOOK,
   JWT,
   LAUNCH,
@@ -47,6 +50,7 @@ import {
   PROJECT_SUBMISSION,
   SESSION,
   SSO,
+  USAGE,
 } from './tokens';
 
 @Controller()
@@ -155,6 +159,7 @@ export class LabController {
   constructor(
     @Inject(LAUNCH) private readonly launch: LabLaunchService,
     @Inject(SESSION) private readonly sessions: SessionService,
+    @Inject(USAGE) private readonly usageService: UsageService,
   ) {}
 
   @Post('launch')
@@ -191,6 +196,14 @@ export class LabController {
       tier: row.tier,
       ideUrl: row.ideUrl ?? null,
     };
+  }
+
+  /** Tenant cost and quota view for the current billing period. */
+  @Get('usage')
+  async usage(@Req() req: Request) {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return this.usageService.summarize(session.tenantId);
   }
 }
 
@@ -914,6 +927,104 @@ export class ProjectsController {
     if (session.role !== 'instructor' && session.role !== 'admin') {
       throw new ForbiddenException('Instructor or admin role required');
     }
+    return session;
+  }
+}
+
+/**
+ * Git publish — ByteXL's IDE Source Control push. A student connects their
+ * GitHub account once (OAuth device flow), then publishes a running workspace
+ * to a repo on their own account. Every route is scoped to the caller.
+ */
+@Controller('api/git')
+export class GitController {
+  constructor(
+    @Inject(GIT) private readonly git: GitPublishService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The caller's GitHub connection state. */
+  @Get('status')
+  status(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.git.status(session.userId);
+  }
+
+  /** Begin a device-flow connection; returns the user code to type at GitHub. */
+  @Post('connect/start')
+  async connectStart(@Req() req: Request) {
+    this.requireSession(req);
+    const result = await this.git.connectStart();
+    if (!result.ok) {
+      throw new HttpException(result.message, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return result.grant;
+  }
+
+  /** Finish a device-flow connection once the student approved the code. */
+  @Post('connect/complete')
+  async connectComplete(@Body() body: { deviceCode?: string }, @Req() req: Request) {
+    const session = this.requireSession(req);
+    if (!body?.deviceCode) throw new BadRequestException('deviceCode is required');
+    const result = await this.git.connectComplete(
+      session.userId,
+      session.tenantId,
+      body.deviceCode,
+    );
+    if (!result.ok) {
+      if (result.reason === 'authorization_pending') {
+        throw new HttpException(result.message, HttpStatus.ACCEPTED);
+      }
+      throw new BadRequestException(result.message);
+    }
+    return result.connection;
+  }
+
+  /** Disconnect the caller's GitHub account. */
+  @Delete('connect')
+  async disconnect(@Req() req: Request) {
+    const session = this.requireSession(req);
+    await this.git.disconnect(session.userId);
+    return { connected: false };
+  }
+
+  /** Publish a running workspace to the student's GitHub. */
+  @Post('workspaces/:workspaceId/publish')
+  async publish(
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: { repoName?: string; branch?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.git.publish({
+      userId: session.userId,
+      tenantId: session.tenantId,
+      workspaceId,
+      repoName: body?.repoName,
+      branch: body?.branch,
+    });
+    if (!result.ok) {
+      if (result.reason === 'workspace_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'not_connected' || result.reason === 'workspace_not_running') {
+        throw new HttpException(result.message, HttpStatus.CONFLICT);
+      }
+      throw new HttpException(result.message, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return result.publish;
+  }
+
+  /** The caller's publish history for a workspace. */
+  @Get('workspaces/:workspaceId/publishes')
+  history(@Param('workspaceId') workspaceId: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.git.history(session.userId, workspaceId);
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
     return session;
   }
 }

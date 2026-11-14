@@ -109,6 +109,17 @@ const EnvSchema = z.object({
     .string()
     .default('false')
     .transform((s) => s === 'true' || s === '1'),
+
+  // Git publish (ByteXL's Source Control push). The OAuth device flow needs only
+  // the app's public client id; there is no client secret. Empty disables the
+  // feature (the Nimbus UI hides the publish control).
+  GITHUB_CLIENT_ID: z.string().default(''),
+  // Overridable for GitHub Enterprise or tests.
+  GITHUB_API_BASE: z.string().default('https://api.github.com'),
+  GITHUB_OAUTH_BASE: z.string().default('https://github.com'),
+  // Key material for encrypting stored third-party tokens at rest. Rotating it
+  // invalidates existing connections (students must reconnect).
+  TOKEN_ENCRYPTION_SECRET: z.string().default('dev-token-encryption-secret'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
