@@ -297,7 +297,8 @@ in order:
    (Phase F), and **university/batch ranks** + a **profile-completion tile**
    (Phase G). See `docs/BYTEXL_PARITY_ANALYSIS.md` §1.5/§2.10.
 
-Then Phase F (Socratic tutor + soft skills) and Phase G (contests, anti-cheat,
+Then Phase F (the editor tutor has shipped — `assist`/`socratic`; remaining:
+assessment-path guardrails + soft skills) and Phase G (contests, anti-cheat,
 recruiter portal).
 
 ---

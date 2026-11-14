@@ -120,12 +120,12 @@ offers, then run the API with it enabled:
 ```bash
 docker compose --profile runner up -d piston
 curl -s http://localhost:2000/api/v2/runtimes                       # inspect
-for rt in 'python=3.10.0' 'javascript=18.15.0' 'java=15.0.2' \
-          'c=10.2.0' 'c++=10.2.0' 'sqlite3=3.36.0'; do
-  lang=${rt%%=*}; ver=${rt##*=}
+# The stock image ships only a few runtimes; install the rest of the catalog.
+# Keep this list in sync with EDITOR_LANGUAGES (packages/contracts).
+for lang in python javascript java c 'c++' sqlite3 csharp go rust php ruby kotlin bash; do
   curl -s -X POST http://localhost:2000/api/v2/packages \
     -H 'content-type: application/json' \
-    -d "{\"language\":\"$lang\",\"version\":\"$ver\"}"
+    -d "{\"language\":\"$lang\",\"version\":\"*\"}"
 done
 
 cd apps/api

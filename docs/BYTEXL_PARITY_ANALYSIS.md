@@ -52,8 +52,10 @@ seam and scores it with the AI plane's in-house `quality.py` (ADR-13); the score
 is cached on the workspace, appended to a history table, and snapshotted onto the
 submission the trainer evaluates. What remains for full Nimbus parity is
 **per-fork stop-when-idle cost/quota policy (E5b) and the dashboard resume +
-attendance widgets (E6)**; what remains for differentiation is the **AI tutor +
-soft skills** (Phase F) and **contests / recruiter portal** (Phase G).
+attendance widgets (E6)**; what remains for differentiation is the **editor
+tutor's assessment-path guardrails** (the practice-editor tutor has shipped —
+`assist`/`socratic`, §1.6), **soft skills** (Phase F), and **contests /
+recruiter portal** (Phase G).
 
 **Release-video refresh (2026-11-14, §1.5).** Transcribing the monthly release
 videos surfaced scope our backlog never captured: the **Nov'25** video adds a
@@ -67,7 +69,7 @@ standalone **CEFR-graded English-communication** product. These are tracked in
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
-| Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (6 langs; AI help missing) |
+| Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (13 langs; AI help shipped — `assist`/`socratic`) |
 | Labs (ungraded practice + hints) | `/labs` | Done |
 | Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
 | Nimbus (build/host/evaluate projects) | `/nimbus` | **Core + hosting + git publish + auto-evaluation shipped** (E0–E5); fork cost/quota policy + attendance remain |
@@ -470,7 +472,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Code quality scoring | **Done** | `quality.py` |
 | Speech/soft-skills | **Done** | `speech.py` |
 | Webhook signer | **Done** | `webhooks.py` |
-| Socratic tutor with anti-leak guardrails | **Missing** | Highest-risk AI item |
+| Socratic tutor with anti-leak guardrails | **Partial** | `tutor.py` + `/v1/tutor/review` shipped (`assist`/`socratic`); the `socratic` guardrail still needs an anti-leak red-team eval suite and wiring into the assessment path |
 | VS Code sidebar integration | **Missing** | — |
 
 ### 2.8 Contests & hiring
@@ -530,8 +532,8 @@ These are not gaps; they are choices to keep or revisit.
 
 ### 3.1 Backlog items not yet surfaced in the product
 
-The overview's Epics 4.x (contests, anti-cheat plagiarism, recruiter portal) and
-the Editor's "AI help" have no user-facing entry point yet:
+The overview's Epics 4.x (contests, anti-cheat plagiarism, recruiter portal)
+still have no user-facing entry point; the Editor's "AI help" now does:
 
 - **No contest surface.** There is no nav entry or route for hackathons/contests
   (`apps/web/src/lib/nav.ts` lists Editor/Labs/Assessments/Nimbus/Learn/Reports/
@@ -580,6 +582,13 @@ This is the largest parity gap and the most-used surface.
       session). `PistonProvider` is the only implementation.
 - [x] Web editor: CodeMirror 6 (ADR-19), language picker, STDIN panel, run, save.
 - [x] Code persistence: per-user snippets, reopenable (`code_snippets`).
+- [x] Language catalog: 13 runnable languages over Piston (Python, JS, Java, C,
+      C++, SQL, C#, Go, Rust, PHP, Ruby, Kotlin, Bash); `dev-up.sh` installs the
+      runtimes the stock image lacks.
+- [x] Contextual AI assistant (parity §1.6): `POST /api/editor/review` with
+      `assist` (explains the error and returns corrected code) and `socratic`
+      (root cause + guiding question, never code) modes, surfaced in the editor's
+      AI panel.
 - [x] Lab vs. assessment distinction: `lesson.kind` drives graded vs. practice
       UI, with hints on practice items (`HintReveal`).
 - [x] Exit criterion: a student solves a DSA problem in-browser, with STDIN,

@@ -533,14 +533,16 @@ API + Redis streams).
 
 | Capability | Endpoint | Notes |
 |---|---|---|
-| Socratic tutor | `POST /v1/tutor/hint` | Inputs: active file, last 20 lines stderr, rubric. Output streamed. Guardrail: never emit copy-pasteable solution. |
-| AST plagiarism | `POST /v1/plagiarism/scan` | Tree-sitter token/AST comparison across a batch; > 85% similarity flagged with diff links. |
-| Quality gating | `POST /v1/quality/scan` | In-house analyzer (ADR-13): Tree-sitter/ESLint/PMD-style rules in `quality.py`; no SonarQube/Semgrep. |
+| Code tutor | `POST /v1/tutor/review` | **Shipped.** Inputs: code, language, mode, last stderr. `assist` returns an explanation plus corrected code (practice editor); `socratic` returns the root cause and a guiding question, never a pasteable solution (the only mode reachable from a graded assessment). |
+| AST plagiarism | `POST /v1/plagiarism/score` | Tree-sitter token/AST comparison across a batch; > 85% similarity flagged with diff links. |
+| Quality gating | `POST /v1/quality/score` | In-house analyzer (ADR-13): Tree-sitter/ESLint/PMD-style rules in `quality.py`; no SonarQube/Semgrep. |
 | Soft-skills scoring | `POST /v1/speech/evaluate` | WebM audio → faster-whisper → structured LLM rubric (grammar, vocab, fillers, technical accuracy) → 0–100. |
 
 - **LLM provider abstraction:** hosted providers only in v1 (ADR-14) —
   OpenAI/Anthropic/Bedrock, pluggable per tenant for cost and data residency.
-  No self-hosted vLLM. Prompt templates versioned.
+  No self-hosted vLLM. Prompt templates versioned. The shipped tutor is
+  **rule-based** (ADR-13), so it needs no provider; the abstraction applies once
+  tutor/speech features move to LLM-backed generation.
 - **Guardrails:** output filters to prevent solution leakage; token/rate limits;
   PII redaction before external LLM calls.
 - **Async jobs:** plagiarism and quality scans run via Celery/Arq, results pushed
@@ -740,7 +742,7 @@ Redis clustering, queue-based async for heavy AI jobs.
 | **P2 — Editor, Labs & Assessments** | 5–8 | Multi-language editor (STDIN, persistence), labs+hints, assessments (coding/MCQ/fill/descriptive), read-only stubs, browser proctoring + server timer | Proctored exam runs end-to-end |
 | **P3 — Hybrid Runtime + Warm Pool** | 9–11 | Tier router, warm-pool operator, quotas, idle termination, cost telemetry | 500-student simultaneous launch, tier-1 < 2s |
 | **P4 — Projects (Nimbus-equiv)** | 12–14 | Cloud workspaces, template fork, hosting, GitHub publish, submissions, trainer evaluation, quality gating | Instructor creates project; student forks/submits; trainer scores |
-| **P5 — AI Differentiation** | 15–17 | Socratic tutor (anti-leak), speech/soft-skills scoring, plagiarism | Verified tutor guardrails + comm score live |
+| **P5 — AI Differentiation** | 15–17 | Code tutor (`assist`/`socratic`), speech/soft-skills scoring, plagiarism | Tutor guardrails verified (red-team eval) + comm score live |
 | **P6 — Contests, Anti-cheat, Recruiter** | 18–20 | Redis leaderboards, contest lifecycle, AST plagiarism, Skill Passport portal | Contest + recruiter flows live |
 
 **Net:** ByteXL parity by ~P4 (week 14); differentiation (K8s labs, AI, hiring)
