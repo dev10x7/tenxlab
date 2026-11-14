@@ -400,12 +400,12 @@ section.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Multi-language run/edit | **Done** | Curated catalog (`EDITOR_LANGUAGES`) over Piston; CodeMirror 6 (`/editor`) |
-| 70+ langs | **Partial** | Six curated languages today; add entries as the pool grows |
+| Multi-language run/edit | **Done** | Curated catalog (`EDITOR_LANGUAGES`, 13 langs) over Piston; CodeMirror 6 (`/editor`) |
+| 70+ langs | **Partial** | 13 runnable languages today (Python/JS/Java/C/C++/SQL/C#/Go/Rust/PHP/Ruby/Kotlin/Bash); add entries as the pool's installs grow |
 | Zero-setup run | **Done** | Browser editor + server-side Piston; no install for the student |
 | STDIN before run | **Done** | STDIN panel → `POST /api/editor/run` |
 | Save/reopen practised code | **Done** | Per-user snippets, tenant-scoped (`code_snippets`) |
-| Contextual AI assistant (explain + fix) | **Missing** | No tutor endpoint; ByteXL shows the explanation **and corrected code side-by-side** (§1.6). Our Phase F plan is `socratic`-only — add an `assist` mode for the practice editor |
+| Contextual AI assistant (explain + fix) | **Done** | `POST /api/editor/review` → AI-plane `/v1/tutor/review`; `assist` returns corrected code side-by-side, `socratic` returns a hint only (§1.6) |
 
 ### 2.3 Labs
 
@@ -538,10 +538,11 @@ the Editor's "AI help" have no user-facing entry point yet:
   Resumes only), and no `contests` module in `apps/api/src`. Phase G.
 - **No recruiter portal.** `/resumes` is a `SurfacePage` placeholder; the Skill
   Passport aggregate it reads is Phase G.
-- **Editor AI help** is absent (the AI plane has plagiarism/quality/speech but no
-  tutor endpoint). Phase F. Note the §1.6 tension: ByteXL's editor assistant
-  returns **corrected code**, whereas our tutor is planned as `socratic`-only —
-  resolve with an `assist` mode for the practice editor.
+- **Editor AI help** now ships: `POST /api/editor/review` (assist + socratic)
+  over the AI plane's `/v1/tutor/review`, surfaced in the `/editor` side panel
+  (§1.6). The remaining Phase F work is the **assessment** path — only the
+  guardrailed `socratic` mode may be reachable from a graded assessment, and it
+  still needs its red-team eval suite.
 - **Dead directory:** `apps/api/src/assessment/` is empty and unreferenced (the
   live module is `assessments/`). Safe to delete.
 
@@ -751,12 +752,14 @@ sub-milestones so each ends demonstrable and CI-green:
 
 ### Phase F — AI differentiation (3 ew)
 
-- [ ] Socratic tutor endpoint with anti-leak guardrails (root cause + guiding
-      question, never pasteable solution code) + a guardrail eval suite.
-- [ ] **Tutor `assist` mode** (editor §1.6): the practice editor needs
-      ByteXL's behaviour — explain the error **and** return corrected code,
-      shown side-by-side. Same endpoint, `assist` mode; only the guardrailed
-      `socratic` mode is reachable from a graded assessment.
+- [x] **Editor tutor** (parity §1.6): `/v1/tutor/review` on the AI plane with
+      `assist` (explains the error **and** returns corrected code, shown
+      side-by-side in `/editor`) and `socratic` (root cause + guiding question,
+      never pasteable code) modes. Shipped: `editor.service.ts` `review()`,
+      `AiBridgeClient.reviewCode()`, `POST /api/editor/review`, the editor's AI
+      panel. 13 runnable editor languages.
+- [ ] **Socratic guardrails on the assessment path**: wire the `socratic` mode
+      into graded assessments only, behind an anti-leak red-team eval suite.
 - [ ] **Visual mentor** (Nov'25 §1.5): let the mentor **generate diagrams and
       images** to explain a topic, not just text — ByteXL's AI Mentor is visual.
 - [ ] VS Code sidebar client (webview) inside the lab container, streaming.

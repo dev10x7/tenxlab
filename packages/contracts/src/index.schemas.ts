@@ -71,9 +71,10 @@ export type EditorLanguage = z.infer<typeof EditorLanguage>;
 
 /**
  * The languages the Editor offers. Curated rather than "everything Piston can
- * run": each entry is a template a student can actually start from, and the set
- * is small enough to keep the picker useful. `pistonRuntime` matches Piston's
- * runtime alias; `cmLanguage` matches a CodeMirror 6 language package.
+ * run": each entry is a template a student can actually start from. Every entry
+ * must be runnable by the tier-1 Piston pool — `pistonRuntime` matches Piston's
+ * runtime alias — so the Run button never fails for a listed language. ByteXL's
+ * editor advertises 70+; we grow this list as the pool's installs grow.
  */
 export const EDITOR_LANGUAGES: EditorLanguage[] = [
   {
@@ -192,6 +193,140 @@ export const EDITOR_LANGUAGES: EditorLanguage[] = [
       '',
     ].join('\n'),
     stdinHint: 'SQL runs against a scratch SQLite database; stdin is unused.',
+  },
+  {
+    id: 'csharp',
+    label: 'C# (.NET)',
+    pistonRuntime: 'csharp',
+    cmLanguage: 'csharp',
+    extension: '.cs',
+    template: [
+      'using System;',
+      '',
+      'class Program {',
+      '    static void Main() {',
+      '        string data = Console.ReadLine() ?? "";',
+      '        // start your solution',
+      '        Console.WriteLine(data);',
+      '        // end your solution',
+      '    }',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'go',
+    label: 'Go',
+    pistonRuntime: 'go',
+    cmLanguage: 'go',
+    extension: '.go',
+    template: [
+      'package main',
+      '',
+      'import (',
+      '\t"bufio"',
+      '\t"fmt"',
+      '\t"os"',
+      ')',
+      '',
+      'func main() {',
+      '\tscanner := bufio.NewScanner(os.Stdin)',
+      '\tline := ""',
+      '\tif scanner.Scan() {',
+      '\t\tline = scanner.Text()',
+      '\t}',
+      '\t// start your solution',
+      '\tfmt.Println(line)',
+      '\t// end your solution',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'rust',
+    label: 'Rust',
+    pistonRuntime: 'rust',
+    cmLanguage: 'rust',
+    extension: '.rs',
+    template: [
+      'use std::io::{self, BufRead};',
+      '',
+      'fn main() {',
+      '    let line = io::stdin().lock().lines().next()',
+      '        .and_then(|l| l.ok())',
+      '        .unwrap_or_default();',
+      '    // start your solution',
+      '    println!("{}", line);',
+      '    // end your solution',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'php',
+    label: 'PHP',
+    pistonRuntime: 'php',
+    cmLanguage: 'php',
+    extension: '.php',
+    template: [
+      '<?php',
+      '$data = rtrim(fgets(STDIN));',
+      '// start your solution',
+      'echo $data . "\\n";',
+      '// end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'ruby',
+    label: 'Ruby',
+    pistonRuntime: 'ruby',
+    cmLanguage: 'ruby',
+    extension: '.rb',
+    template: [
+      'data = $stdin.gets&.chomp || ""',
+      '# start your solution',
+      'puts data',
+      '# end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'kotlin',
+    label: 'Kotlin',
+    pistonRuntime: 'kotlin',
+    cmLanguage: 'kotlin',
+    extension: '.kt',
+    template: [
+      'fun main() {',
+      '    val data = readLine() ?: ""',
+      '    // start your solution',
+      '    println(data)',
+      '    // end your solution',
+      '}',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
+    id: 'bash',
+    label: 'Bash',
+    pistonRuntime: 'bash',
+    cmLanguage: 'bash',
+    extension: '.sh',
+    template: [
+      'read -r data',
+      '# start your solution',
+      'echo "$data"',
+      '# end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
   },
 ];
 

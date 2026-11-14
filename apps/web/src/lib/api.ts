@@ -144,6 +144,20 @@ export interface Snippet {
   updatedAt: string;
 }
 
+/** Tutor modes: `assist` may return corrected code; `socratic` never does. */
+export type TutorMode = 'assist' | 'socratic';
+
+/** An AI tutor review of the editor buffer (parity §1.6). */
+export interface TutorReview {
+  mode: TutorMode;
+  score: number;
+  issueCount: number;
+  issues: { code: string; message: string; line: number | null }[];
+  explanation: string;
+  correctedCode: string | null;
+  followUpQuestion: string | null;
+}
+
 export type QuestionKind = 'coding' | 'mcq' | 'fill' | 'descriptive';
 
 export interface AssessmentQuestion {
@@ -439,6 +453,16 @@ export const api = {
   editorLanguages: () => request<EditorLanguage[]>('/api/editor/languages'),
   runCode: (input: { language: string; source: string; stdin: string }) =>
     request<CodeRunResult>('/api/editor/run', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  reviewCode: (input: {
+    language: string;
+    source: string;
+    mode: TutorMode;
+    stderr?: string;
+  }) =>
+    request<TutorReview>('/api/editor/review', {
       method: 'POST',
       body: JSON.stringify(input),
     }),

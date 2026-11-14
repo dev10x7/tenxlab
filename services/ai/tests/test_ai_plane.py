@@ -9,6 +9,7 @@ from app.main import app
 from app.plagiarism import compare_against_cohort, normalize, similarity
 from app.quality import score_quality
 from app.speech import evaluate_speech
+from app.tutor import clean_code, review_code, sanitize_source
 from app.webhooks import sign, verify
 
 client = TestClient(app)
@@ -160,8 +161,88 @@ def test_speech_endpoint_returns_breakdown():
     }
 
 
-# ------------------------------------------------------------------ webhooks
+# ------------------------------------------------------------------ tutor
 
+
+def test_sanitize_source_strips_region_markers():
+    src = "# start your solution\nprint(1)\n# end your solution\n"
+    assert sanitize_source(src) == "print(1)"
+
+
+def test_clean_code_strips_todo_and_trailing_whitespace():
+    src = "# TODO: finish\nx = 1   \n# FIXME\nprint(x)\n"
+    cleaned = clean_code(src)
+    assert "TODO" not in cleaned and "FIXME" not in cleaned
+    assert "x = 1\n" in cleaned
+    assert cleaned.endswith("print(x)\n")
+
+
+def test_socratic_mode_never_returns_corrected_code():
+    review = review_code("# TODO: fix\nprint(1)", mode="socratic", stderr="SyntaxError: bad")
+    assert review.corrected_code is None
+    assert review.follow_up_question
+    assert "parse" in review.explanation.lower()
+
+
+def test_assist_mode_returns_corrected_code_when_there_is_a_fix():
+    review = review_code("# TODO: fix\nprint(1)\n", mode="assist")
+    assert review.corrected_code is not None
+    assert "TODO" not in review.corrected_code
+
+
+def test_assist_mode_omits_correction_when_code_is_clean():
+    review = review_code("print(1)\n", mode="assist")
+    assert review.corrected_code is None
+
+
+def test_runtime_error_names_the_root_cause():
+    review = review_code("int x = 1", mode="assist", stderr="error: ';' expected")
+    assert "parse" in review.explanation.lower()
+
+
+def test_unknown_mode_is_rejected():
+    with pytest.raises(ValueError):
+        review_code("print(1)", mode="cheat")
+
+
+def test_tutor_endpoint_assist_returns_correction():
+    resp = client.post(
+        "/v1/tutor/review",
+        json={"language": "python", "code": "# TODO: x\nprint(1)\n", "mode": "assist"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "assist"
+    assert body["corrected_code"] is not None
+    assert body["follow_up_question"] is None
+
+
+def test_tutor_endpoint_socratic_returns_question_not_code():
+    resp = client.post(
+        "/v1/tutor/review",
+        json={
+            "language": "python",
+            "code": "print(1)\n",
+            "mode": "socratic",
+            "stderr": "NameError: name 'y' is not defined",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "socratic"
+    assert body["corrected_code"] is None
+    assert body["follow_up_question"]
+
+
+def test_tutor_endpoint_rejects_unknown_mode():
+    resp = client.post(
+        "/v1/tutor/review",
+        json={"language": "python", "code": "print(1)", "mode": "leak"},
+    )
+    assert resp.status_code == 422
+
+
+# ------------------------------------------------------------------ webhooks
 
 def test_hmac_sign_and_verify_roundtrip():
     body = json.dumps({"hello": "world"})

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CodeRunResult } from '@tenxlab/contracts';
 import type { CodeExecutionProvider, CodeRunInput } from '@tenxlab/lab-provider';
+import type { CodeReviewer, TutorReport } from '../ai/ai-bridge.client';
 import { InMemorySnippetRepository } from '../common/in-memory';
 import { EditorService } from './editor.service';
 
@@ -26,8 +27,33 @@ function fakeRunner(result?: Partial<CodeRunResult>) {
   return { calls, provider };
 }
 
-function service(runner: CodeExecutionProvider | null) {
-  return new EditorService({ snippets: new InMemorySnippetRepository(), runner });
+/** Records each review call and returns a canned report. */
+function fakeReviewer(report?: Partial<TutorReport>) {
+  const calls: { language: string; code: string; mode: string; stderr?: string }[] = [];
+  const reviewer: CodeReviewer = {
+    async reviewCode(input) {
+      calls.push(input);
+      return {
+        mode: input.mode,
+        score: 100,
+        issueCount: 0,
+        issues: [],
+        explanation: 'looks fine',
+        correctedCode: null,
+        followUpQuestion: null,
+        ...report,
+      };
+    },
+  };
+  return { calls, reviewer };
+}
+
+function service(runner: CodeExecutionProvider | null, reviewer?: CodeReviewer | null) {
+  return new EditorService({
+    snippets: new InMemorySnippetRepository(),
+    runner,
+    reviewer: reviewer ?? null,
+  });
 }
 
 test('languages exposes the curated catalog with templates', () => {
@@ -135,4 +161,45 @@ test('listSnippets returns a user’s own snippets, newest first', async () => {
   assert.equal(list.length, 2);
   assert.equal(list[0]!.id, a.id);
   assert.equal(list[1]!.id, b.id);
+});
+
+test('the catalog offers more than the original six languages', () => {
+  const ids = service(null)
+    .languages()
+    .map((l) => l.id);
+  for (const id of ['python', 'javascript', 'java', 'c', 'cpp', 'sql', 'go', 'rust', 'php', 'ruby', 'kotlin', 'bash', 'csharp']) {
+    assert.ok(ids.includes(id), `missing language: ${id}`);
+  }
+});
+
+test('review passes the language, mode and stderr to the tutor', async () => {
+  const { calls, reviewer } = fakeReviewer();
+  const outcome = await service(null, reviewer).review({
+    language: 'java',
+    source: 'class Main {}',
+    mode: 'assist',
+    stderr: 'error: ; expected',
+  });
+  assert.equal(outcome.ok, true);
+  assert.equal(calls[0]!.language, 'java');
+  assert.equal(calls[0]!.mode, 'assist');
+  assert.equal(calls[0]!.stderr, 'error: ; expected');
+});
+
+test('review defaults to assist mode', async () => {
+  const { calls, reviewer } = fakeReviewer();
+  await service(null, reviewer).review({ language: 'python', source: 'print(1)' });
+  assert.equal(calls[0]!.mode, 'assist');
+});
+
+test('review rejects an unknown language without calling the tutor', async () => {
+  const { calls, reviewer } = fakeReviewer();
+  const outcome = await service(null, reviewer).review({ language: 'brainfuck', source: '+' });
+  assert.deepEqual(outcome, { ok: false, reason: 'unknown_language' });
+  assert.equal(calls.length, 0);
+});
+
+test('review reports no_tutor when the AI plane is not configured', async () => {
+  const outcome = await service(null, null).review({ language: 'python', source: 'print(1)' });
+  assert.deepEqual(outcome, { ok: false, reason: 'no_tutor' });
 });

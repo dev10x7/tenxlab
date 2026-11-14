@@ -7,6 +7,8 @@ import {
   type CodeRunResult,
   type EditorLanguage,
   type Snippet,
+  type TutorMode,
+  type TutorReview,
 } from '@/lib/api';
 import { runStatusLabel, snippetTitle } from '@/lib/lms';
 import { CodeEditor } from '@/components/CodeEditor';
@@ -33,6 +35,11 @@ export default function EditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [mode, setMode] = useState<TutorMode>('assist');
+  const [review, setReview] = useState<TutorReview | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const language = languages.find((l) => l.id === languageId) ?? languages[0];
 
@@ -108,6 +115,39 @@ export default function EditorPage() {
     }
   }
 
+  async function onReview() {
+    setReviewing(true);
+    setReviewError(null);
+    try {
+      setReview(
+        await api.reviewCode({
+          language: languageId,
+          source,
+          mode,
+          // The runtime error the student just saw, so the tutor can name it.
+          stderr: result?.stderr ?? '',
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        setReviewError('AI review is not available right now.');
+      } else if (err instanceof ApiError && err.status === 400) {
+        setReviewError('That language is not supported.');
+      } else {
+        setReviewError('Could not review your code. Please try again.');
+      }
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  function applyCorrection() {
+    if (review?.correctedCode) {
+      setSource(review.correctedCode);
+      setNotice('Applied the AI’s suggested code.');
+    }
+  }
+
   function openSnippet(snippet: Snippet) {
     setActiveSnippetId(snippet.id);
     setTitle(snippet.title);
@@ -117,6 +157,8 @@ export default function EditorPage() {
     setResult(null);
     setNotice(null);
     setError(null);
+    setReview(null);
+    setReviewError(null);
   }
 
   function newSnippet() {
@@ -127,6 +169,8 @@ export default function EditorPage() {
     setResult(null);
     setNotice(null);
     setError(null);
+    setReview(null);
+    setReviewError(null);
   }
 
   async function deleteSnippet(id: string) {
@@ -192,7 +236,7 @@ export default function EditorPage() {
             />
           </div>
 
-          <div className="row" style={{ gap: 8, marginTop: 12 }}>
+          <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center' }}>
             <button className="btn" type="button" onClick={onRun} disabled={running}>
               {running ? 'Running…' : 'Run ▷'}
             </button>
@@ -202,6 +246,20 @@ export default function EditorPage() {
             <button className="btn secondary" type="button" onClick={newSnippet}>
               New
             </button>
+            <button className="btn secondary" type="button" onClick={onReview} disabled={reviewing}>
+              {reviewing ? 'Asking…' : 'Ask AI'}
+            </button>
+            <label className="muted" style={{ fontSize: 12 }}>
+              <select
+                aria-label="Tutor mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as TutorMode)}
+                style={{ marginLeft: 4 }}
+              >
+                <option value="assist">Assist (show fix)</option>
+                <option value="socratic">Socratic (hint only)</option>
+              </select>
+            </label>
             <span className="muted" style={{ fontSize: 12 }}>
               ⌘/Ctrl + Enter to run
             </span>
@@ -234,6 +292,56 @@ export default function EditorPage() {
             ) : (
               <p className="muted" style={{ marginBottom: 0 }}>
                 Run your code to see its output here.
+              </p>
+            )}
+          </section>
+
+          <section className="card">
+            <h3 style={{ marginTop: 0 }}>AI assistant</h3>
+            {reviewError ? <p className="error">{reviewError}</p> : null}
+            {review ? (
+              <>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  {review.mode === 'assist' ? 'Assist' : 'Socratic'} ·{' '}
+                  {review.issueCount === 0
+                    ? 'no issues spotted'
+                    : `${review.issueCount} issue${review.issueCount === 1 ? '' : 's'}`}
+                </p>
+                <p style={{ marginTop: 0 }}>{review.explanation}</p>
+                {review.followUpQuestion ? (
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    <em>{review.followUpQuestion}</em>
+                  </p>
+                ) : null}
+                {review.correctedCode ? (
+                  <>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        Suggested code
+                      </span>
+                      <button className="btn secondary" type="button" onClick={applyCorrection}>
+                        Insert
+                      </button>
+                    </div>
+                    <pre className="console">{review.correctedCode}</pre>
+                  </>
+                ) : null}
+                {review.issues.length > 0 ? (
+                  <ul className="issue-list">
+                    {review.issues.map((issue, i) => (
+                      <li key={`${issue.code}-${i}`}>
+                        <span className="muted">
+                          {issue.line ? `Line ${issue.line}: ` : ''}
+                        </span>
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Run your code, then <strong>Ask AI</strong> to explain errors and suggest a fix.
               </p>
             )}
           </section>

@@ -443,6 +443,43 @@ export class EditorController {
     if (!ok) throw new NotFoundException('Snippet not found');
   }
 
+  /**
+   * Ask the AI tutor about the buffer. Defaults to `assist` (the practice-editor
+   * mode that may return corrected code); `socratic` is available for callers
+   * that must not receive a solution.
+   */
+  @Post('review')
+  async review(
+    @Body()
+    body: { language?: string; source?: string; mode?: string; stderr?: string },
+    @Req() req: Request,
+  ) {
+    this.requireSession(req);
+    if (!body?.language) throw new BadRequestException('language is required');
+    if (typeof body.source !== 'string') {
+      throw new BadRequestException('source is required');
+    }
+    if (body.mode !== undefined && body.mode !== 'assist' && body.mode !== 'socratic') {
+      throw new BadRequestException('mode must be "assist" or "socratic"');
+    }
+    const outcome = await this.editor.review({
+      language: body.language,
+      source: body.source,
+      mode: body.mode,
+      stderr: body.stderr,
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === 'unknown_language') {
+        throw new BadRequestException('Unknown language');
+      }
+      throw new HttpException(
+        'AI review is not available',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    return outcome.report;
+  }
+
   private requireSession(req: Request): SessionPayload {
     const session = this.sessions.fromCookieHeader(req.headers.cookie);
     if (!session) throw new UnauthorizedException('Sign in required');

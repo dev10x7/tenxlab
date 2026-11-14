@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .plagiarism import compare_against_cohort
 from .quality import score_quality
 from .speech import evaluate_speech
+from .tutor import ASSIST, MODES, review_code
 from .webhooks import signed_payload
 
 app = FastAPI(title="TenXLab AI Plane", version="0.1.0")
@@ -69,6 +70,16 @@ class SpeechRequest(BaseModel):
     prompt_id: str
     transcript: str
     expected_terms: list[str] = Field(default_factory=list)
+
+
+class TutorRequest(BaseModel):
+    language: str
+    code: str
+    # `assist` (practice editor; may return corrected code) or `socratic`
+    # (guardrailed; the only mode a graded assessment may reach).
+    mode: str = ASSIST
+    # The runtime error the student just hit, when there is one.
+    stderr: str = ""
 
 
 # ------------------------------------------------------------------ routes
@@ -176,6 +187,26 @@ async def speech_evaluate(req: SpeechRequest) -> dict:
             "technical_accuracy": report.technical_accuracy,
         },
         "matched_terms": report.matched_terms,
+    }
+
+
+@app.post("/v1/tutor/review")
+async def tutor_review(req: TutorRequest) -> dict:
+    if req.mode not in MODES:
+        raise HTTPException(status_code=422, detail=f"mode must be one of {MODES}")
+
+    review = review_code(req.code, mode=req.mode, stderr=req.stderr)
+    return {
+        "mode": review.mode,
+        "score": review.score,
+        "issue_count": review.issue_count,
+        "issues": [
+            {"code": i.code, "message": i.message, "line": i.line} for i in review.issues
+        ],
+        "explanation": review.explanation,
+        # Present only in assist mode, and only when there is something to fix.
+        "corrected_code": review.corrected_code,
+        "follow_up_question": review.follow_up_question,
     }
 
 

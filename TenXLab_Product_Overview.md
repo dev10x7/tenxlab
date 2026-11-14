@@ -193,19 +193,20 @@ implements it. The authoritative phase tracker is
 
 ### Epic 3: AI-Native Code Tutor & Soft-Skills
 
-#### Story 3.1: Context-Aware Socratic AI Code Assistant — **Missing**
+#### Story 3.1: Context-Aware AI Code Assistant — **Partial (editor shipped)**
 * **Goal:** replace static hints with a tutor that reads workspace context and
   terminal errors without leaking the answer.
-* **Planned:** a tutor endpoint on the AI plane with Socratic guardrails
-  (root cause + guiding question, never copy-pasteable solution code), plus a
-  VS Code sidebar (webview) inside the lab container.
-* **Mode split (ByteXL editor walkthrough, `DF193RQOXSk`):** ByteXL's editor
-  assistant explains the error *and* returns corrected, ready-to-run code
-  side-by-side. The practice editor should match that via an **`assist` mode**;
-  the guardrailed **`socratic` mode** is the only one reachable from a graded
-  assessment. See `docs/BYTEXL_PARITY_ANALYSIS.md` §1.6.
-* **Why it matters:** the highest-risk AI item; it is Phase F and the primary
-  product differentiator. Guardrails need a red-team eval suite before launch.
+* **Delivered:** the AI plane's `/v1/tutor/review` (in-house `tutor.py`, ADR-13)
+  with two modes. **`assist`** matches ByteXL's editor assistant — it explains
+  the error *and* returns corrected code, shown side-by-side in `/editor`
+  (`POST /api/editor/review`, 13 runnable languages). **`socratic`** returns the
+  root cause plus a guiding question and never a pasteable solution.
+* **Remaining:** wire the guardrailed `socratic` mode into the graded-assessment
+  path, the VS Code sidebar (webview) inside the lab container, and the
+  anti-leak red-team eval suite before any assessment use.
+* **Why it matters:** the highest-risk AI item and the primary product
+  differentiator. The editor path is live; the assessment path needs the eval
+  suite first.
 
 #### Story 3.2: AI English & Mock-Interview Evaluator — **Partial**
 * **Goal:** automated communication scoring inside the LMS.
@@ -254,7 +255,7 @@ implements it. The authoritative phase tracker is
 | Safe Exam Browser integration | **Deferred (ADR-17)** | `.seb` config generator exists; the v1 exam path is browser-level proctoring |
 | Copyleft license gate | **Done** | `scripts/check-licenses.mjs` (permissive-only) |
 | In-house code-quality analyzer | **Done (ADR-13)** | `services/ai/app/quality.py` — no SonarQube/Semgrep |
-| Editor (multi-language, saved, STDIN) | **Done** | `/editor`, CodeMirror 6 (ADR-19), Piston tier-1 |
+| Editor (13 langs, saved, STDIN, AI assistant) | **Done** | `/editor`, CodeMirror 6 (ADR-19), Piston tier-1; `POST /api/editor/review` (assist/socratic) |
 | Nimbus (build/host/evaluate projects) | **In progress** | Core + hosting + git publish + auto-evaluation shipped; per-fork cost policy + attendance remain (see §4) |
 
 ---
@@ -268,7 +269,7 @@ in `docs/BYTEXL_PARITY_ANALYSIS.md §4` (Phases A–G). This is the mapping:
 |---|---|---|
 | **Phase 1 (wks 1–3): Core LMS & Lab Bridge** (Stories 1.1–1.3) | Parity Phases A–C | **Shipped** — Postgres persistence, auth, batch/gradebook UI, lab launch + webhook grading, editor, assessments |
 | **Phase 2 (wks 4–6): Compute Optimization** (Stories 2.1–2.2) | Parity Phase D | **Largely shipped** — tier router, tier-2 pod provider, warm-pool operator; predictive scale-up remains |
-| **Phase 3 (wks 7–9): AI Differentiation** (Stories 3.1–3.2) | Parity Phases E–F | **In progress** — speech scoring done; Socratic tutor + audio widget pending |
+| **Phase 3 (wks 7–9): AI Differentiation** (Stories 3.1–3.2) | Parity Phases E–F | **In progress** — editor AI assistant (`assist`/`socratic`) and speech scoring done; assessment-path guardrails + audio widget pending |
 | **Phase 4 (wks 10–12): Scale, Contests & Hiring** (Stories 4.1–4.3) | Parity Phase G | **Not started** — contests, batch plagiarism, recruiter portal |
 
 ### Current focus — finish Nimbus (ByteXL's project-building surface)

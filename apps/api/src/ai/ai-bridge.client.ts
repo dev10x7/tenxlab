@@ -50,9 +50,37 @@ export interface QualityAnalyzer {
   }): Promise<QualityReport>;
 }
 
+/**
+ * Tutor modes (parity §1.6). `assist` is the practice-editor behaviour and may
+ * return corrected code; `socratic` never does and is the only mode a graded
+ * assessment may reach.
+ */
+export type TutorMode = 'assist' | 'socratic';
+
+/** A tutor review: an explanation, the issues behind it, and (assist only) code. */
+export interface TutorReport {
+  mode: TutorMode;
+  score: number;
+  issueCount: number;
+  issues: QualityIssue[];
+  explanation: string;
+  correctedCode: string | null;
+  followUpQuestion: string | null;
+}
+
+/** What the editor's tutor needs from the AI plane (fakeable in tests). */
+export interface CodeReviewer {
+  reviewCode(input: {
+    language: string;
+    code: string;
+    mode: TutorMode;
+    stderr?: string;
+  }): Promise<TutorReport>;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-export class AiBridgeClient implements QualityAnalyzer {
+export class AiBridgeClient implements QualityAnalyzer, CodeReviewer {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
@@ -99,6 +127,50 @@ export class AiBridgeClient implements QualityAnalyzer {
       score: clampScore(json.score),
       issueCount: Number(json.issue_count ?? 0),
       issues: normaliseIssues(json.issues),
+    };
+  }
+
+  /** Review code with the AI plane's tutor (assist or socratic mode). */
+  async reviewCode(input: {
+    language: string;
+    code: string;
+    mode: TutorMode;
+    stderr?: string;
+  }): Promise<TutorReport> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}/v1/tutor/review`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          language: input.language,
+          code: input.code,
+          mode: input.mode,
+          stderr: input.stderr ?? '',
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'request failed';
+      throw new AiBridgeError(`AI plane unreachable: ${reason}`, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      throw new AiBridgeError(`AI plane rejected the request (${res.status})`, res.status);
+    }
+    const json = (await res.json()) as Record<string, unknown>;
+    return {
+      mode: json.mode === 'socratic' ? 'socratic' : 'assist',
+      score: clampScore(json.score),
+      issueCount: Number(json.issue_count ?? 0),
+      issues: normaliseIssues(json.issues),
+      explanation: typeof json.explanation === 'string' ? json.explanation : '',
+      correctedCode: typeof json.corrected_code === 'string' ? json.corrected_code : null,
+      followUpQuestion:
+        typeof json.follow_up_question === 'string' ? json.follow_up_question : null,
     };
   }
 }

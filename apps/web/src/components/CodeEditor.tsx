@@ -11,14 +11,22 @@ import { javascript } from '@codemirror/lang-javascript';
 import { java } from '@codemirror/lang-java';
 import { cpp } from '@codemirror/lang-cpp';
 import { sql } from '@codemirror/lang-sql';
+import { go } from '@codemirror/lang-go';
+import { rust } from '@codemirror/lang-rust';
+import { php } from '@codemirror/lang-php';
+import { StreamLanguage } from '@codemirror/language';
+import { csharp, kotlin } from '@codemirror/legacy-modes/mode/clike';
+import { ruby } from '@codemirror/legacy-modes/mode/ruby';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
 
 /**
  * CodeMirror 6 wrapper (ADR-19). CodeMirror is MIT and tree-shakes to the
  * languages we import, so only the ones in the picker reach the bundle.
  *
  * The editor owns its document; the React state mirrors it. External value
- * changes (loading a saved snippet) are pushed into the view only when they
- * differ, so typing does not fight the controlled prop.
+ * changes (loading a saved snippet, inserting the AI's corrected code) are
+ * pushed into the view only when they differ, so typing does not fight the
+ * controlled prop.
  */
 export interface CodeEditorProps {
   value: string;
@@ -42,6 +50,20 @@ function languageExtension(id: string) {
       return cpp();
     case 'sql':
       return sql();
+    case 'go':
+      return go();
+    case 'rust':
+      return rust();
+    case 'php':
+      return php();
+    case 'csharp':
+      return StreamLanguage.define(csharp);
+    case 'kotlin':
+      return StreamLanguage.define(kotlin);
+    case 'ruby':
+      return StreamLanguage.define(ruby);
+    case 'bash':
+      return StreamLanguage.define(shell);
     default:
       return [];
   }

@@ -70,3 +70,57 @@ test('saving without a source is rejected', async () => {
     /source is required/,
   );
 });
+
+test('review requires a session, a language and a source', async () => {
+  const c = controller();
+  await assert.rejects(() => c.review({ language: 'python', source: 'x' }, req()), /Sign in required/);
+  await assert.rejects(() => c.review({ source: 'x' }, req(cookieFor('u1'))), /language is required/);
+  await assert.rejects(
+    () => c.review({ language: 'python' }, req(cookieFor('u1'))),
+    /source is required/,
+  );
+});
+
+test('review rejects an unknown tutor mode', async () => {
+  await assert.rejects(
+    () => controller().review({ language: 'python', source: 'x', mode: 'leak' }, req(cookieFor('u1'))),
+    /mode must be/,
+  );
+});
+
+test('review is unavailable when no tutor is configured', async () => {
+  await assert.rejects(
+    () => controller().review({ language: 'python', source: 'x' }, req(cookieFor('u1'))),
+    /AI review is not available/,
+  );
+});
+
+test('review returns the tutor report when configured', async () => {
+  const c = new EditorController(
+    new EditorService({
+      snippets: new InMemorySnippetRepository(),
+      runner: null,
+      reviewer: {
+        async reviewCode() {
+          return {
+            mode: 'assist' as const,
+            score: 90,
+            issueCount: 1,
+            issues: [{ code: 'todo-left', message: 'Unresolved TODO', line: 1 }],
+            explanation: 'One thing to fix.',
+            correctedCode: 'print(1)\n',
+            followUpQuestion: null,
+          };
+        },
+      },
+    }),
+    sessions,
+  );
+  const report = await c.review(
+    { language: 'python', source: '# TODO\nprint(1)' },
+    req(cookieFor('u1')),
+  );
+  assert.equal(report.mode, 'assist');
+  assert.equal(report.correctedCode, 'print(1)\n');
+  assert.equal(report.issueCount, 1);
+});

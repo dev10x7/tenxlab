@@ -5,6 +5,11 @@ import {
   type EditorLanguage,
 } from '@tenxlab/contracts';
 import type { CodeExecutionProvider } from '@tenxlab/lab-provider';
+import type {
+  CodeReviewer,
+  TutorMode,
+  TutorReport,
+} from '../ai/ai-bridge.client';
 import type { SnippetRecord, SnippetRepository } from '../common/ports';
 
 export interface RunOutcome {
@@ -14,10 +19,17 @@ export interface RunOutcome {
 
 export type RunFailure = { ok: false; reason: 'unknown_language' | 'no_runner' };
 
+/** Review outcome, or a typed failure the controller maps onto an HTTP status. */
+export type ReviewOutcome =
+  | { ok: true; report: TutorReport }
+  | { ok: false; reason: 'unknown_language' | 'no_tutor' };
+
 export interface EditorDeps {
   snippets: SnippetRepository;
   /** Null disables execution (no tier-1 pool configured); snippets still work. */
   runner?: CodeExecutionProvider | null;
+  /** Null disables the AI tutor; the Review control stays hidden. */
+  reviewer?: CodeReviewer | null;
 }
 
 /**
@@ -51,6 +63,30 @@ export class EditorService {
       stdin: input.stdin ?? '',
     });
     return { ok: true, result };
+  }
+
+  /**
+   * Ask the AI tutor about a buffer. `assist` is the practice-editor mode and
+   * may return corrected code; `socratic` never does (parity §1.6). The stderr
+   * the student just saw, when supplied, lets the tutor name the actual error.
+   */
+  async review(input: {
+    language: string;
+    source: string;
+    mode?: TutorMode;
+    stderr?: string;
+  }): Promise<ReviewOutcome> {
+    const lang = editorLanguage(input.language);
+    if (!lang) return { ok: false, reason: 'unknown_language' };
+    if (!this.deps.reviewer) return { ok: false, reason: 'no_tutor' };
+
+    const report = await this.deps.reviewer.reviewCode({
+      language: lang.id,
+      code: input.source,
+      mode: input.mode ?? 'assist',
+      stderr: input.stderr,
+    });
+    return { ok: true, report };
   }
 
   async saveSnippet(input: {

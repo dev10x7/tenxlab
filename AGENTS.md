@@ -278,14 +278,23 @@ request/response tier-1 contract.
   runner up -d piston`) and starts the API with `PISTON_ENABLED=true`, so the
   Editor's Run works in the dev stack. If compose is unavailable the step warns
   and the API falls back to Run → 503. The pinned image
-  (`ghcr.io/engineer-man/piston:latest`) already ships the six runtimes the
-  Editor offers (`python`, `javascript`, `java`, `c`, `c++`, `sqlite3`) — no
-  `packages` install step needed; check with `GET /api/v2/runtimes`.
+  (`ghcr.io/engineer-man/piston:latest`) ships only six runtimes
+  (`python`, `javascript`, `java`, `c`, `c++`, `sqlite3`); the Editor catalog is
+  larger, so step 4b also POSTs the missing ones to `/api/v2/packages`
+  (`EDITOR_PISTON_RUNTIMES`) — keep that list in sync with `EDITOR_LANGUAGES`.
+  Check what is installed with `GET /api/v2/runtimes`.
 - The Editor language catalog is curated (`EDITOR_LANGUAGES` in
   `packages/contracts`): each entry pairs a Piston runtime alias with a
   CodeMirror id and a starter template. Add a language there *and* import its
   `@codemirror/lang-*` package in `apps/web/src/components/CodeEditor.tsx`;
   every one is MIT, so `license:check` stays green.
+- The Editor AI assistant has **two tutor modes** (`services/ai/app/tutor.py`,
+  `TutorMode`): `assist` explains the error *and* returns corrected code (ByteXL
+  parity, §1.6) and is the practice-editor default; `socratic` returns the root
+  cause plus a guiding question and **never** a pasteable solution. The seam is
+  `CodeReviewer` in `ai-bridge.client.ts`; `EditorService.review()` maps the
+  language id and forwards the student's `stderr`. Only `socratic` may be
+  reachable from a graded assessment — keep that boundary when wiring it in.
 
 ## Phase E — Projects / Nimbus equivalent (E0–E4 landed 2026-11-14)
 

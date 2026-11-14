@@ -237,6 +237,34 @@ else
   warn "docker compose unavailable; skipping piston (Editor Run will return 503)"
 fi
 
+# The stock image ships only a handful of runtimes (python, javascript, java, c,
+# c++, sqlite3); the Editor catalog is larger. Install any missing ones so Run
+# works for every offered language. Idempotent; skips cleanly when Piston is off.
+if curl -sf -o /dev/null "http://localhost:2000/api/v2/runtimes"; then
+  say "Piston runtimes (Editor language catalog)"
+  # language[:version] — keep in sync with EDITOR_LANGUAGES in packages/contracts.
+  EDITOR_PISTON_RUNTIMES="python javascript java c c++ sqlite3 csharp go rust php ruby kotlin bash"
+  have_runtimes="$(curl -s "http://localhost:2000/api/v2/runtimes" 2>/dev/null || echo '[]')"
+  installed=0
+  for runtime in $EDITOR_PISTON_RUNTIMES; do
+    if printf '%s' "$have_runtimes" | grep -q "\"language\":\"${runtime}\""; then
+      continue
+    fi
+    if curl -s -X POST "http://localhost:2000/api/v2/packages" \
+        -H 'content-type: application/json' \
+        -d "{\"language\":\"${runtime}\",\"version\":\"*\"}" >/dev/null 2>&1; then
+      installed=$((installed + 1))
+    else
+      warn "could not install piston runtime: ${runtime}"
+    fi
+  done
+  if [ "$installed" -gt 0 ]; then
+    ok "installed ${installed} editor runtime(s)"
+  else
+    ok "all editor runtimes present"
+  fi
+fi
+
 # --- 5. API ------------------------------------------------------------------
 say "API"
 pkill -f "apps/api/dist/main.js" 2>/dev/null || true

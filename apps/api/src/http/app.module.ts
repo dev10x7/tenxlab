@@ -230,9 +230,12 @@ const STORE_PROVIDER = {
     },
     {
       provide: EDITOR,
-      inject: [STORE, RUNNER],
-      useFactory: (store: Repositories, runner: PistonProvider | null) =>
-        new EditorService({ snippets: store.snippets, runner }),
+      inject: [STORE, RUNNER, AI_BRIDGE],
+      useFactory: (
+        store: Repositories,
+        runner: PistonProvider | null,
+        bridge: AiBridgeClient | null,
+      ) => new EditorService({ snippets: store.snippets, runner, reviewer: bridge }),
     },
     {
       provide: ASSESSMENT,
