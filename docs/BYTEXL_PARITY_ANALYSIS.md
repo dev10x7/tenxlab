@@ -36,11 +36,13 @@ router, tier-2 pod provider, and a warm-pool operator with real Postgres + k8s
 ports, all behind the `LabProvider` seam (ADR-8, adapter-only). **Phase E core
 (E0–E4) has since shipped** — projects/`/nimbus` fork → build → stop → submit →
 evaluate runs end to end (`e2e.projects.test.ts`, `project-submission.service.ts`)
-and was verified live on minikube (tier-2 pod fork, then stop → resume). What
-remains for full Nimbus parity is **one-click hosting (E5), IDE git publish,
-fork cost/quota policy (E5b), and the dashboard resume + attendance widgets
-(E6)**; what remains for differentiation is the **AI tutor + soft skills**
-(Phase F) and **contests / recruiter portal** (Phase G).
+and was verified live on minikube (tier-2 pod fork, then stop → resume).
+**E5 (one-click hosting) has since shipped** — a Deploy action exposes a running
+workspace's service on a public URL via the provider-neutral `ServiceExposer`
+seam. What remains for full Nimbus parity is **IDE git publish, fork cost/quota
+policy (E5b), and the dashboard resume + attendance widgets (E6)**; what remains
+for differentiation is the **AI tutor + soft skills** (Phase F) and **contests /
+recruiter portal** (Phase G).
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
