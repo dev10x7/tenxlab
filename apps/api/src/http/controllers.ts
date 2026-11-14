@@ -640,6 +640,8 @@ export class ProjectsController {
       status: status.workspace?.status ?? 'stopped',
       tier: status.workspace?.runtimeTier ?? null,
       ideUrl: status.workspace?.ideUrl ?? null,
+      deployUrl: status.workspace?.deployUrl ?? null,
+      deployPort: status.workspace?.deployPort ?? null,
     };
   }
 
@@ -703,6 +705,56 @@ export class ProjectsController {
     return {
       workspaceId: result.workspace.id,
       status: result.workspace.status,
+    };
+  }
+
+  /**
+   * Deploy (E5): expose the running workspace's service on a public URL.
+   * The student names the port their app listens on; the URL is what they submit
+   * as a demo link.
+   */
+  @Post('workspaces/:workspaceId/deploy')
+  async deployWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: { port?: number },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const port = Number(body?.port);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      throw new BadRequestException('port must be a TCP port between 1 and 65535');
+    }
+    const result = await this.projects.deploy(session.userId, workspaceId, port);
+    if (!result.ok) {
+      if (result.reason === 'workspace_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'workspace_not_running') {
+        throw new HttpException(result.message, HttpStatus.CONFLICT);
+      }
+      // deploy_unavailable / deploy_failed
+      throw new HttpException(result.message, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return {
+      workspaceId: result.workspace.id,
+      deployUrl: result.workspace.deployUrl,
+      deployPort: result.workspace.deployPort,
+    };
+  }
+
+  /** Withdraw a workspace's exposed service. */
+  @Delete('workspaces/:workspaceId/deploy')
+  async undeployWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.projects.undeploy(session.userId, workspaceId);
+    if (!result.ok) throw new NotFoundException(result.message);
+    return {
+      workspaceId: result.workspace.id,
+      deployUrl: result.workspace.deployUrl,
+      deployPort: result.workspace.deployPort,
     };
   }
 

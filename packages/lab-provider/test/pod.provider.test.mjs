@@ -207,3 +207,67 @@ test('namespaceFor is idempotent, so a provider_ref round-trips', async () => {
   await p.terminate(handle.provider_ref);
   assert.equal(cluster.calls.deleted[0].name, 'tenxlab-t2-sess-1');
 });
+
+// --------------------------------------------------------- expose (E5 deploy)
+
+test('deployUrlFor builds the per-session deploy host under the gateway', () => {
+  const p = provider(fakeCluster(), { publicIdeBaseUrl: 'https://labs.example.com' });
+  assert.equal(
+    p.deployUrlFor('sess-1'),
+    'https://labs.example.com/lab/tenxlab-t2-sess-1-deploy.192.168.49.2.nip.io/',
+  );
+});
+
+test('expose applies a deploy Service and Ingress to the student port', async () => {
+  const cluster = fakeCluster();
+  const p = provider(cluster, { publicIdeBaseUrl: 'https://labs.example.com' });
+  await p.provision(spec);
+  cluster.calls.applied.length = 0;
+
+  const exposed = await p.expose({ sessionId: 'sess-1', port: 5000 });
+
+  const kinds = cluster.calls.applied.map((m) => m.kind);
+  assert.deepEqual(kinds, ['Service', 'Ingress']);
+
+  const service = cluster.calls.applied.find((m) => m.kind === 'Service');
+  assert.equal(service.metadata.name, 'deploy');
+  assert.equal(service.metadata.namespace, 'tenxlab-t2-sess-1');
+  assert.deepEqual(service.spec.ports, [{ port: 5000, targetPort: 5000 }]);
+
+  const ingress = cluster.calls.applied.find((m) => m.kind === 'Ingress');
+  assert.equal(ingress.metadata.name, 'deploy');
+  assert.equal(
+    ingress.spec.rules[0].host,
+    'tenxlab-t2-sess-1-deploy.192.168.49.2.nip.io',
+  );
+  assert.deepEqual(ingress.spec.rules[0].http.paths[0].backend.service, {
+    name: 'deploy',
+    port: { number: 5000 },
+  });
+
+  assert.equal(exposed.port, 5000);
+  assert.equal(
+    exposed.url,
+    'https://labs.example.com/lab/tenxlab-t2-sess-1-deploy.192.168.49.2.nip.io/',
+  );
+});
+
+test('expose refuses a session whose pod is not running', async () => {
+  const cluster = fakeCluster();
+  const p = provider(cluster);
+  await assert.rejects(
+    () => p.expose({ sessionId: 'sess-1', port: 5000 }),
+    /not running/,
+  );
+});
+
+test('unexpose deletes the deploy Service and Ingress', async () => {
+  const cluster = fakeCluster();
+  const p = provider(cluster);
+  await p.provision(spec);
+  await p.unexpose('sess-1');
+  assert.deepEqual(cluster.calls.deleted, [
+    { kind: 'Ingress', name: 'deploy', namespace: 'tenxlab-t2-sess-1' },
+    { kind: 'Service', name: 'deploy', namespace: 'tenxlab-t2-sess-1' },
+  ]);
+});

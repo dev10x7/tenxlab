@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
-import type { LabProvider } from '@tenxlab/lab-provider';
+import type { LabProvider, ServiceExposer } from '@tenxlab/lab-provider';
 import { ProjectService } from './project.service';
 import {
   InMemoryMembershipRepository,
@@ -36,7 +36,13 @@ const COMPONENT: ProjectComponentRecord = {
   createdAt: new Date('2026-01-01T00:00:00Z'),
 };
 
-function fixture(overrides: { project?: Partial<ProjectRecord>; provider?: LabProvider | null } = {}) {
+function fixture(
+  overrides: {
+    project?: Partial<ProjectRecord>;
+    provider?: LabProvider | null;
+    exposer?: ServiceExposer | null;
+  } = {},
+) {
   const projects = new InMemoryProjectRepository([{ ...PROJECT, ...overrides.project }]);
   const components = new InMemoryProjectComponentRepository([{ ...COMPONENT }]);
   const workspaces = new InMemoryProjectWorkspaceRepository();
@@ -51,6 +57,7 @@ function fixture(overrides: { project?: Partial<ProjectRecord>; provider?: LabPr
     forks,
     memberships,
     provider: overrides.provider ?? null,
+    exposer: overrides.exposer ?? null,
     defaultTier: 'tier_2_container',
   });
   return { svc, projects, components, workspaces, forks, memberships };
@@ -252,4 +259,126 @@ test('getForkStatus returns the fork with its workspace', async () => {
   assert.equal(status?.fork.id, res.forkId);
   assert.equal(status?.workspace?.id, res.workspaceId);
   assert.equal(await svc.getForkStatus('missing'), null);
+});
+
+// ------------------------------------------------------------- deploy (E5)
+
+function fakeExposer(options: { fail?: boolean } = {}): {
+  exposer: ServiceExposer;
+  calls: Array<{ sessionId: string; port: number }>;
+  unexposed: string[];
+} {
+  const calls: Array<{ sessionId: string; port: number }> = [];
+  const unexposed: string[] = [];
+  const exposer: ServiceExposer = {
+    name: 'fake',
+    async expose(input) {
+      if (options.fail) throw new Error('boom');
+      calls.push(input);
+      return { url: `https://demo.example.com/${input.sessionId}`, port: input.port };
+    },
+    async unexpose(sessionId) {
+      unexposed.push(sessionId);
+    },
+  };
+  return { exposer, calls, unexposed };
+}
+
+/** Seed a running workspace owned by `userId`. */
+async function runningWorkspace(
+  workspaces: ReturnType<typeof fixture>['workspaces'],
+  userId = 'u1',
+) {
+  const w = await workspaces.create({
+    tenantId: 't1',
+    userId,
+    templateSlug: 'spring-boot',
+    runtimeTier: 'tier_2_container',
+    status: 'running',
+    ideUrl: 'https://ide.example.com/ws',
+    storageRef: null,
+  });
+  return w;
+}
+
+test('deploy exposes a running workspace and records its URL and port', async () => {
+  const { exposer, calls } = fakeExposer();
+  const fx = fixture({ exposer });
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.deploy('u1', w.id, 5000);
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.workspace.deployUrl, `https://demo.example.com/${w.id}`);
+  assert.equal(res.workspace.deployPort, 5000);
+  assert.deepEqual(calls, [{ sessionId: w.id, port: 5000 }]);
+});
+
+test('deploy rejects a workspace that is not running', async () => {
+  const fx = fixture({ exposer: fakeExposer().exposer });
+  const w = await fx.workspaces.create({
+    tenantId: 't1',
+    userId: 'u1',
+    templateSlug: 'spring-boot',
+    runtimeTier: 'tier_2_container',
+    status: 'stopped',
+    ideUrl: null,
+    storageRef: null,
+  });
+  const res = await fx.svc.deploy('u1', w.id, 5000);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_running');
+});
+
+test('deploy rejects a workspace owned by another user', async () => {
+  const fx = fixture({ exposer: fakeExposer().exposer });
+  const w = await runningWorkspace(fx.workspaces, 'someone-else');
+  const res = await fx.svc.deploy('u1', w.id, 5000);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_found');
+});
+
+test('deploy reports unavailable when no exposer is configured', async () => {
+  const fx = fixture();
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.deploy('u1', w.id, 5000);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'deploy_unavailable');
+});
+
+test('a provider error during deploy is reported, not thrown', async () => {
+  const fx = fixture({ exposer: fakeExposer({ fail: true }).exposer });
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.deploy('u1', w.id, 5000);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'deploy_failed');
+  const row = await fx.workspaces.findById(w.id);
+  assert.equal(row?.deployUrl, null);
+});
+
+test('undeploy withdraws the service and clears the record', async () => {
+  const fake = fakeExposer();
+  const fx = fixture({ exposer: fake.exposer });
+  const w = await runningWorkspace(fx.workspaces);
+  await fx.svc.deploy('u1', w.id, 5000);
+  const res = await fx.svc.undeploy('u1', w.id);
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.workspace.deployUrl, null);
+  assert.equal(res.workspace.deployPort, null);
+  assert.deepEqual(fake.unexposed, [w.id]);
+});
+
+test('stopping a workspace clears its deployment', async () => {
+  const fx = fixture({ exposer: fakeExposer().exposer });
+  const w = await runningWorkspace(fx.workspaces);
+  await fx.svc.deploy('u1', w.id, 5000);
+  const stopped = await fx.svc.stopWorkspace('u1', w.id);
+  assert.equal(stopped.ok, true);
+  if (!stopped.ok) return;
+  assert.equal(stopped.workspace.deployUrl, null);
+  assert.equal(stopped.workspace.deployPort, null);
 });

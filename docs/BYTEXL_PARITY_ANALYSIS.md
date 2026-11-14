@@ -315,7 +315,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Done** | `projects/templates.ts`: `python-flask`, `java`, `spring-boot`, `spring-boot-mongodb`, `react`, `debian-base` (the "Alpine"/NOS bare image) |
 | Fork a template **or own workspace** | **Done** | `ProjectComponent.templateSlug` (catalog) or `templateWorkspaceId` (fork-your-own, §1.3); one fork per (component, student) |
 | Built-in Source Control → publish to GitHub | **Missing** | ByteXL uses workspace-local git + **GitHub OAuth device flow** (§1.3); we take a GitHub URL as free text and have no IDE git integration |
-| One-click backend deployment + live URL | **Missing** | ByteXL demos on `bytexl.live`; we have no per-fork ingress/deploy action (E5) |
+| One-click backend deployment + live URL | **Done** | "Deploy" exposes the running workspace's service on a per-workspace `-deploy` ingress via the `ServiceExposer` seam (`PodProvider.expose`), reusing the shared gateway; `deployUrl` is the analogue of ByteXL's `bytexl.live` and is captured on the workspace (E5) |
 | Submission form (title, description, workspace picker, links) | **Done** | `project-submission.service.ts` + `ProjectComponentCard`; one submission per component |
 | Submission deadline + auto-close | **Done** | Server-authoritative `deadline_passed` gate (§1.2) |
 | Stop-before-submit lifecycle rule | **Done** | Rejects while the fork is `running`/`provisioning` with ByteXL's "wait for the session to close" message (§1.2) |
@@ -543,13 +543,15 @@ sub-milestones so each ends demonstrable and CI-green:
       the LMS nav** (§1.2), not inside the IDE.
       → **Done** — `/nimbus` is a real role-aware page (`PROJECTS_ENABLED` /
       `PROJECTS_TIER` wired; `AI_BASE_URL` lands with E3's auto-quality).
-- [ ] **E5 — One-click hosting (separable).** A "Deploy" action exposes **one
-      workspace** (one service) via a per-workspace ingress (reuse `PodProvider`'s
-      namespace+ingress builders); `demoUrl` = that ingress, analogous to
-      ByteXL's `bytexl.live`. **Multi-service apps are N independent workspaces**
+- [x] **E5 — One-click hosting (separable).** **Done.** A "Deploy" action
+      exposes **one workspace** (one service): `ProjectService.deploy` validates
+      ownership + `running`, then the provider-neutral `ServiceExposer` seam
+      (`PodProvider.expose`) applies a per-workspace `deploy` Service + `-deploy`
+      Ingress reusing the shared gateway; the URL is persisted as
+      `deployUrl`/`deployPort` and `stopWorkspace` clears it. `undeploy`
+      withdraws the ingress. **Multi-service apps are N independent workspaces**
       wired by the student with their own URLs + CORS (§1.4) — **not** a composed
-      multi-container workspace, so there is no E5.1 compose build to do. Can
-      ship after parity.
+      multi-container workspace, so there is no E5.1 compose build to do.
 - [ ] **E5b — Fork cost/quota policy (ADR-20).** Stop-when-idle forks: default
       tier-2, 60-min idle stop + snapshot, 8-h max session, 90-day retention;
       quotas on concurrency + storage + monthly budget. Reuse `checkQuota`

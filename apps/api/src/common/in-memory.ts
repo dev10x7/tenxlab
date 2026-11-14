@@ -445,13 +445,18 @@ export class InMemoryProjectComponentRepository implements ProjectComponentRepos
 export class InMemoryProjectWorkspaceRepository implements ProjectWorkspaceRepository {
   constructor(private readonly rows: ProjectWorkspaceRecord[] = []) {}
   async create(
-    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+    input: Omit<
+      ProjectWorkspaceRecord,
+      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
+    > & { deployUrl?: string | null; deployPort?: number | null },
   ) {
     const now = new Date();
     const row: ProjectWorkspaceRecord = {
       id: randomUUID(),
       createdAt: now,
       lastActivityAt: now,
+      deployUrl: null,
+      deployPort: null,
       ...input,
     };
     this.rows.push(row);

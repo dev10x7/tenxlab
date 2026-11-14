@@ -1,5 +1,11 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
-import { LabProviderError, type LabProvider } from './types';
+import {
+  LabProviderError,
+  type ExposedService,
+  type ExposeInput,
+  type LabProvider,
+  type ServiceExposer,
+} from './types';
 
 /**
  * Dispatch a lab session to the provider that owns its tier.
@@ -12,8 +18,12 @@ import { LabProviderError, type LabProvider } from './types';
  * request/response `CodeExecutionProvider` (Piston), not a session. A tier-1
  * *lab* would need a pod-based runtime we do not yet run, so it fails loudly
  * rather than silently borrowing tier-2 capacity.
+ *
+ * It also implements `ServiceExposer` (E5): only some providers can publish a
+ * service, so `expose`/`unexpose` delegate to whichever route supports it. A
+ * deploy is a tier-2 (pod) concern today, so the tier-2 provider answers.
  */
-export class RoutingProvider implements LabProvider {
+export class RoutingProvider implements LabProvider, ServiceExposer {
   readonly name = 'routing';
 
   constructor(
@@ -79,4 +89,33 @@ export class RoutingProvider implements LabProvider {
     }
     return list;
   }
+
+  /** The first configured provider that can publish a service, if any. */
+  private exposer(): ServiceExposer | null {
+    for (const provider of this.all()) {
+      if (isExposer(provider)) return provider;
+    }
+    return null;
+  }
+
+  async expose(input: ExposeInput): Promise<ExposedService> {
+    const exposer = this.exposer();
+    if (!exposer) {
+      throw new LabProviderError('No lab provider can expose a service', 503);
+    }
+    return exposer.expose(input);
+  }
+
+  async unexpose(sessionId: string): Promise<void> {
+    // Withdraw from every capable provider: the session may belong to any one.
+    for (const provider of this.all()) {
+      if (isExposer(provider)) await provider.unexpose(sessionId);
+    }
+  }
+}
+
+/** Structural check: does this provider implement `ServiceExposer`? */
+function isExposer(provider: LabProvider): provider is LabProvider & ServiceExposer {
+  const candidate = provider as Partial<ServiceExposer>;
+  return typeof candidate.expose === 'function' && typeof candidate.unexpose === 'function';
 }

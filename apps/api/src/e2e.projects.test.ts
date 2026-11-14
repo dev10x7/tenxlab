@@ -204,3 +204,55 @@ test('an instructor can author, add a component, and publish a project', async (
   assert.equal(published.status, 201);
   assert.equal((published.body as { status: string }).status, 'published');
 });
+
+test('deploy validates the port and refuses a workspace that is not running', async () => {
+  const student = await signIn('student@tenxlab.local');
+
+  // Fork a component so we have a workspace to deploy against.
+  const list = await call('/api/projects', { cookie: student });
+  const demo = (list.body as Array<{
+    project: { id: string };
+    components: Array<{ id: string; fork: unknown }>;
+  }>).find((p) => p.project.id === 'project-demo-spring-api');
+  assert.ok(demo, 'the demo project is listed');
+  const component = demo.components[0]!;
+  const forked = await call(
+    `/api/projects/project-demo-spring-api/components/${component.id}/fork`,
+    { method: 'POST', cookie: student },
+  );
+  assert.equal(forked.status, 201);
+  const workspaceId = (forked.body as { workspaceId: string }).workspaceId;
+
+  // A non-numeric or out-of-range port is a client error.
+  const badPort = await call(`/api/projects/workspaces/${workspaceId}/deploy`, {
+    method: 'POST',
+    cookie: student,
+    body: JSON.stringify({ port: 0 }),
+  });
+  assert.equal(badPort.status, 400);
+
+  // The workspace is not running (provisioning is disabled in tests), so the
+  // deploy is a conflict rather than a silent success.
+  const notRunning = await call(`/api/projects/workspaces/${workspaceId}/deploy`, {
+    method: 'POST',
+    cookie: student,
+    body: JSON.stringify({ port: 5000 }),
+  });
+  assert.equal(notRunning.status, 409);
+
+  // An unknown workspace is not found.
+  const missing = await call('/api/projects/workspaces/does-not-exist/deploy', {
+    method: 'POST',
+    cookie: student,
+    body: JSON.stringify({ port: 5000 }),
+  });
+  assert.equal(missing.status, 404);
+
+  // Undeploy is idempotent and clears the (absent) record.
+  const undeployed = await call(`/api/projects/workspaces/${workspaceId}/deploy`, {
+    method: 'DELETE',
+    cookie: student,
+  });
+  assert.equal(undeployed.status, 200);
+  assert.equal((undeployed.body as { deployUrl: string | null }).deployUrl, null);
+});

@@ -46,6 +46,39 @@ export interface CodeExecutionProvider {
   run(input: CodeRunInput): Promise<CodeRunResult>;
 }
 
+/**
+ * Expose one service from a running session on a public URL (E5 one-click
+ * hosting).
+ *
+ * ByteXL demos a student's backend on a public `bytexl.live` URL. We mirror that
+ * by giving one workspace one ingress to one container port — a multi-service
+ * app is N independently-exposed workspaces the student wires together, not one
+ * composed stack (§1.4). This is a separate seam from `LabProvider` because not
+ * every provider can expose a service (a tier-1 Piston run cannot), and a
+ * session must already be running before it can be exposed.
+ */
+export interface ExposeInput {
+  /** Provider ref of the running session (e.g. the tier-2 namespace). */
+  sessionId: string;
+  /** Container port the service listens on, e.g. 5000 for Flask. */
+  port: number;
+}
+
+export interface ExposedService {
+  /** Public URL the service is reachable on. */
+  url: string;
+  /** The container port the URL fronts. */
+  port: number;
+}
+
+export interface ServiceExposer {
+  /** Human-readable provider id, e.g. "pod". */
+  readonly name: string;
+  /** Publish the service on `port` and return its public URL. Idempotent. */
+  expose(input: ExposeInput): Promise<ExposedService>;
+  /** Withdraw a previously-exposed service. A missing service is not an error. */
+  unexpose(sessionId: string): Promise<void>;
+}
 
 /** Error thrown when the provider returns a non-2xx response. */
 export class LabProviderError extends Error {

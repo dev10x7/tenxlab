@@ -413,6 +413,8 @@ model ProjectWorkspace {
   runtimeTier    String   @default("tier_2_container")
   status         String   @default("stopped") // provisioning | running | stopped | failed | archived
   ideUrl         String?
+  deployUrl      String? // public URL the service is exposed on after a Deploy (E5)
+  deployPort     Int? // container port the deploy exposes
   storageRef     String?
   createdAt      DateTime @default(now())
   lastActivityAt DateTime @default(now())

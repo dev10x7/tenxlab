@@ -484,7 +484,10 @@ export class PrismaProjectComponentRepository implements ProjectComponentReposit
 export class PrismaProjectWorkspaceRepository implements ProjectWorkspaceRepository {
   constructor(private readonly db: PrismaClient) {}
   async create(
-    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+    input: Omit<
+      ProjectWorkspaceRecord,
+      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
+    > & { deployUrl?: string | null; deployPort?: number | null },
   ): Promise<ProjectWorkspaceRecord> {
     const w = await this.db.projectWorkspace.create({ data: input });
     return toProjectWorkspace(w);
@@ -781,6 +784,8 @@ function toProjectWorkspace(w: ProjectWorkspaceRow): ProjectWorkspaceRecord {
     runtimeTier: w.runtimeTier,
     status: w.status,
     ideUrl: w.ideUrl ?? null,
+    deployUrl: w.deployUrl ?? null,
+    deployPort: w.deployPort ?? null,
     storageRef: w.storageRef ?? null,
     createdAt: w.createdAt,
     lastActivityAt: w.lastActivityAt,

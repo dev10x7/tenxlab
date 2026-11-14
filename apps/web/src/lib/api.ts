@@ -292,6 +292,10 @@ export interface ForkStatus {
   status: WorkspaceStatus;
   tier: string | null;
   ideUrl: string | null;
+  /** Public URL the service is exposed on after a Deploy (E5); null if none. */
+  deployUrl: string | null;
+  /** The container port the deploy exposes; null if not deployed. */
+  deployPort: number | null;
 }
 
 export interface ProjectSubmission {
@@ -424,6 +428,18 @@ export const api = {
     request<{ workspaceId: string; status: string }>(
       `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/stop`,
       { method: 'POST' },
+    ),
+  /** Deploy (E5): expose the workspace's service on a public URL. */
+  deployWorkspace: (workspaceId: string, port: number) =>
+    request<{ workspaceId: string; deployUrl: string | null; deployPort: number | null }>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/deploy`,
+      { method: 'POST', body: JSON.stringify({ port }) },
+    ),
+  /** Withdraw a workspace's exposed service. */
+  undeployWorkspace: (workspaceId: string) =>
+    request<{ workspaceId: string; deployUrl: string | null; deployPort: number | null }>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/deploy`,
+      { method: 'DELETE' },
     ),
   myProjectSubmissions: () =>
     request<StudentSubmissionView[]>('/api/projects/submissions'),

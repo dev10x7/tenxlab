@@ -155,6 +155,10 @@ export interface ProjectWorkspaceRecord {
   runtimeTier: string;
   status: string;
   ideUrl: string | null;
+  /** Public URL the workspace's service is exposed on after a Deploy (E5). */
+  deployUrl: string | null;
+  /** Container port the deploy exposes. */
+  deployPort: number | null;
   storageRef: string | null;
   createdAt: Date;
   lastActivityAt: Date;
@@ -343,7 +347,10 @@ export interface ProjectComponentRepository {
 
 export interface ProjectWorkspaceRepository {
   create(
-    input: Omit<ProjectWorkspaceRecord, 'id' | 'createdAt' | 'lastActivityAt'>,
+    input: Omit<
+      ProjectWorkspaceRecord,
+      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
+    > & { deployUrl?: string | null; deployPort?: number | null },
   ): Promise<ProjectWorkspaceRecord>;
   findById(id: string): Promise<ProjectWorkspaceRecord | null>;
   /** A user's workspaces within a tenant, newest first. */

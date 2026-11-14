@@ -8,6 +8,7 @@ import {
   PodProvider,
   RoutingProvider,
   type LabProvider,
+  type ServiceExposer,
 } from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
 import { JwtService } from '../crypto/jwt.service';
@@ -238,6 +239,8 @@ const STORE_PROVIDER = {
           forks: store.projectForks,
           memberships: store.memberships,
           provider: env.PROJECTS_ENABLED ? provider : null,
+          // Deploy (E5) reuses the same provider when it can expose a service.
+          exposer: env.PROJECTS_ENABLED ? (provider as ServiceExposer | null) : null,
           defaultTier: env.PROJECTS_TIER,
         }),
     },

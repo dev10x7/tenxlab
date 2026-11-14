@@ -555,6 +555,13 @@ export const ProjectWorkspace = z.object({
   status: WorkspaceStatus,
   /** IDE URL while running; null while stopped. */
   ideUrl: z.string().nullable().default(null),
+  /**
+   * Public URL the workspace's service is exposed on after a "Deploy" (E5),
+   * analogous to ByteXL's `bytexl.live` demo links. Null until deployed.
+   */
+  deployUrl: z.string().nullable().default(null),
+  /** The container port the deploy exposes. Null until deployed. */
+  deployPort: z.number().int().positive().nullable().default(null),
   /** Volume/snapshot ref holding the durable files. */
   storageRef: z.string().nullable().default(null),
   createdAt: z.string().datetime(),

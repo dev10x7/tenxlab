@@ -146,13 +146,23 @@ export function ProjectComponentCard({
       ) : null}
 
       {phase === 'ready' && status?.ideUrl ? (
-        <div className="row" style={{ gap: 8 }}>
-          <a className="btn" href={status.ideUrl} target="_blank" rel="noreferrer">
-            Open in VS Code
-          </a>
-          <button className="btn secondary" onClick={stop} disabled={busy}>
-            Stop workspace
-          </button>
+        <div>
+          <div className="row" style={{ gap: 8 }}>
+            <a className="btn" href={status.ideUrl} target="_blank" rel="noreferrer">
+              Open in VS Code
+            </a>
+            <button className="btn secondary" onClick={stop} disabled={busy}>
+              Stop workspace
+            </button>
+          </div>
+          <DeployControl
+            workspaceId={status.workspaceId}
+            deployUrl={status.deployUrl ?? null}
+            onChanged={onChanged}
+            onStatus={(deployUrl, deployPort) =>
+              setStatus((s) => (s ? { ...s, deployUrl, deployPort } : s))
+            }
+          />
         </div>
       ) : null}
 
@@ -165,6 +175,104 @@ export function ProjectComponentCard({
           onSubmitted={onChanged}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Deploy (E5 one-click hosting): expose the running workspace's service on a
+ * public URL. The student names the port their app listens on; the resulting
+ * link is what they submit as a demo. One workspace exposes one service (§1.4).
+ */
+function DeployControl({
+  workspaceId,
+  deployUrl,
+  onChanged,
+  onStatus,
+}: {
+  workspaceId: string;
+  deployUrl: string | null;
+  onChanged: () => void;
+  onStatus: (deployUrl: string | null, deployPort: number | null) => void;
+}) {
+  const [port, setPort] = useState('5000');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function deploy() {
+    const value = Number(port);
+    if (!Number.isInteger(value) || value <= 0 || value > 65535) {
+      setError('Enter the port your app listens on (1–65535).');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.deployWorkspace(workspaceId, value);
+      onStatus(result.deployUrl, result.deployPort);
+      onChanged();
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Start the workspace before deploying.'
+          : 'Could not deploy the service. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undeploy() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.undeployWorkspace(workspaceId);
+      onStatus(null, null);
+      onChanged();
+    } catch {
+      setError('Could not withdraw the deployment. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (deployUrl) {
+    return (
+      <div style={{ marginTop: 12 }}>
+        <p className="muted" style={{ marginBottom: 4 }}>
+          Your service is live:
+        </p>
+        <div className="row" style={{ gap: 8 }}>
+          <a className="btn" href={deployUrl} target="_blank" rel="noreferrer">
+            Open live URL
+          </a>
+          <button className="btn secondary" onClick={undeploy} disabled={busy}>
+            Undeploy
+          </button>
+        </div>
+        {error ? <p className="error">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <label htmlFor={`port-${workspaceId}`}>
+        Deploy your app — port it listens on
+      </label>
+      <div className="row" style={{ gap: 8 }}>
+        <input
+          id={`port-${workspaceId}`}
+          value={port}
+          onChange={(e) => setPort(e.target.value)}
+          inputMode="numeric"
+          style={{ maxWidth: 120 }}
+        />
+        <button className="btn" onClick={deploy} disabled={busy}>
+          Deploy
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
     </div>
   );
 }

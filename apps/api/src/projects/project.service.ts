@@ -1,5 +1,5 @@
 import type { LabSpec, RuntimeTier, SessionHandle } from '@tenxlab/contracts';
-import type { LabProvider } from '@tenxlab/lab-provider';
+import type { LabProvider, ServiceExposer } from '@tenxlab/lab-provider';
 import { routeTier } from '@tenxlab/runtime-policy';
 import type {
   MembershipRepository,
@@ -63,6 +63,16 @@ export type StopResult =
   | { ok: true; workspace: ProjectWorkspaceRecord }
   | { ok: false; reason: 'workspace_not_found'; message: string };
 
+export type DeployResult =
+  | { ok: true; workspace: ProjectWorkspaceRecord }
+  | { ok: false; reason: DeployFailureReason; message: string };
+
+export type DeployFailureReason =
+  | 'workspace_not_found'
+  | 'workspace_not_running'
+  | 'deploy_unavailable'
+  | 'deploy_failed';
+
 export interface ForkRequest {
   userId: string;
   tenantId: string;
@@ -95,6 +105,11 @@ export interface ForkDeps {
   memberships: MembershipRepository;
   /** Null disables real provisioning (unit tests, catalog-only deployments). */
   provider?: LabProvider | null;
+  /**
+   * Publishes a running workspace's service on a public URL (E5). Null disables
+   * Deploy, exactly as a null `provider` disables forking.
+   */
+  exposer?: ServiceExposer | null;
   /** Default runtime tier for a fork when the project declares none. */
   defaultTier?: RuntimeTier;
 }
@@ -382,9 +397,88 @@ export class ProjectService {
     const stopped = await this.deps.workspaces.update(workspace.id, {
       status: 'stopped',
       ideUrl: null,
+      // A stop tears the namespace down, so any exposed service is gone with it.
+      deployUrl: null,
+      deployPort: null,
       lastActivityAt: new Date(),
     });
     return { ok: true, workspace: stopped };
+  }
+
+  /**
+   * Expose the workspace's service on a public URL (E5 one-click hosting).
+   *
+   * One workspace = one service = one URL (§1.4): the student runs their app on
+   * `port` inside the IDE, then deploys it, mirroring ByteXL's `bytexl.live`
+   * demo links. The workspace must be running — there is nothing to expose
+   * otherwise — and the recorded `deployUrl` is what a submission carries as its
+   * demo link.
+   */
+  async deploy(
+    userId: string,
+    workspaceId: string,
+    port: number,
+  ): Promise<DeployResult> {
+    const workspace = await this.deps.workspaces.findById(workspaceId);
+    if (!workspace || workspace.userId !== userId) {
+      return { ok: false, reason: 'workspace_not_found', message: 'Workspace not found' };
+    }
+    if (workspace.status !== 'running') {
+      return {
+        ok: false,
+        reason: 'workspace_not_running',
+        message: 'Start the workspace before deploying its service',
+      };
+    }
+    const exposer = this.deps.exposer;
+    if (!exposer) {
+      return {
+        ok: false,
+        reason: 'deploy_unavailable',
+        message: 'One-click hosting is not available in this deployment',
+      };
+    }
+    try {
+      const exposed = await exposer.expose({ sessionId: workspace.id, port });
+      const updated = await this.deps.workspaces.update(workspace.id, {
+        deployUrl: exposed.url,
+        deployPort: exposed.port,
+        lastActivityAt: new Date(),
+      });
+      return { ok: true, workspace: updated };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[project-deploy] expose failed for workspace ${workspace.id}:`,
+        err instanceof Error ? `${err.name}: ${err.message}` : err,
+      );
+      return {
+        ok: false,
+        reason: 'deploy_failed',
+        message: 'Could not deploy the service. Please try again.',
+      };
+    }
+  }
+
+  /** Withdraw a workspace's exposed service. Idempotent and ownership-scoped. */
+  async undeploy(userId: string, workspaceId: string): Promise<DeployResult> {
+    const workspace = await this.deps.workspaces.findById(workspaceId);
+    if (!workspace || workspace.userId !== userId) {
+      return { ok: false, reason: 'workspace_not_found', message: 'Workspace not found' };
+    }
+    if (this.deps.exposer) {
+      try {
+        await this.deps.exposer.unexpose(workspace.id);
+      } catch {
+        // The environment may already be gone; the record is still cleared.
+      }
+    }
+    const updated = await this.deps.workspaces.update(workspace.id, {
+      deployUrl: null,
+      deployPort: null,
+      lastActivityAt: new Date(),
+    });
+    return { ok: true, workspace: updated };
   }
 
   private async componentsWithFork(

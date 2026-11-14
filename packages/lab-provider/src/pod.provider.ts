@@ -1,5 +1,11 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
-import { LabProviderError, type LabProvider } from './types';
+import {
+  LabProviderError,
+  type ExposedService,
+  type ExposeInput,
+  type LabProvider,
+  type ServiceExposer,
+} from './types';
 
 /**
  * The slice of the Kubernetes API the tier-2 provider needs.
@@ -68,7 +74,7 @@ const TERMINATE_POLL_MS = 1_000;
  *
  * Teardown deletes the namespace, which cascades to everything inside it.
  */
-export class PodProvider implements LabProvider {
+export class PodProvider implements LabProvider, ServiceExposer {
   readonly name = 'pod';
 
   private readonly cluster: ClusterClient;
@@ -182,6 +188,46 @@ export class PodProvider implements LabProvider {
 
   private hostFor(sessionId: string): string {
     return `${namespaceFor(sessionId)}.${this.opts.allowedHosts}`;
+  }
+
+  /** The deploy host for a session's exposed service. */
+  private deployHostFor(sessionId: string): string {
+    return `${namespaceFor(sessionId)}-deploy.${this.opts.allowedHosts}`;
+  }
+
+  /** The browser-facing URL for a session's deployed service. */
+  deployUrlFor(sessionId: string): string {
+    const host = this.deployHostFor(sessionId);
+    if (this.publicIdeBaseUrl) return `${this.publicIdeBaseUrl}/lab/${host}/`;
+    return `${this.scheme}://${host}/`;
+  }
+
+  /**
+   * Publish the running workspace's service on a public URL (E5). One workspace
+   * exposes one service: a Service selecting the workspace pod's label plus an
+   * Ingress under a `-deploy` host, reusing the same ingress class as the IDE so
+   * both share a gateway. Idempotent — re-deploying re-applies the same objects.
+   */
+  async expose(input: ExposeInput): Promise<ExposedService> {
+    const ns = namespaceFor(input.sessionId);
+    const pod = await this.cluster.get('Pod', 'code-server', ns);
+    if (pod === null) {
+      throw new LabProviderError(
+        `Workspace ${input.sessionId} is not running; nothing to expose`,
+        409,
+      );
+    }
+    const host = this.deployHostFor(input.sessionId);
+    await this.cluster.apply(deployServiceManifest(ns, input.port));
+    await this.cluster.apply(deployIngressManifest(ns, host, input.port));
+    return { url: this.deployUrlFor(input.sessionId), port: input.port };
+  }
+
+  /** Withdraw the exposed service. Deleting the Ingress removes public access. */
+  async unexpose(sessionId: string): Promise<void> {
+    const ns = namespaceFor(sessionId);
+    await this.cluster.delete('Ingress', 'deploy', ns);
+    await this.cluster.delete('Service', 'deploy', ns);
   }
 
   private async awaitIde(ideUrl: string): Promise<boolean> {
@@ -327,6 +373,53 @@ function ingressManifest(ns: string, host: string): Record<string, unknown> {
                 path: '/',
                 pathType: 'Prefix',
                 backend: { service: { name: 'code-server', port: { number: PORT } } },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * The Service a Deploy exposes: it selects the workspace's code-server pod but
+ * forwards to the student's own service port, so the ingress fronts the app the
+ * student runs rather than the IDE.
+ */
+function deployServiceManifest(ns: string, port: number): Record<string, unknown> {
+  return {
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: { name: 'deploy', namespace: ns },
+    spec: {
+      selector: { 'app.kubernetes.io/name': 'tenxlab-lab' },
+      ports: [{ port, targetPort: port }],
+    },
+  };
+}
+
+/** The public Ingress for a deployed service, under a `-deploy` host. */
+function deployIngressManifest(
+  ns: string,
+  host: string,
+  port: number,
+): Record<string, unknown> {
+  return {
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'Ingress',
+    metadata: { name: 'deploy', namespace: ns },
+    spec: {
+      ingressClassName: process.env.TENXLAB_INGRESS_CLASS || 'nginx',
+      rules: [
+        {
+          host,
+          http: {
+            paths: [
+              {
+                path: '/',
+                pathType: 'Prefix',
+                backend: { service: { name: 'deploy', port: { number: port } } },
               },
             ],
           },

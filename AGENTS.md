@@ -354,6 +354,17 @@ submit; instructor: author → publish → evaluate).
   matches `:id` first. DI: `PROJECT` (needs `provider`, off when
   `PROJECTS_ENABLED` is unset) and `PROJECT_SUBMISSION`. Every browser-facing
   route has a matching proxy under `apps/web/src/app/api/projects/**`.
+- **E5 = one-click hosting** (`ProjectService.deploy`/`undeploy`, this commit).
+  A "Deploy" action exposes **one workspace's one service** on a public URL,
+  ByteXL's `bytexl.live` analogue. A provider-neutral `ServiceExposer` seam
+  (`packages/lab-provider/src/types.ts`) is implemented by `PodProvider.expose`
+  (a `deploy` Service + `-deploy` Ingress under the same gateway as the IDE) and
+  delegated by `RoutingProvider`, so the LMS never learns which runtime answers.
+  `deploy` validates ownership + `running`, persists `deployUrl`/`deployPort` on
+  the workspace, and `stopWorkspace` clears them (a stop tears the namespace
+  down). Routes: `POST`/`DELETE /api/projects/workspaces/:workspaceId/deploy`.
+  **Multi-service apps stay N independent workspaces** (§1.4) — there is no
+  composed multi-container deploy. Fork cost/quota policy is still E5b.
 
 ## Gotchas
 

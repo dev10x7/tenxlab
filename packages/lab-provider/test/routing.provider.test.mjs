@@ -124,3 +124,31 @@ test('heartbeat and terminate reach the owning provider', async () => {
   assert.deepEqual(pod.calls.terminate, ['pod']);
   assert.deepEqual(kubelab.calls.terminate, []);
 });
+
+test('expose delegates to the first provider that can publish a service', async () => {
+  const exposed = [];
+  const pod = fakeProvider('pod', {
+    async expose(input) {
+      exposed.push(input);
+      return { url: 'https://demo.example.com/x', port: input.port };
+    },
+    async unexpose() {},
+  });
+  // KubeLab cannot expose a service, so it is skipped.
+  const kubelab = fakeProvider('kubelab');
+  const router = new RoutingProvider({ tier_2_container: pod, tier_3_vcluster: kubelab });
+
+  const result = await router.expose({ sessionId: 'sess-1', port: 5000 });
+  assert.equal(result.url, 'https://demo.example.com/x');
+  assert.equal(result.port, 5000);
+  assert.deepEqual(exposed, [{ sessionId: 'sess-1', port: 5000 }]);
+});
+
+test('expose fails loudly when no provider can publish a service', async () => {
+  const router = new RoutingProvider({ tier_3_vcluster: fakeProvider('kubelab') });
+  await assert.rejects(() => router.expose({ sessionId: 'sess-1', port: 5000 }), (err) => {
+    assert.ok(err instanceof LabProviderError);
+    assert.equal(err.status, 503);
+    return true;
+  });
+});
