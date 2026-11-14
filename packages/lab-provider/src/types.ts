@@ -117,6 +117,41 @@ export interface GitPublisher {
   publish(input: GitPublishInput): Promise<GitPublishResult>;
 }
 
+/**
+ * Read a workspace's source files out of the execution plane (auto-evaluation).
+ *
+ * ByteXL auto-evaluates a submission with SonarQube; we mirror that with the
+ * in-house `quality.py` analyzer (ADR-13). To score the code we must first get
+ * it out of the workspace volume, which only the provider can do — the LMS
+ * holds no volume. Like `ServiceExposer`/`GitPublisher`, this is a separate
+ * seam because not every provider can read files (a tier-1 Piston run cannot)
+ * and the workspace must be running.
+ */
+export interface ReadWorkspaceFilesInput {
+  /** Provider ref of the running session (e.g. the tier-2 namespace). */
+  sessionId: string;
+  /** Only include files with one of these extensions, without the dot. */
+  extensions: string[];
+  /** Skip any single file larger than this many bytes. */
+  maxFileBytes?: number;
+  /** Stop once the collected content reaches this many bytes. */
+  maxTotalBytes?: number;
+}
+
+export interface WorkspaceFile {
+  /** Path relative to the workspace root, e.g. `src/app.py`. */
+  path: string;
+  /** The file's decoded text content. */
+  content: string;
+}
+
+export interface WorkspaceReader {
+  /** Human-readable provider id, e.g. "pod". */
+  readonly name: string;
+  /** Read the workspace's matching files, newest-first ordering not guaranteed. */
+  readWorkspaceFiles(input: ReadWorkspaceFilesInput): Promise<WorkspaceFile[]>;
+}
+
 /** Error thrown when the provider returns a non-2xx response. */
 export class LabProviderError extends Error {
   constructor(

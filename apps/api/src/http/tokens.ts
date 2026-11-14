@@ -20,3 +20,5 @@ export const PROJECT_SUBMISSION = 'TENXLAB_PROJECT_SUBMISSION';
 export const GIT = 'TENXLAB_GIT';
 export const GITHUB = 'TENXLAB_GITHUB';
 export const SECRET_BOX = 'TENXLAB_SECRET_BOX';
+export const AI_BRIDGE = 'TENXLAB_AI_BRIDGE';
+export const QUALITY = 'TENXLAB_QUALITY';

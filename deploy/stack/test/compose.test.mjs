@@ -82,3 +82,8 @@ test('api and web expose the ports the docs promise', () => {
   assert.match(svc.get('api').join('\n'), /'4000:4000'/);
   assert.match(svc.get('web').join('\n'), /'3000:3000'/);
 });
+
+test('api points auto-evaluation at the ai service', () => {
+  const body = svc.get('api').join('\n');
+  assert.match(body, /AI_PLANE_URL:\s*http:\/\/ai:8000/);
+});

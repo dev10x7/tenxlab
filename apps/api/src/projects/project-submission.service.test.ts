@@ -199,3 +199,29 @@ test('listForProject is tenant-scoped for the instructor view', async () => {
   assert.equal((await svc.listForProject('t1', 'p1')).length, 1);
   assert.equal((await svc.listForProject('t2', 'p1')).length, 0);
 });
+
+test('submit snapshots the workspace auto-evaluation onto the submission', async () => {
+  const { svc, workspaces, workspace } = await fixture();
+  const analyzedAt = new Date('2026-01-02T00:00:00Z');
+  await workspaces.update(workspace.id, {
+    qualityScore: 91,
+    qualityReport: '{"score":91,"issueCount":0,"issues":[]}',
+    analyzedAt,
+  });
+  const res = await svc.submit(base(workspace.id));
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.submission.autoScore, 91);
+  assert.equal(res.submission.autoReport, '{"score":91,"issueCount":0,"issues":[]}');
+  assert.deepEqual(res.submission.autoEvaluatedAt, analyzedAt);
+});
+
+test('submit leaves auto-evaluation fields empty when the workspace was never analysed', async () => {
+  const { svc, workspace } = await fixture();
+  const res = await svc.submit(base(workspace.id));
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.submission.autoScore, null);
+  assert.equal(res.submission.autoReport, null);
+  assert.equal(res.submission.autoEvaluatedAt, null);
+});

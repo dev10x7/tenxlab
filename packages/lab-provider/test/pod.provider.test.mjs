@@ -10,7 +10,8 @@ import { PodProvider, namespaceFor } from '../dist/index.js';
  */
 function fakeCluster(options = {}) {
   const store = new Map(); // `${kind}/${ns}/${name}` -> object
-  const calls = { applied: [], deleted: [], got: [], listed: [] };
+  const calls = { applied: [], deleted: [], got: [], listed: [], logs: [] };
+  const logs = options.logs ?? new Map(); // `${ns}/${pod}` -> string
   const key = (kind, ns, name) => `${kind}/${ns}/${name}`;
 
   return {
@@ -36,6 +37,10 @@ function fakeCluster(options = {}) {
       return [...store.values()].filter(
         (o) => o.kind === kind && (o.metadata?.namespace ?? '') === ns,
       );
+    },
+    async logs(ns, pod) {
+      calls.logs.push({ namespace: ns, pod });
+      return logs.get(`${ns}/${pod}`) ?? '';
     },
   };
 }
@@ -367,3 +372,84 @@ test('publish surfaces a failed push job as an error', async () => {
     /git push failed/,
   );
 });
+
+/** A read Job that completes and whose pod logs carry a JSON envelope. */
+function completingReadJob() {
+  return async (manifest) => {
+    if (manifest.kind !== 'Job' || manifest.metadata?.name !== 'workspace-read') return null;
+    return {
+      apiVersion: 'batch/v1',
+      kind: 'Job',
+      metadata: { name: 'workspace-read', namespace: manifest.metadata.namespace },
+      status: { conditions: [{ type: 'Complete', status: 'True' }] },
+    };
+  };
+}
+
+test('readWorkspaceFiles returns the files from the read job envelope', async () => {
+  const ns = 'tenxlab-t2-sess-1';
+  const cluster = fakeCluster({
+    logs: new Map([
+      [
+        `${ns}/workspace-read`,
+        JSON.stringify({
+          files: [
+            { path: 'src/app.py', content: 'print(1)\n' },
+            { path: 'main.py', content: 'print(2)\n' },
+          ],
+        }),
+      ],
+    ]),
+  });
+  const originalApply = cluster.apply;
+  const readJob = completingReadJob();
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    const override = await readJob(manifest);
+    if (override) storeJob(cluster, override);
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+
+  const files = await p.readWorkspaceFiles({
+    sessionId: 'sess-1',
+    extensions: ['py'],
+  });
+  assert.deepEqual(files, [
+    { path: 'src/app.py', content: 'print(1)\n' },
+    { path: 'main.py', content: 'print(2)\n' },
+  ]);
+  // The read job is cleaned up afterwards.
+  assert.ok(cluster.calls.deleted.some((d) => d.kind === 'Job' && d.name === 'workspace-read'));
+});
+
+test('readWorkspaceFiles requires a running workspace', async () => {
+  const p = provider(fakeCluster());
+  await assert.rejects(
+    () => p.readWorkspaceFiles({ sessionId: 'sess-1', extensions: ['py'] }),
+    /not running/,
+  );
+});
+
+test('readWorkspaceFiles surfaces an empty envelope as an error', async () => {
+  const cluster = fakeCluster();
+  const originalApply = cluster.apply;
+  const readJob = completingReadJob();
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    const override = await readJob(manifest);
+    if (override) storeJob(cluster, override);
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+  await assert.rejects(
+    () => p.readWorkspaceFiles({ sessionId: 'sess-1', extensions: ['py'] }),
+    /no file envelope/,
+  );
+});
+
+/** Replace the stored Job object with a terminal-status variant. */
+function storeJob(cluster, job) {
+  const ns = job.metadata.namespace;
+  cluster.store.set(`Job/${ns}/workspace-read`, job);
+}

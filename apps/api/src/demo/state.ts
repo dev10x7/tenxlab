@@ -16,6 +16,7 @@ import {
   InMemoryProjectRepository,
   InMemoryProjectSubmissionRepository,
   InMemoryProjectWorkspaceRepository,
+  InMemoryQualityEvaluationRepository,
   InMemoryReplayGuard,
   InMemorySnippetRepository,
   InMemoryTenantRepository,
@@ -38,6 +39,7 @@ import {
   PrismaProjectRepository,
   PrismaProjectSubmissionRepository,
   PrismaProjectWorkspaceRepository,
+  PrismaQualityEvaluationRepository,
   PrismaReplayGuard,
   PrismaSnippetRepository,
   PrismaTenantRepository,
@@ -71,6 +73,7 @@ export interface DemoState extends Repositories {
   projectWorkspaces: InMemoryProjectWorkspaceRepository;
   projectForks: InMemoryProjectForkRepository;
   projectSubmissions: InMemoryProjectSubmissionRepository;
+  qualityEvaluations: InMemoryQualityEvaluationRepository;
   gitConnections: InMemoryGitConnectionRepository;
   gitPublishes: InMemoryGitPublishRepository;
   ledger: InMemoryEventLedger;
@@ -157,6 +160,7 @@ export function createDemoState(): DemoState {
     projectWorkspaces: new InMemoryProjectWorkspaceRepository(),
     projectForks: new InMemoryProjectForkRepository(),
     projectSubmissions: new InMemoryProjectSubmissionRepository(),
+    qualityEvaluations: new InMemoryQualityEvaluationRepository(),
     gitConnections: new InMemoryGitConnectionRepository(),
     gitPublishes: new InMemoryGitPublishRepository(),
     ledger: new InMemoryEventLedger(),
@@ -183,6 +187,7 @@ export function createPrismaState(db: PrismaClient): Repositories {
     projectWorkspaces: new PrismaProjectWorkspaceRepository(db),
     projectForks: new PrismaProjectForkRepository(db),
     projectSubmissions: new PrismaProjectSubmissionRepository(db),
+    qualityEvaluations: new PrismaQualityEvaluationRepository(db),
     gitConnections: new PrismaGitConnectionRepository(db),
     gitPublishes: new PrismaGitPublishRepository(db),
     ledger: new PrismaEventLedger(db),

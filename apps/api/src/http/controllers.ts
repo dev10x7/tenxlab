@@ -34,6 +34,11 @@ import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService, isProctorEventType } from '../proctoring/proctoring.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
+import {
+  QualityEvaluationService,
+  WorkspaceNotFoundError,
+  parseReport,
+} from '../projects/quality-evaluation.service';
 import { GitPublishService } from '../github/git-publish.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
 import {
@@ -48,6 +53,7 @@ import {
   PROCTOR,
   PROJECT,
   PROJECT_SUBMISSION,
+  QUALITY,
   SESSION,
   SSO,
   USAGE,
@@ -621,6 +627,7 @@ export class ProjectsController {
   constructor(
     @Inject(PROJECT) private readonly projects: ProjectService,
     @Inject(PROJECT_SUBMISSION) private readonly submissions: ProjectSubmissionService,
+    @Inject(QUALITY) private readonly quality: QualityEvaluationService,
     @Inject(SESSION) private readonly sessions: SessionService,
   ) {}
 
@@ -655,7 +662,67 @@ export class ProjectsController {
       ideUrl: status.workspace?.ideUrl ?? null,
       deployUrl: status.workspace?.deployUrl ?? null,
       deployPort: status.workspace?.deployPort ?? null,
+      qualityScore: status.workspace?.qualityScore ?? null,
+      analyzedAt: status.workspace?.analyzedAt ?? null,
     };
+  }
+
+  /**
+   * Auto-evaluate (E4): run the AI plane's quality analyzer against the
+   * caller's running workspace. Returns the score, the explainable issues, and
+   * records the run on the workspace.
+   */
+  @Post('workspaces/:workspaceId/analyze')
+  async analyzeWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.quality.analyze(session.userId, workspaceId);
+    if (!result.ok) {
+      if (result.reason === 'workspace_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'workspace_not_running') {
+        throw new HttpException(result.message, HttpStatus.CONFLICT);
+      }
+      // analysis_unavailable / analysis_failed
+      throw new HttpException(result.message, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return {
+      workspaceId,
+      score: result.evaluation.score,
+      issueCount: result.evaluation.issueCount,
+      issues: result.report?.issues ?? [],
+      analyzedAt: result.evaluation.createdAt,
+    };
+  }
+
+  /** A workspace's auto-evaluation history, newest first. */
+  @Get('workspaces/:workspaceId/evaluations')
+  async workspaceEvaluations(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    let history;
+    try {
+      history = await this.quality.history(session.userId, workspaceId);
+    } catch (err) {
+      if (err instanceof WorkspaceNotFoundError) {
+        throw new NotFoundException(err.message);
+      }
+      throw err;
+    }
+    return history.map((e) => ({
+      id: e.id,
+      score: e.score,
+      issueCount: e.issueCount,
+      status: e.status,
+      error: e.error,
+      report: parseReport(e.report),
+      createdAt: e.createdAt,
+    }));
   }
 
   /** Published projects for the signed-in student, with their fork state. */

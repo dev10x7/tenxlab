@@ -120,6 +120,13 @@ const EnvSchema = z.object({
   // Key material for encrypting stored third-party tokens at rest. Rotating it
   // invalidates existing connections (students must reconnect).
   TOKEN_ENCRYPTION_SECRET: z.string().default('dev-token-encryption-secret'),
+
+  // Auto-evaluation (the SonarQube-equivalent quality run, ADR-13). The AI plane
+  // is the Python FastAPI service under services/ai. Empty disables analysis:
+  // the Nimbus UI hides the Analyse control and the endpoint answers
+  // analysis_unavailable.
+  AI_PLANE_URL: z.string().default(''),
+  AI_PLANE_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

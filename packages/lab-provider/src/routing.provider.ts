@@ -7,7 +7,10 @@ import {
   type GitPublishInput,
   type GitPublishResult,
   type LabProvider,
+  type ReadWorkspaceFilesInput,
   type ServiceExposer,
+  type WorkspaceFile,
+  type WorkspaceReader,
 } from './types';
 
 /**
@@ -28,7 +31,7 @@ import {
  * deploy and a git push are tier-2 (pod) concerns today, so the tier-2 provider
  * answers.
  */
-export class RoutingProvider implements LabProvider, ServiceExposer, GitPublisher {
+export class RoutingProvider implements LabProvider, ServiceExposer, GitPublisher, WorkspaceReader {
   readonly name = 'routing';
 
   constructor(
@@ -133,6 +136,22 @@ export class RoutingProvider implements LabProvider, ServiceExposer, GitPublishe
     }
     return publisher.publish(input);
   }
+
+  /** The first configured provider that can read a workspace, if any. */
+  private reader(): WorkspaceReader | null {
+    for (const provider of this.all()) {
+      if (isReader(provider)) return provider;
+    }
+    return null;
+  }
+
+  async readWorkspaceFiles(input: ReadWorkspaceFilesInput): Promise<WorkspaceFile[]> {
+    const reader = this.reader();
+    if (!reader) {
+      throw new LabProviderError('No lab provider can read a workspace', 503);
+    }
+    return reader.readWorkspaceFiles(input);
+  }
 }
 
 /** Structural check: does this provider implement `ServiceExposer`? */
@@ -144,4 +163,9 @@ function isExposer(provider: LabProvider): provider is LabProvider & ServiceExpo
 /** Structural check: does this provider implement `GitPublisher`? */
 function isPublisher(provider: LabProvider): provider is LabProvider & GitPublisher {
   return typeof (provider as Partial<GitPublisher>).publish === 'function';
+}
+
+/** Structural check: does this provider implement `WorkspaceReader`? */
+function isReader(provider: LabProvider): provider is LabProvider & WorkspaceReader {
+  return typeof (provider as Partial<WorkspaceReader>).readWorkspaceFiles === 'function';
 }

@@ -296,6 +296,26 @@ export interface ForkStatus {
   deployUrl: string | null;
   /** The container port the deploy exposes; null if not deployed. */
   deployPort: number | null;
+  /** Latest auto-evaluation score (E4, ADR-13); null until the workspace is analysed. */
+  qualityScore: number | null;
+  /** When the latest auto-evaluation ran; null if never. */
+  analyzedAt: string | null;
+}
+
+/** One issue the auto-evaluator raised, with the line it points at (when known). */
+export interface QualityIssue {
+  code: string;
+  message: string;
+  line: number | null;
+}
+
+/** An auto-evaluation result: a 0-100 score plus the explainable issues behind it. */
+export interface QualityEvaluation {
+  workspaceId: string;
+  score: number | null;
+  issueCount: number;
+  issues: QualityIssue[];
+  analyzedAt: string;
 }
 
 export interface ProjectSubmission {
@@ -311,8 +331,23 @@ export interface ProjectSubmission {
   status: 'submitted' | 'evaluated';
   score: number | null;
   feedback: string | null;
+  /** Auto-evaluation copied from the workspace at submit time (E4, ADR-13). */
+  autoScore: number | null;
+  autoReport: string | null;
+  autoEvaluatedAt: string | null;
   submittedAt: string;
   evaluatedAt: string | null;
+}
+
+/** A stored auto-evaluation run, as listed in a workspace's history. */
+export interface QualityEvaluationRecord {
+  id: string;
+  score: number | null;
+  issueCount: number;
+  status: 'succeeded' | 'failed';
+  error: string | null;
+  report: { score: number; issueCount: number; issues: QualityIssue[] } | null;
+  createdAt: string;
 }
 
 export interface StudentSubmissionView {
@@ -484,6 +519,17 @@ export const api = {
     request<{ workspaceId: string; deployUrl: string | null; deployPort: number | null }>(
       `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/deploy`,
       { method: 'DELETE' },
+    ),
+  /** Auto-evaluate (E4): score the workspace's source and return the issues. */
+  analyzeWorkspace: (workspaceId: string) =>
+    request<QualityEvaluation>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/analyze`,
+      { method: 'POST' },
+    ),
+  /** A workspace's auto-evaluation history, newest first. */
+  workspaceEvaluations: (workspaceId: string) =>
+    request<QualityEvaluationRecord[]>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/evaluations`,
     ),
   myProjectSubmissions: () =>
     request<StudentSubmissionView[]>('/api/projects/submissions'),

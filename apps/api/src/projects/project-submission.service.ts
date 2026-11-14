@@ -165,6 +165,12 @@ export class ProjectSubmissionService {
       description: req.description ?? '',
       githubUrl: req.githubUrl ?? null,
       demoUrl: req.demoUrl ?? null,
+      // The submission snapshots the workspace's latest auto-evaluation, so a
+      // trainer sees the analyser's score even if the workspace is later
+      // re-analyzed or deleted.
+      autoScore: workspace.qualityScore,
+      autoReport: workspace.qualityReport,
+      autoEvaluatedAt: workspace.analyzedAt,
     };
 
     // One submission per (component, student): replace the prior row so a

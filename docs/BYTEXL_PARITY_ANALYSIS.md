@@ -42,18 +42,21 @@ workspace's service on a public URL via the provider-neutral `ServiceExposer`
 seam. **IDE git publish has since shipped** — a Source Control control connects
 GitHub via OAuth device flow and pushes the workspace to the student's own
 account (ADR-8, adapter-only), and **tenant cost/quota is now surfaced and
-enforced** at lab launch. What remains for full Nimbus parity is **per-fork
-stop-when-idle cost/quota policy (E5b), auto-evaluation, and the dashboard
-resume + attendance widgets (E6)**; what remains for differentiation is the
-**AI tutor + soft skills** (Phase F) and **contests / recruiter portal**
-(Phase G).
+enforced** at lab launch. **Auto-evaluation has since shipped** — an `ai-bridge`
+client reads the workspace's source through the provider's `WorkspaceReader`
+seam and scores it with the AI plane's in-house `quality.py` (ADR-13); the score
+is cached on the workspace, appended to a history table, and snapshotted onto the
+submission the trainer evaluates. What remains for full Nimbus parity is
+**per-fork stop-when-idle cost/quota policy (E5b) and the dashboard resume +
+attendance widgets (E6)**; what remains for differentiation is the **AI tutor +
+soft skills** (Phase F) and **contests / recruiter portal** (Phase G).
 
 | ByteXL module | TenXLab equivalent | State |
 |---|---|---|
 | Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (6 langs; AI help missing) |
 | Labs (ungraded practice + hints) | `/labs` | Done |
 | Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
-| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core + hosting + git publish shipped** (E0–E5); fork cost/quota policy + attendance remain |
+| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core + hosting + git publish + auto-evaluation shipped** (E0–E5); fork cost/quota policy + attendance remain |
 | Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
 | Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
 | Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
@@ -325,7 +328,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Submission form (title, description, workspace picker, links) | **Done** | `project-submission.service.ts` + `ProjectComponentCard`; one submission per component |
 | Submission deadline + auto-close | **Done** | Server-authoritative `deadline_passed` gate (§1.2) |
 | Stop-before-submit lifecycle rule | **Done** | Rejects while the fork is `running`/`provisioning` with ByteXL's "wait for the session to close" message (§1.2) |
-| SonarQube-style auto-evaluation | **Partial** | AI plane `quality.py` is our analyzer; **no `ai-bridge` client yet**, so submission does not auto-call it (**ADR-13**) |
+| SonarQube-style auto-evaluation | **Done** | `QualityEvaluationService` + `AiBridgeClient` read the fork's files via the `WorkspaceReader` seam and score them with the AI plane's `quality.py` (`POST /v1/quality/score`, ADR-13). The score is cached on the workspace (`qualityScore`/`qualityReport`/`analyzedAt`), kept as a `quality_evaluations` history, snapshotted onto the submission (`autoScore`/`autoReport`/`autoEvaluatedAt`), and surfaced to the trainer |
 | Submissions: workspace + GitHub URL + demo URL | **Done** | Optional GitHub/demo links captured |
 | Trainer evaluation + score | **Done** | Role-gated `evaluate(id, {score, feedback})` |
 | Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget (E6) |
@@ -536,21 +539,26 @@ sub-milestones so each ends demonstrable and CI-green:
       fork is ACTIVE — the exact error ByteXL shows. Tenant-scoped
       `listSubmissions`; role-gated `evaluate(id, {score, feedback})`.
       Auto-quality via a new `ai-bridge` client calling the AI plane
-      `POST /v1/quality/score` (no client exists today; add `AI_BASE_URL` to
+      `POST /v1/quality/score` (no client exists today; add `AI_PLANE_URL` to
       `env.ts`). Quality gate: extend `quality.py` (**ADR-13**); no
       SonarQube/Semgrep, so the license gate stays permissive-only.
       → **Submission, deadline, stop-before-submit, and evaluate done**
-      (`project-submission.service.ts`); **auto-quality (`ai-bridge`) still
-      open**.
+      (`project-submission.service.ts`); **auto-quality done** — `AiBridgeClient`
+      (`apps/api/src/ai/`) + `QualityEvaluationService` read the fork's files
+      through the provider `WorkspaceReader` seam (`PodProvider.readWorkspaceFiles`
+      mounts the workspace volume into a short-lived Job), score them via the AI
+      plane, cache the result on the workspace, keep a `quality_evaluations`
+      history, and snapshot it onto the submission. Trainer-facing HTTP endpoints
+      are wired in `ProjectsController`.
 - [x] **E4 — HTTP + web.** `ProjectsController`, `PROJECT` token, module factory,
       role gating matching existing checks; `env.ts` gains `PROJECTS_ENABLED`,
-      `PROJECTS_TIER`, `AI_BASE_URL`. Replace the `/nimbus` `SurfacePage`
+      `PROJECTS_TIER`, `AI_PLANE_URL`. Replace the `/nimbus` `SurfacePage`
       placeholder: student view (list → detail → Fork → IDE link → submit →
       feedback) and instructor view (create, attach templates, publish,
       evaluate). Proxy routes under `app/api/projects/**`. **Submissions live in
       the LMS nav** (§1.2), not inside the IDE.
       → **Done** — `/nimbus` is a real role-aware page (`PROJECTS_ENABLED` /
-      `PROJECTS_TIER` wired; `AI_BASE_URL` lands with E3's auto-quality).
+      `PROJECTS_TIER` wired; `AI_PLANE_URL` now consumed by E3's auto-quality).
 - [x] **E5 — One-click hosting (separable).** **Done.** A "Deploy" action
       exposes **one workspace** (one service): `ProjectService.deploy` validates
       ownership + `running`, then the provider-neutral `ServiceExposer` seam

@@ -417,6 +417,10 @@ model ProjectWorkspace {
   deployUrl      String? // public URL the service is exposed on after a Deploy (E5)
   deployPort     Int? // container port the deploy exposes
   storageRef     String?
+  // Latest auto-evaluation (the SonarQube-equivalent quality run, ADR-13).
+  qualityScore   Int?
+  qualityReport  String? // JSON-encoded QualityReport
+  analyzedAt     DateTime?
   createdAt      DateTime @default(now())
   lastActivityAt DateTime @default(now())
 
@@ -464,6 +468,10 @@ model ProjectSubmission {
   status      String    @default("submitted") // submitted | evaluated
   score       Int?
   feedback    String?
+  // Auto-evaluation copied from the workspace at submit time.
+  autoScore       Int?
+  autoReport      String? // JSON-encoded QualityReport
+  autoEvaluatedAt DateTime?
   submittedAt DateTime  @default(now())
   evaluatedAt DateTime?
 
@@ -473,6 +481,28 @@ model ProjectSubmission {
   @@index([tenantId, projectId])
   @@index([tenantId, userId])
   @@map("project_submissions")
+}
+
+// One auto-evaluation of a workspace (the SonarQube-equivalent quality run,
+// ADR-13). A row is written on success and on failure, so a trainer can always
+// see that the analyser ran and why it produced no score.
+model QualityEvaluation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String
+  projectId   String?
+  componentId String?
+  workspaceId String
+  score       Int?
+  issueCount  Int      @default(0)
+  report      String? // JSON-encoded QualityReport
+  status      String   @default("succeeded") // succeeded | failed
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([tenantId, userId])
+  @@map("quality_evaluations")
 }
 
 // A student's connected GitHub account, used to publish a workspace to their

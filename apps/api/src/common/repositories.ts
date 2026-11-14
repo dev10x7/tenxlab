@@ -15,6 +15,7 @@ import type {
   ProjectRepository,
   ProjectSubmissionRepository,
   ProjectWorkspaceRepository,
+  QualityEvaluationRepository,
   ReplayGuard,
   SnippetRepository,
   TenantRepository,
@@ -44,6 +45,7 @@ export interface Repositories {
   projectWorkspaces: ProjectWorkspaceRepository;
   projectForks: ProjectForkRepository;
   projectSubmissions: ProjectSubmissionRepository;
+  qualityEvaluations: QualityEvaluationRepository;
   gitConnections: GitConnectionRepository;
   gitPublishes: GitPublishRepository;
   ledger: EventLedger;

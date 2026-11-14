@@ -155,6 +155,9 @@ services:
       # runs under the `runner` profile; keep this in sync with that profile.
       PISTON_ENABLED: 'false'
       PISTON_BASE_URL: http://piston:2000
+      # Auto-evaluation (E4, ADR-13): the AI plane scores a fork's source on
+      # demand. Empty disables it; point at the `ai` service to enable.
+      AI_PLANE_URL: http://ai:8000
     ports:
       - '4000:4000'
     healthcheck:

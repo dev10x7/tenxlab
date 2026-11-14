@@ -31,6 +31,8 @@ import type {
   ProjectSubmissionRepository,
   ProjectWorkspaceRecord,
   ProjectWorkspaceRepository,
+  QualityEvaluationRecord,
+  QualityEvaluationRepository,
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
@@ -497,10 +499,25 @@ export class PrismaProjectWorkspaceRepository implements ProjectWorkspaceReposit
   async create(
     input: Omit<
       ProjectWorkspaceRecord,
-      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
-    > & { deployUrl?: string | null; deployPort?: number | null },
+      | 'id'
+      | 'createdAt'
+      | 'lastActivityAt'
+      | 'deployUrl'
+      | 'deployPort'
+      | 'qualityScore'
+      | 'qualityReport'
+      | 'analyzedAt'
+    > & {
+      deployUrl?: string | null;
+      deployPort?: number | null;
+      qualityScore?: number | null;
+      qualityReport?: string | null;
+      analyzedAt?: Date | null;
+    },
   ): Promise<ProjectWorkspaceRecord> {
-    const w = await this.db.projectWorkspace.create({ data: input });
+    const w = await this.db.projectWorkspace.create({
+      data: { deployUrl: null, deployPort: null, ...input },
+    });
     return toProjectWorkspace(w);
   }
   async findById(id: string): Promise<ProjectWorkspaceRecord | null> {
@@ -567,9 +584,18 @@ export class PrismaProjectSubmissionRepository
 {
   constructor(private readonly db: PrismaClient) {}
   async create(
-    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+    input: Omit<
+      ProjectSubmissionRecord,
+      'id' | 'submittedAt' | 'evaluatedAt' | 'autoScore' | 'autoReport' | 'autoEvaluatedAt'
+    > & {
+      autoScore?: number | null;
+      autoReport?: string | null;
+      autoEvaluatedAt?: Date | null;
+    },
   ): Promise<ProjectSubmissionRecord> {
-    const s = await this.db.projectSubmission.create({ data: input });
+    const s = await this.db.projectSubmission.create({
+      data: { autoScore: null, autoReport: null, autoEvaluatedAt: null, ...input },
+    });
     return toProjectSubmission(s);
   }
   async findById(id: string): Promise<ProjectSubmissionRecord | null> {
@@ -651,6 +677,30 @@ export class PrismaGitPublishRepository implements GitPublishRepository {
   }
 }
 
+export class PrismaQualityEvaluationRepository implements QualityEvaluationRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<QualityEvaluationRecord, 'id' | 'createdAt'>,
+  ): Promise<QualityEvaluationRecord> {
+    const row = await this.db.qualityEvaluation.create({ data: input });
+    return toQualityEvaluation(row);
+  }
+  async listByWorkspace(workspaceId: string): Promise<QualityEvaluationRecord[]> {
+    const rows = await this.db.qualityEvaluation.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toQualityEvaluation);
+  }
+  async latestByWorkspace(workspaceId: string): Promise<QualityEvaluationRecord | null> {
+    const row = await this.db.qualityEvaluation.findFirst({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row ? toQualityEvaluation(row) : null;
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -697,6 +747,9 @@ type GitConnectionRow = Awaited<
 >;
 type GitPublishRow = Awaited<
   ReturnType<PrismaClient['gitPublish']['findUniqueOrThrow']>
+>;
+type QualityEvaluationRow = Awaited<
+  ReturnType<PrismaClient['qualityEvaluation']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -851,6 +904,9 @@ function toProjectWorkspace(w: ProjectWorkspaceRow): ProjectWorkspaceRecord {
     deployUrl: w.deployUrl ?? null,
     deployPort: w.deployPort ?? null,
     storageRef: w.storageRef ?? null,
+    qualityScore: w.qualityScore ?? null,
+    qualityReport: w.qualityReport ?? null,
+    analyzedAt: w.analyzedAt ?? null,
     createdAt: w.createdAt,
     lastActivityAt: w.lastActivityAt,
   };
@@ -885,6 +941,9 @@ function toProjectSubmission(s: ProjectSubmissionRow): ProjectSubmissionRecord {
     status: s.status,
     score: s.score ?? null,
     feedback: s.feedback ?? null,
+    autoScore: s.autoScore ?? null,
+    autoReport: s.autoReport ?? null,
+    autoEvaluatedAt: s.autoEvaluatedAt ?? null,
     submittedAt: s.submittedAt,
     evaluatedAt: s.evaluatedAt ?? null,
   };
@@ -901,6 +960,23 @@ function toGitConnection(c: GitConnectionRow): GitConnectionRecord {
     scopes: c.scopes,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+  };
+}
+
+function toQualityEvaluation(q: QualityEvaluationRow): QualityEvaluationRecord {
+  return {
+    id: q.id,
+    tenantId: q.tenantId,
+    userId: q.userId,
+    projectId: q.projectId ?? null,
+    componentId: q.componentId ?? null,
+    workspaceId: q.workspaceId,
+    score: q.score ?? null,
+    issueCount: q.issueCount,
+    report: q.report ?? null,
+    status: q.status,
+    error: q.error ?? null,
+    createdAt: q.createdAt,
   };
 }
 

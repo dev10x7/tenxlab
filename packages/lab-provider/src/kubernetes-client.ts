@@ -65,6 +65,15 @@ export class KubernetesClient implements ClusterClient {
     return body.items ?? [];
   }
 
+  /** Read a pod's logs. A missing pod (404) is reported as empty output. */
+  async logs(namespace: string, podName: string, container?: string): Promise<string> {
+    const query = container ? `?container=${encodeURIComponent(container)}` : '';
+    const path = `/api/v1/namespaces/${namespace}/pods/${podName}/log${query}`;
+    const res = await this.send('GET', path, undefined, 'application/json', [200, 404]);
+    if (res.status === 404) return '';
+    return typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+  }
+
   private async tryGet(path: string): Promise<boolean> {
     const res = await this.send('GET', path, undefined, 'application/json', [200, 404]);
     return res.status === 200;

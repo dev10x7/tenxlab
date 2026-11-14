@@ -11,6 +11,7 @@ import {
   type ProjectComponentView,
   type ProjectSubmission,
   type ProjectSummary,
+  type QualityEvaluation,
 } from '@/lib/api';
 import { forkReadyState } from '@/lib/lms';
 
@@ -167,6 +168,13 @@ export function ProjectComponentCard({
             }
           />
           <GitPublishControl workspaceId={status.workspaceId} />
+          <AutoEvaluateControl
+            workspaceId={status.workspaceId}
+            initialScore={status.qualityScore ?? null}
+            onAnalyzed={(qualityScore) =>
+              setStatus((s) => (s ? { ...s, qualityScore } : s))
+            }
+          />
         </div>
       ) : null}
 
@@ -277,6 +285,75 @@ function DeployControl({
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Auto-evaluate (E4, ADR-13): run the in-house quality analyzer against the
+ * running workspace and show the score plus the explainable issues. Mirrors
+ * ByteXL's SonarQube-based submission evaluation without the AGPL tooling.
+ */
+function AutoEvaluateControl({
+  workspaceId,
+  initialScore,
+  onAnalyzed,
+}: {
+  workspaceId: string;
+  initialScore: number | null;
+  onAnalyzed: (score: number | null) => void;
+}) {
+  const [score, setScore] = useState<number | null>(initialScore);
+  const [result, setResult] = useState<QualityEvaluation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setScore(initialScore);
+  }, [initialScore]);
+
+  async function analyze() {
+    setBusy(true);
+    setError(null);
+    try {
+      const evaluation = await api.analyzeWorkspace(workspaceId);
+      setResult(evaluation);
+      setScore(evaluation.score);
+      onAnalyzed(evaluation.score);
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Start the workspace before evaluating.'
+          : err instanceof ApiError && err.status === 503
+            ? 'Auto-evaluation is not available on this deployment.'
+            : 'Could not evaluate the workspace. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <button className="btn secondary" onClick={analyze} disabled={busy}>
+          {busy ? 'Evaluating…' : 'Auto-evaluate code'}
+        </button>
+        {score !== null ? (
+          <span className="pill">Quality score: {score}/100</span>
+        ) : null}
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {result && result.issues.length > 0 ? (
+        <ul className="muted" style={{ marginTop: 8 }}>
+          {result.issues.slice(0, 5).map((issue, i) => (
+            <li key={`${issue.code}-${issue.line ?? i}`}>
+              {issue.line ? `Line ${issue.line}: ` : ''}
+              {issue.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

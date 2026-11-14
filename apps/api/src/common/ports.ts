@@ -162,6 +162,12 @@ export interface ProjectWorkspaceRecord {
   /** Container port the deploy exposes. */
   deployPort: number | null;
   storageRef: string | null;
+  /** Latest auto-evaluation score (0-100), or null if never analysed. */
+  qualityScore: number | null;
+  /** Latest auto-evaluation report, JSON-encoded (`QualityReport`). */
+  qualityReport: string | null;
+  /** When the latest auto-evaluation ran. */
+  analyzedAt: Date | null;
   createdAt: Date;
   lastActivityAt: Date;
 }
@@ -192,6 +198,12 @@ export interface ProjectSubmissionRecord {
   status: string;
   score: number | null;
   feedback: string | null;
+  /** Auto-evaluation score (0-100) copied from the workspace at submit time. */
+  autoScore: number | null;
+  /** Auto-evaluation report, JSON-encoded (`QualityReport`). */
+  autoReport: string | null;
+  /** When the auto-evaluation ran. */
+  autoEvaluatedAt: Date | null;
   submittedAt: Date;
   evaluatedAt: Date | null;
 }
@@ -387,8 +399,21 @@ export interface ProjectWorkspaceRepository {
   create(
     input: Omit<
       ProjectWorkspaceRecord,
-      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
-    > & { deployUrl?: string | null; deployPort?: number | null },
+      | 'id'
+      | 'createdAt'
+      | 'lastActivityAt'
+      | 'deployUrl'
+      | 'deployPort'
+      | 'qualityScore'
+      | 'qualityReport'
+      | 'analyzedAt'
+    > & {
+      deployUrl?: string | null;
+      deployPort?: number | null;
+      qualityScore?: number | null;
+      qualityReport?: string | null;
+      analyzedAt?: Date | null;
+    },
   ): Promise<ProjectWorkspaceRecord>;
   findById(id: string): Promise<ProjectWorkspaceRecord | null>;
   /** A user's workspaces within a tenant, newest first. */
@@ -415,7 +440,14 @@ export interface ProjectForkRepository {
 
 export interface ProjectSubmissionRepository {
   create(
-    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+    input: Omit<
+      ProjectSubmissionRecord,
+      'id' | 'submittedAt' | 'evaluatedAt' | 'autoScore' | 'autoReport' | 'autoEvaluatedAt'
+    > & {
+      autoScore?: number | null;
+      autoReport?: string | null;
+      autoEvaluatedAt?: Date | null;
+    },
   ): Promise<ProjectSubmissionRecord>;
   findById(id: string): Promise<ProjectSubmissionRecord | null>;
   /** Submissions for one project in a tenant, newest first (instructor view). */
@@ -423,6 +455,39 @@ export interface ProjectSubmissionRepository {
   /** A user's own submissions in a tenant, newest first (student view). */
   listByUser(tenantId: string, userId: string): Promise<ProjectSubmissionRecord[]>;
   update(id: string, patch: Partial<ProjectSubmissionRecord>): Promise<ProjectSubmissionRecord>;
+}
+
+/**
+ * One auto-evaluation of a workspace (the SonarQube-equivalent run, ADR-13).
+ * A row is written on success and on failure, so a trainer can always see that
+ * the analyser ran and why it produced no score.
+ */
+export interface QualityEvaluationRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  projectId: string | null;
+  componentId: string | null;
+  workspaceId: string;
+  /** 0-100 quality score, or null when the run failed. */
+  score: number | null;
+  /** Number of issues the analyser raised. */
+  issueCount: number;
+  /** Full report, JSON-encoded (`QualityReport`). */
+  report: string | null;
+  status: string; // succeeded | failed
+  error: string | null;
+  createdAt: Date;
+}
+
+export interface QualityEvaluationRepository {
+  create(
+    input: Omit<QualityEvaluationRecord, 'id' | 'createdAt'>,
+  ): Promise<QualityEvaluationRecord>;
+  /** A workspace's evaluation history, newest first. */
+  listByWorkspace(workspaceId: string): Promise<QualityEvaluationRecord[]>;
+  /** The most recent evaluation of a workspace, if any. */
+  latestByWorkspace(workspaceId: string): Promise<QualityEvaluationRecord | null>;
 }
 
 export interface GitConnectionRepository {

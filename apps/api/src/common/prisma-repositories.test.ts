@@ -14,6 +14,7 @@ import {
   PrismaProjectRepository,
   PrismaProjectSubmissionRepository,
   PrismaProjectWorkspaceRepository,
+  PrismaQualityEvaluationRepository,
   PrismaReplayGuard,
   PrismaSnippetRepository,
   PrismaTenantRepository,
@@ -247,6 +248,17 @@ test(
       });
       assert.equal(stopped.status, 'stopped');
       assert.equal(stopped.storageRef, `vol-${suffix}`);
+
+      // Auto-evaluation columns round-trip (E4, ADR-13).
+      const analyzedAt = new Date();
+      const analyzed = await workspaces.update(workspace.id, {
+        qualityScore: 88,
+        qualityReport: '{"score":88}',
+        analyzedAt,
+      });
+      assert.equal(analyzed.qualityScore, 88);
+      assert.equal(analyzed.qualityReport, '{"score":88}');
+      assert.equal(analyzed.analyzedAt?.getTime(), analyzedAt.getTime());
       assert.equal((await workspaces.listByUser(tenantId, created.id)).length, 1);
 
       const forks = new PrismaProjectForkRepository(db);
@@ -284,7 +296,13 @@ test(
         status: 'submitted',
         score: null,
         feedback: null,
+        autoScore: 88,
+        autoReport: '{"score":88}',
+        autoEvaluatedAt: analyzedAt,
       });
+      assert.equal(submission.autoScore, 88);
+      assert.equal(submission.autoReport, '{"score":88}');
+      assert.equal(submission.autoEvaluatedAt?.getTime(), analyzedAt.getTime());
       assert.equal(submission.evaluatedAt, null);
       const evaluated = await submissions.update(submission.id, {
         status: 'evaluated',
@@ -295,6 +313,38 @@ test(
       assert.equal(evaluated.score, 91);
       assert.equal((await submissions.listByProject(tenantId, project.id)).length, 1);
       assert.equal((await submissions.listByUser(tenantId, created.id)).length, 1);
+
+      const evaluations = new PrismaQualityEvaluationRepository(db);
+      const first = await evaluations.create({
+        tenantId,
+        userId: created.id,
+        projectId: project.id,
+        componentId: component.id,
+        workspaceId: workspace.id,
+        score: 88,
+        issueCount: 2,
+        report: '{"score":88}',
+        status: 'succeeded',
+        error: null,
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      const second = await evaluations.create({
+        tenantId,
+        userId: created.id,
+        projectId: project.id,
+        componentId: component.id,
+        workspaceId: workspace.id,
+        score: 90,
+        issueCount: 1,
+        report: '{"score":90}',
+        status: 'succeeded',
+        error: null,
+      });
+      const history = await evaluations.listByWorkspace(workspace.id);
+      assert.equal(history.length, 2);
+      assert.equal(history[0]?.id, second.id, 'newest first');
+      assert.equal(history[1]?.id, first.id);
+      assert.equal((await evaluations.latestByWorkspace(workspace.id))?.score, 90);
     } finally {
       // Cascades clean up memberships, progress, sessions, lessons, modules.
       await db.tenant.deleteMany({ where: { id: tenantId } });

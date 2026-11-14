@@ -380,6 +380,21 @@ submit; instructor: author → publish → evaluate).
   both the concurrency and budget gates before a lab starts. `GET /api/labs/usage`
   backs the Nimbus `UsageCard`. The pure math stays in `runtime-policy`; the
   service only supplies data, so the gate and the dashboard read one source.
+- **Auto-evaluation** (`projects/quality-evaluation.service.ts`, ADR-13). The
+  SonarQube-equivalent run: on demand or at submit, `QualityEvaluationService`
+  reads the workspace's source through the provider-neutral `WorkspaceReader`
+  seam (`PodProvider.readWorkspaceFiles` mounts the workspace volume into a
+  short-lived Job) and scores it with the AI plane's in-house `quality.py` via
+  `AiBridgeClient.scoreQuality` (`POST /v1/quality/score`). The latest result is
+  cached on the workspace (`qualityScore`/`qualityReport`/`analyzedAt`), every
+  run is appended to a `quality_evaluations` history, and a submission snapshots
+  it (`autoScore`/`autoReport`/`autoEvaluatedAt`) so the trainer still sees it
+  after the workspace is gone. Gated by `AI_PLANE_URL` (empty ⇒ analysis
+  unavailable, not a crash); a reader/analyzer failure is recorded as a `failed`
+  evaluation, never thrown. `analyze`/`history` are ownership-gated (a foreign
+  workspace is a 404, never a cross-tenant read). Routes:
+  `POST /api/projects/workspaces/:workspaceId/analyze` and
+  `GET .../evaluations`; `AutoEvaluateControl` lives on each fork card.
 
 ## Gotchas
 

@@ -7,7 +7,10 @@ import {
   type GitPublishInput,
   type GitPublishResult,
   type LabProvider,
+  type ReadWorkspaceFilesInput,
   type ServiceExposer,
+  type WorkspaceFile,
+  type WorkspaceReader,
 } from './types';
 
 /**
@@ -27,6 +30,8 @@ export interface ClusterClient {
   get(kind: string, name: string, namespace: string): Promise<Record<string, unknown> | null>;
   /** List objects of a kind in a namespace. */
   list(kind: string, namespace: string): Promise<Record<string, unknown>[]>;
+  /** Read a pod's logs (a failed/absent pod returns an empty string). */
+  logs(namespace: string, podName: string, container?: string): Promise<string>;
 }
 
 export interface PodProviderOptions {
@@ -53,6 +58,9 @@ export interface PodProviderOptions {
   /** How long publish waits for the git-push job to complete. */
   gitPushTimeoutMs?: number;
   gitPushPollMs?: number;
+  /** How long a workspace file read waits for its job to complete. */
+  readTimeoutMs?: number;
+  readPollMs?: number;
   /** Injected for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -67,6 +75,10 @@ const GIT_PUSH_TIMEOUT_MS = 120_000;
 const GIT_PUSH_POLL_MS = 2_000;
 const GIT_PUSH_JOB = 'git-publish';
 const GIT_PUSH_IMAGE = 'alpine/git:latest';
+const READ_JOB = 'workspace-read';
+const READ_JOB_IMAGE = 'python:3.12-alpine';
+const READ_TIMEOUT_MS = 60_000;
+const READ_POLL_MS = 2_000;
 
 /**
  * Tier-2 lab provider: one isolated Pod per session (code-server + terminal),
@@ -84,7 +96,7 @@ const GIT_PUSH_IMAGE = 'alpine/git:latest';
  *
  * Teardown deletes the namespace, which cascades to everything inside it.
  */
-export class PodProvider implements LabProvider, ServiceExposer, GitPublisher {
+export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, WorkspaceReader {
   readonly name = 'pod';
 
   private readonly cluster: ClusterClient;
@@ -98,6 +110,8 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher {
   private readonly terminatePollMs: number;
   private readonly gitPushTimeoutMs: number;
   private readonly gitPushPollMs: number;
+  private readonly readTimeoutMs: number;
+  private readonly readPollMs: number;
 
   constructor(private readonly opts: PodProviderOptions) {
     this.cluster = opts.cluster;
@@ -111,6 +125,8 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher {
     this.terminatePollMs = opts.terminatePollMs ?? TERMINATE_POLL_MS;
     this.gitPushTimeoutMs = opts.gitPushTimeoutMs ?? GIT_PUSH_TIMEOUT_MS;
     this.gitPushPollMs = opts.gitPushPollMs ?? GIT_PUSH_POLL_MS;
+    this.readTimeoutMs = opts.readTimeoutMs ?? READ_TIMEOUT_MS;
+    this.readPollMs = opts.readPollMs ?? READ_POLL_MS;
   }
 
   /** The browser-facing IDE URL for a session (raw id or provider ref). */
@@ -310,6 +326,57 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher {
       }
     }
     return 'the push job reported a failure';
+  }
+
+  /**
+   * Read the workspace's matching source files (auto-evaluation).
+   *
+   * The volume is mounted into a short-lived Job that emits a JSON envelope
+   * (`{ files: [{ path, content }] }`) to stdout; the Job's pod logs are read
+   * back and parsed. The workspace must be running — a stopped fork has no pod,
+   * so the caller must start it (resume the fork) before evaluating. The Job is
+   * deleted when the read finishes so nothing lingers.
+   */
+  async readWorkspaceFiles(input: ReadWorkspaceFilesInput): Promise<WorkspaceFile[]> {
+    const ns = namespaceFor(input.sessionId);
+    const pod = await this.cluster.get('Pod', 'code-server', ns);
+    if (pod === null) {
+      throw new LabProviderError(
+        `Workspace ${input.sessionId} is not running; nothing to read`,
+        409,
+      );
+    }
+    await this.cluster.delete('Job', READ_JOB, ns);
+    await this.cluster.apply(readJobManifest(ns, input));
+
+    const envelope = await this.awaitRead(ns);
+    await this.cluster.delete('Job', READ_JOB, ns);
+    if (!envelope.ok) {
+      throw new LabProviderError(`workspace read failed: ${envelope.reason}`, 502);
+    }
+    return envelope.files;
+  }
+
+  /** Wait for the read Job, then parse its JSON envelope from the pod logs. */
+  private async awaitRead(
+    ns: string,
+  ): Promise<{ ok: true; files: WorkspaceFile[] } | { ok: false; reason: string }> {
+    const deadline = Date.now() + this.readTimeoutMs;
+    for (;;) {
+      const job = await this.cluster.get('Job', READ_JOB, ns);
+      const condition = jobCondition(job);
+      if (condition === 'Complete') {
+        const raw = await this.cluster.logs(ns, READ_JOB);
+        return parseReadEnvelope(raw);
+      }
+      if (condition === 'Failed') {
+        return { ok: false, reason: 'the read job reported a failure' };
+      }
+      if (Date.now() > deadline) {
+        return { ok: false, reason: 'timed out reading the workspace' };
+      }
+      await sleep(this.readPollMs);
+    }
   }
 
   private async awaitIde(ideUrl: string): Promise<boolean> {
@@ -579,6 +646,114 @@ function gitPushJobManifest(
 export function tokenizeRemote(remoteUrl: string, token: string): string {
   if (!remoteUrl.startsWith('https://')) return remoteUrl;
   return remoteUrl.replace('https://', `https://x-access-token:${token}@`);
+}
+
+/**
+ * The Job that reads the workspace volume and prints a JSON envelope.
+ *
+ * It mounts the same `workspace` PVC the code-server pod uses, walks it for the
+ * requested extensions, and writes `{"files":[{path,content}]}` to stdout. The
+ * envelope is one line so the provider can read it back from the pod logs.
+ * Paths are emitted relative to `/workspace`; binary-ish and oversized files
+ * are skipped by the `awk` size guard.
+ */
+function readJobManifest(ns: string, input: ReadWorkspaceFilesInput): Record<string, unknown> {
+  const maxFileBytes = Math.max(1, Math.floor(input.maxFileBytes ?? 256 * 1024));
+  const maxTotalBytes = Math.max(1, Math.floor(input.maxTotalBytes ?? 4 * 1024 * 1024));
+  const extensions = input.extensions.map((e) => e.replace(/^\./, '')).filter(Boolean);
+  const script = [
+    'set -e',
+    'cd /workspace',
+    'export EXTS="$EXTS" MAXF="$MAXF" MAXT="$MAXT"',
+    'python3 - <<\'PY\'',
+    'import json, os, sys',
+    'exts = {("." + e) for e in os.environ["EXTS"].split(",") if e}',
+    'maxf = int(os.environ["MAXF"]); maxt = int(os.environ["MAXT"])',
+    'skip = {".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build", "target", ".cache"}',
+    'out = []; total = 0',
+    'for root, dirs, files in os.walk("."):',
+    '    dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]',
+    '    for name in files:',
+    '        if os.path.splitext(name)[1] not in exts: continue',
+    '        p = os.path.join(root, name)',
+    '        try:',
+    '            if os.path.getsize(p) > maxf: continue',
+    '            with open(p, "r", encoding="utf-8", errors="strict") as fh:',
+    '                content = fh.read()',
+    '        except (OSError, UnicodeDecodeError):',
+    '            continue',
+    '        total += len(content)',
+    '        if total > maxt: break',
+    '        out.append({"path": os.path.relpath(p, "."), "content": content})',
+    '    if total > maxt: break',
+    'print(json.dumps({"files": out}))',
+    'PY',
+  ].join('\n');
+  return {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: {
+      name: READ_JOB,
+      namespace: ns,
+      labels: { app: 'tenxlab', role: 'workspace-read' },
+    },
+    spec: {
+      backoffLimit: 0,
+      ttlSecondsAfterFinished: 300,
+      template: {
+        metadata: { labels: { app: 'tenxlab', role: 'workspace-read' } },
+        spec: {
+          restartPolicy: 'Never',
+          containers: [
+            {
+              name: 'read',
+              image: READ_JOB_IMAGE,
+              command: ['/bin/sh', '-c'],
+              args: [script],
+              env: [
+                { name: 'EXTS', value: extensions.join(',') },
+                { name: 'MAXF', value: String(maxFileBytes) },
+                { name: 'MAXT', value: String(maxTotalBytes) },
+              ],
+              volumeMounts: [{ name: 'workspace', mountPath: '/workspace' }],
+            },
+          ],
+          volumes: [
+            { name: 'workspace', persistentVolumeClaim: { claimName: 'workspace' } },
+          ],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Parse the read Job's log output into files. The Job prints one JSON envelope,
+ * but Kubernetes may prepend/append unrelated lines, so scan for the last line
+ * that parses as an object with a `files` array.
+ */
+export function parseReadEnvelope(
+  raw: string,
+): { ok: true; files: WorkspaceFile[] } | { ok: false; reason: string } {
+  const lines = raw.split('\n').filter((l) => l.trim().startsWith('{'));
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(lines[i]!) as { files?: unknown };
+      if (Array.isArray(parsed.files)) {
+        const files: WorkspaceFile[] = [];
+        for (const f of parsed.files) {
+          const file = f as { path?: unknown; content?: unknown };
+          if (typeof file.path === 'string' && typeof file.content === 'string') {
+            files.push({ path: file.path, content: file.content });
+          }
+        }
+        return { ok: true, files };
+      }
+    } catch {
+      // Not the envelope line; keep scanning.
+    }
+  }
+  return { ok: false, reason: 'the read job produced no file envelope' };
 }
 
 /** Single-quote a shell argument, escaping embedded quotes. */

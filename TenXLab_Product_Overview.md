@@ -1,175 +1,307 @@
-# Solution Design & Engineering Backlog: Frappe LMS + KubeLab Enterprise EdTech Platform
+# Solution Design & Engineering Backlog: TenXLab Enterprise EdTech Platform
+
+**Status:** Living document — refreshed 2026-11-11 to match what shipped.
+**Companion docs:** `ARCHITECTURE.md` (design + ADRs), `docs/BYTEXL_PARITY_ANALYSIS.md`
+(the living parity plan and phase tracker), `AGENTS.md` (engineering notes).
+
+> **Scope note.** An earlier revision of this document proposed building on
+> **Frappe LMS** with a **KubeLab fork**. Both were superseded before
+> implementation and this document has been updated accordingly:
+>
+> - **System of record is NestJS + Next.js + PostgreSQL**, not Frappe. It is
+>   already built, tested, and running (`apps/api`, `apps/web`).
+> - **KubeLab is used adapter-only** (`ADR-8`): we integrate through the
+>   `LabProvider` seam and never fork it, which keeps KubeLab's AGPL out of our
+>   product artifact. The execution plane is `packages/lab-provider` +
+>   `services/lab-operator`.
+>
+> The *stories* below (lab launch, webhook grading, tier routing, AI tutor,
+> contests) remain the right backlog. Only the implementation vehicle changed.
+> Progress is tracked in `docs/BYTEXL_PARITY_ANALYSIS.md`; this document is the
+> design intent behind it.
+
+---
 
 ## 1. System Architecture & Integration Blueprint
 
 ### High-Level Architecture
-* **System of Record (`Frappe LMS` + Custom Frappe App `edtech_core`):** Handles multi-tenant institutions, batches, courses, video/text lessons, gradebooks, and recruiter dashboards.
-* **Execution Plane (`KubeLab` + `Hybrid Runtime Router`):** Handles interactive coding, browser terminals, VS Code, and isolated `vcluster` labs.
-* **AI & Assessment Plane (`AI Tutor & Evaluator Service`):** A FastAPI microservice handling LLM-based Socratic code tutoring, anti-cheat similarity checks, and speech-to-text soft-skills scoring.
-* **Auth & SSO (`Keycloak` or `Frappe OAuth2`):** Issues short-lived RS256-signed JWTs passed from Frappe LMS to KubeLab during lab launch.
+
+TenXLab is composed of **three planes**, all built:
+
+* **System of Record (`apps/api` NestJS + `apps/web` Next.js + PostgreSQL):**
+  multi-tenant institutions, departments, batches, courses, lessons, the
+  gradebook, and the recruiter surface. Persistence goes through repository
+  ports (`apps/api/src/common/ports.ts`) with Prisma-backed and in-memory
+  adapters, so tests run without a database.
+* **Execution Plane (`packages/lab-provider` + `services/lab-operator` +
+  KubeLab):** interactive coding, browser terminals, VS Code (`code-server`),
+  and isolated `vcluster` labs, all behind the provider-neutral `LabProvider`
+  seam (`ADR-8`, adapter-only).
+* **AI & Assessment Plane (`services/ai`, FastAPI):** plagiarism, code-quality
+  scoring, speech/soft-skills evaluation, and a signed-webhook emitter.
+
+**Auth & SSO:** the LMS issues short-lived **RS256** JWTs, published at
+`/.well-known/jwks.json`, so KubeLab and the AI plane verify without a shared
+secret. Partner (college → TenXLab) sign-in is a separate **HS256** signed-token
+redirect (`identity/partner-sso.service.ts`).
 
 ```text
 +-----------------------------------------------------------------------+
-|                       Frappe LMS + edtech_core                        |
+|                TenXLab System of Record (apps/api + apps/web)         |
 |  [Multi-Tenant Orgs]  [Batches & Gradebook]  [Recruiter Portal]       |
 +-----------------------------------------------------------------------+
-         | (1. Launch Lab w/ Signed JWT)            ^ (4. Webhook Score)
-         v                                          |
+         | (1. Launch Lab w/ RS256 JWT)            ^ (4. Signed webhook)
+         v                                         |
 +-----------------------------------------------------------------------+
-|                     API Gateway & Auth Middleware                     |
+|                    API Gateway & Auth Middleware                      |
 +-----------------------------------------------------------------------+
-         |                                          |
-         v                                          v
+         |                                         |
+         v                                         v
 +---------------------------------+   +---------------------------------+
-|   KubeLab Hybrid Orchestrator   |   |   AI Tutor & Proctoring Svc     |
-| - Tier 1: Piston / MicroVM (DSA)|   | - VS Code Sidecar Context       |
-| - Tier 2: Single Pod (Web/DB)   |   | - Socratic LLM Guardrails       |
-| - Tier 3: vcluster (Kubernetes) |   | - Whisper Soft-Skills Eval      |
+|  Execution Plane (adapter-only) |   |   AI & Assessment Plane         |
+|  packages/lab-provider:         |   |   services/ai (FastAPI):        |
+|  - tier_1: Piston (MIT)         |   |   - plagiarism (rename-invariant)|
+|  - tier_2: single Pod (code-    |   |   - quality.py (in-house, ADR-13)|
+|            server + terminal)   |   |   - speech / soft-skills         |
+|  - tier_3: vcluster (K8s)       |   |   - webhook signer               |
+|  services/lab-operator: warm    |   |                                 |
+|  pool + idle sweep              |   |                                 |
 +---------------------------------+   +---------------------------------+
+         |
+         v
++---------------------------------+
+|  KubeLab (AGPL) — NOT forked;   |
+|  reached only through the       |
+|  LabProvider adapter (ADR-8)    |
++---------------------------------+
 ```
 
 ---
 
-## 2. Core Integration Data Contracts (For AI Coding Agents)
+## 2. Core Integration Data Contracts
 
-Provide these exact schemas to your AI coding agents when generating boilerplate across Frappe (Python) and KubeLab (Go/TypeScript).
+These are the real contracts, defined once in `packages/contracts` (zod) and
+shared by every plane. Do not hand-roll copies.
 
-### A. Lab Launch JWT Payload (`Frappe -> KubeLab`)
+### A. Lab Launch JWT Payload (LMS → execution plane)
+
+Signed **RS256** by the LMS; verified against the LMS JWKS endpoint.
+
 ```json
 {
-  "iss": "frappe-lms",
+  "iss": "tenxlms",
   "sub": "student_uuid_98765",
+  "aud": "kubelab",
   "tenant_id": "college_abc_engineering",
+  "membership_role": "student",
   "batch_id": "2027_cse_sec_a",
   "course_id": "k8s-fundamentals-101",
   "exercise_id": "create-simple-pod",
   "runtime_tier": "tier_3_vcluster",
-  "callback_url": "https://lms.example.com/api/method/edtech_core.api.lab_webhook",
-  "exp": 1794384000
+  "session_id": "sess_...",
+  "callback_url": "https://lms.example.com/api/webhooks/lab",
+  "iat": 1794383940,
+  "exp": 1794384000,
+  "jti": "uuid"
 }
 ```
 
-### B. Completion Webhook Payload (`KubeLab -> Frappe`)
+Schema: `LabLaunchJwtPayload` in `packages/contracts/src/index.schemas.ts`.
+
+### B. Completion Webhook Payload (execution plane → LMS)
+
+HMAC-SHA256 signed; the header is `x-tenxlab-signature-256`
+(`SIGNATURE_HEADER`). Handled idempotently by
+`gradebook/gradebook-webhook.service.ts`.
+
 ```json
 {
   "event": "exercise.completed",
+  "event_id": "uuid",
   "student_id": "student_uuid_98765",
   "tenant_id": "college_abc_engineering",
   "batch_id": "2027_cse_sec_a",
   "exercise_id": "create-simple-pod",
+  "session_id": "sess_...",
   "status": "PASSED",
   "score": 100,
   "execution_time_ms": 1420,
   "attempt_count": 2,
   "code_snapshot_url": "s3://edtech-submissions/98765/create-simple-pod.tar.gz",
-  "signature": "hmac_sha256_hex_digest"
+  "timestamp": "2026-11-11T09:04:00Z"
 }
 ```
+
+Schema: `CompletionWebhook`. AI-plane events (plagiarism/quality/speech) share
+the same signature scheme (`AiWebhook`).
 
 ---
 
 ## 3. Detailed Epics & Developer / AI Agent Stories
 
-### Epic 1: Multi-Tenant LMS & KubeLab Bridge (`edtech_core` Frappe App)
+Each story carries its **current status** and points at the code that
+implements it. The authoritative phase tracker is
+`docs/BYTEXL_PARITY_ANALYSIS.md §4`.
 
-#### Story 1.1: Institutional Multi-Tenancy & Batch Hierarchy
-* **Goal:** Extend Frappe LMS to isolate data across multiple partner colleges, departments, and graduation batches.
-* **Implementation Details:** Create custom Frappe DocTypes (`Institution`, `Department`, `Academic Batch`) and apply Frappe User Permissions so college admins only view their own students.
-* **Acceptance Criteria:**
-  * [ ] `Institution` DocType created with fields: `institution_name`, `domain`, `max_concurrent_labs`, `status`.
-  * [ ] `LMS Batch` linked to `Institution` and `Department`.
-  * [ ] Role `College Admin` restricted via server-side permission query conditions to records matching their `Institution`.
-* **AI Agent Prompt Hint:** *"Generate a Frappe custom DocType JSON and Python controller for `Institution` and add `permission_query_conditions` in `hooks.py` to isolate `LMS Batch` records by `institution`."*
+### Epic 1: Multi-Tenant LMS & Execution-Plane Bridge
 
-#### Story 1.2: Custom "Interactive Lab" Lesson Type & JWT Launcher
-* **Goal:** Allow instructors to embed a KubeLab exercise directly inside a Frappe LMS course chapter.
-* **Implementation Details:** Extend `Course Lesson` in Frappe LMS with fields `lab_provider` (`KubeLab`), `exercise_slug`, `runtime_tier`, and `max_score`. Build a whitelisted Python endpoint `generate_lab_launch_url(lesson_name)` that signs an RS256 JWT and renders an embedded iframe or new tab launch button in the Vue.js frontend.
-* **Acceptance Criteria:**
-  * [ ] Instructor can select `Interactive Lab` when creating a lesson in Frappe LMS.
-  * [ ] Clicking "Start Lab" fetches a signed JWT valid for 2 hours.
-  * [ ] KubeLab verifies the RS256 public key and auto-authenticates the user without a second login screen.
+#### Story 1.1: Institutional Multi-Tenancy & Batch Hierarchy — **Done**
+* **Goal:** isolate data across partner colleges, departments, and batches.
+* **Delivered:** tenant/membership model in `apps/api/src/common/ports.ts`;
+  batches, enrolment, and gradebook in `batches/batch.service.ts` with
+  `/batches` and `/grading` pages; every read is tenant-scoped and role-gated.
+* **Remaining:** a tenant budget ceiling exists (`monthlyBudgetCents`,
+  enforced at launch); a per-tenant admin console for it is still UI work.
 
-#### Story 1.3: Asynchronous Gradebook Webhook Receiver
-* **Goal:** Automatically record student scores in Frappe LMS when KubeLab's `Check` script passes.
-* **Implementation Details:** Implement `@frappe.whitelist(allow_guest=True)` endpoint `edtech_core.api.lab_webhook`. Validate the `X-Hub-Signature-256` HMAC header, update `LMS Lesson Progress`, and trigger a realtime Socket.IO event to refresh the student's UI.
-* **Acceptance Criteria:**
-  * [ ] Invalid HMAC signatures return `HTTP 401`.
-  * [ ] Valid `PASSED` payload marks the Frappe LMS lesson as `Complete` and logs `score` and `attempt_count`.
-  * [ ] Duplicate webhook deliveries are handled idempotently.
+#### Story 1.2: Interactive Lab Lesson Type & JWT Launcher — **Done**
+* **Goal:** embed an execution-plane exercise directly inside a course lesson.
+* **Delivered:** `LessonRecord.type` (`interactive_lab`) with `exerciseSlug`,
+  `runtimeTier`, and `maxScore`; `labs/lab-launch.service.ts` signs the RS256
+  launch JWT and the web renders a launch button (`LabLaunchButton`). Verified
+  live on minikube (tier-3 `vcluster` → code-server IDE).
+* **Remaining:** predictive warm-pool scale-up before class (`runtime-policy/
+  warm-pool.ts` plans it; the operator is reactive today).
 
----
-
-### Epic 2: Hybrid Multi-Runtime Orchestrator (KubeLab Fork)
-
-#### Story 2.1: Runtime Tier Router (`Tier 1`, `Tier 2`, `Tier 3`)
-* **Goal:** Prevent expensive `vcluster` provisioning for simple Python/C++ DSA exercises while preserving full clusters for Kubernetes labs.
-* **Implementation Details:** Modify KubeLab's session provisioning controller to read `runtime_tier` from the launch JWT:
-  * `tier_1_microvm`: Route code execution to a lightweight **Piston** (MIT) or **Firecracker** worker pool. (Judge0 is rejected: GPL-3.0 — see ADR-12.)
-  * `tier_2_container`: Provision a single isolated Kubernetes Pod (VS Code + terminal) without nested control-plane components.
-  * `tier_3_vcluster`: Execute KubeLab's default `vcluster` provisioning workflow.
-* **Acceptance Criteria:**
-  * [ ] `tier_1` labs boot in `< 2 seconds` and consume `< 128MB RAM`.
-  * [ ] `tier_3` labs provision an isolated `vcluster` with `kubectl` and `helm` pre-configured.
-  * [ ] Idle sessions across all tiers automatically terminate after 30 minutes of inactivity.
-
-#### Story 2.2: Pre-Warmed Session Pool Controller
-* **Goal:** Eliminate cold-start bottlenecks when 500 students in a college batch start a lab simultaneously.
-* **Implementation Details:** Build a Kubernetes operator/cron controller in Go that maintains a configurable buffer of `N` pre-initialized namespaces/vclusters (`status=WARM`) and claims them instantly upon JWT launch.
-* **Acceptance Criteria:**
-  * [ ] Pool scales up automatically 15 minutes before scheduled Frappe LMS batch live classes.
-  * [ ] Claiming a warm session takes `< 1.5 seconds`.
+#### Story 1.3: Asynchronous Gradebook Webhook Receiver — **Done**
+* **Goal:** record scores automatically when the execution plane's check passes.
+* **Delivered:** `POST /api/webhooks/lab`, HMAC-verified
+  (`gradebook/gradebook-webhook.service.ts`); invalid signatures are rejected;
+  duplicate deliveries are handled idempotently (event ledger + replay guard).
 
 ---
 
-### Epic 3: AI-Native Code Tutor & Soft-Skills (`Clarity` Clone)
+### Epic 2: Hybrid Multi-Runtime Orchestrator (adapter-only)
 
-#### Story 3.1: Context-Aware Socratic AI Code Assistant
-* **Goal:** Replace static hints with an AI tutor that reads workspace files and terminal errors without leaking the final answer.
-* **Implementation Details:** Build a lightweight FastAPI microservice (`/api/v1/tutor/hint`) and a minimal VS Code webview extension inside the KubeLab container. Capture the active file content, last 20 lines of terminal `stderr`, and the exercise's hidden `check.sh` rubric.
-* **Acceptance Criteria:**
-  * [ ] Clicking "Ask AI Tutor" in VS Code sends workspace context to the FastAPI service.
-  * [ ] System prompt enforces Socratic guardrails (explains the root cause and asks a guiding question; never outputs copy-pasteable solution code).
-  * [ ] Responses stream back to the VS Code sidebar in `< 3 seconds`.
+#### Story 2.1: Runtime Tier Router (tier 1 / 2 / 3) — **Done**
+* **Goal:** avoid expensive `vcluster` provisioning for simple DSA exercises.
+* **Delivered:** `packages/runtime-policy/tier-router.ts` routes by
+  `runtime_tier`; providers in `packages/lab-provider`:
+  `tier_1_microvm` → `piston.provider.ts` (MIT; Judge0 rejected — GPL-3.0,
+  `ADR-12`), `tier_2_container` → `pod.provider.ts` (single Pod: code-server +
+  terminal), `tier_3_vcluster` → KubeLab's default vcluster workflow.
+  `routing.provider.ts` composes them; the API injects it as `PROVIDER`.
+* **Remaining:** none for the router itself.
 
-#### Story 3.2: AI English & Mock Interview Evaluator
-* **Goal:** Provide automated communication and interview readiness scoring inside Frappe LMS.
-* **Implementation Details:** Build a Vue.js audio-recording widget in Frappe LMS that uploads WebM audio responses to FastAPI. Transcribe via `faster-whisper` and score grammar, vocabulary, filler words, and technical accuracy via an LLM structured-output schema.
-* **Acceptance Criteria:**
-  * [ ] Student completes a 3-question spoken prompt in the browser.
-  * [ ] System stores a `0–100` communication score and actionable feedback report on the student's `LMS Student Profile`.
+#### Story 2.2: Pre-Warmed Session Pool Controller — **Partial**
+* **Goal:** remove cold-start spikes when a whole batch starts at once.
+* **Delivered:** `runtime-policy/warm-pool.ts` (planning) + `services/lab-operator`
+  (reconciler + idle sweep, real Postgres + k8s ports, 12 tests).
+* **Remaining:** schedule-driven scale-up 15 minutes before a batch's live class
+  (today the operator is reactive).
+
+---
+
+### Epic 3: AI-Native Code Tutor & Soft-Skills
+
+#### Story 3.1: Context-Aware Socratic AI Code Assistant — **Missing**
+* **Goal:** replace static hints with a tutor that reads workspace context and
+  terminal errors without leaking the answer.
+* **Planned:** a tutor endpoint on the AI plane with Socratic guardrails
+  (root cause + guiding question, never copy-pasteable solution code), plus a
+  VS Code sidebar (webview) inside the lab container.
+* **Why it matters:** the highest-risk AI item; it is Phase F and the primary
+  product differentiator. Guardrails need a red-team eval suite before launch.
+
+#### Story 3.2: AI English & Mock-Interview Evaluator — **Partial**
+* **Goal:** automated communication scoring inside the LMS.
+* **Delivered:** `services/ai/app/speech.py` scores grammar, vocabulary, filler
+  words, and technical accuracy, and emits a signed `speech.evaluated` webhook.
+* **Remaining:** the browser audio-recording widget and persisting the score on
+  the student profile.
 
 ---
 
 ### Epic 4: Competitive Contests, Proctoring & Recruiter Portal
 
-#### Story 4.1: Real-Time Hackathon & Contest Leaderboard
-* **Goal:** Support timed coding contests and hackathons across batches.
-* **Implementation Details:** Create a `Coding Contest` DocType in Frappe with `start_time`, `end_time`, and a list of KubeLab exercises. Use Redis Sorted Sets (`ZADD contest:{id}:leaderboard`) updated by the KubeLab webhook to rank students by total score and tie-break by fastest completion timestamp.
-* **Acceptance Criteria:**
-  * [ ] Students cannot launch contest labs before `start_time` or submit after `end_time`.
-  * [ ] Leaderboard updates in real time (`< 500ms` latency) during active contests.
+#### Story 4.1: Real-Time Hackathon & Contest Leaderboard — **Missing**
+* **Goal:** timed contests across batches with live ranking.
+* **Planned:** contest lifecycle with `start_time`/`end_time` gating and a Redis
+  sorted-set leaderboard updated by the completion webhook (rank by score,
+  tie-break by fastest completion). Schema stub: `bestContestRank` on the
+  Skill Passport.
 
-#### Story 4.2: Browser Anti-Cheat & AST Plagiarism Scanner
-* **Goal:** Ensure assessment integrity during graded exams and hiring tests.
-* **Implementation Details:**
-  * **Frontend:** Add tab-visibility (`visibilitychange`) and clipboard-paste event listeners to the Frappe LMS lab wrapper, logging violations to a `Proctoring Log` DocType.
-  * **Backend:** Trigger an asynchronous Python job upon exam completion that downloads `code_snapshot_url` archives and runs Tree-sitter AST token comparison across the batch.
-* **Acceptance Criteria:**
-  * [ ] More than 3 tab switches flags the submission for faculty review.
-  * [ ] Submissions with `> 85%` structural AST similarity are flagged with side-by-side diff links.
+#### Story 4.2: Browser Anti-Cheat & AST Plagiarism Scanner — **Partial**
+* **Goal:** assessment integrity for graded exams and hiring tests.
+* **Delivered:** browser signals in `ProctorGuard` (tab switch, copy/paste,
+  fullscreen-exit, offline) with a risk score
+  (`proctoring/proctoring.service.ts`); authoritative server exam timer with
+  auto-submit; read-only stub regions enforced server-side
+  (`assessments/read-only.ts`); rename-invariant plagiarism in
+  `services/ai/app/plagiarism.py` (18 tests).
+* **Remaining:** batch-scope async plagiarism on submission with side-by-side
+  diff links and an > 85 % similarity flag; webcam video is deferred (`ADR-15`).
 
-#### Story 4.3: Recruiter Talent Discovery Portal
-* **Goal:** Enable corporate hiring partners to filter and shortlist job-ready students based on verified lab and communication metrics.
-* **Implementation Details:** Create a read-only `Recruiter` role and Vue.js dashboard in Frappe LMS querying an indexed summary table (`Student Skill Passport`) aggregating verified KubeLab badges, contest ranks, and AI communication scores.
-* **Acceptance Criteria:**
-  * [ ] Recruiters can filter candidates by `Institution`, `Graduation Year`, `Min KubeLab Score`, and `Min Communication Score`.
-  * [ ] Clicking a candidate displays verified completed labs and allows one-click CSV export or interview invite trigger.
+#### Story 4.3: Recruiter Talent Discovery Portal — **Missing**
+* **Goal:** let hiring partners filter and shortlist job-ready students.
+* **Planned:** a read-only `recruiter` role over an indexed Skill Passport
+  aggregating verified lab badges, contest ranks, and communication scores;
+  filter by institution, graduation year, and minimum scores; CSV export /
+  interview invite. Role enum exists (`MembershipRole`); the `/resumes`
+  surface is a placeholder.
 
 ---
 
-## 4. Recommended Implementation Sequence (4-Phase Roadmap)
+### Cross-cutting capabilities
 
-1. **Phase 1 (Weeks 1–3): Core LMS & Lab Bridge** — Deploy `frappe/lms`, create `edtech_core`, and ship Stories **1.1, 1.2, and 1.3** (end-to-end SSO launch + webhook grading).
-2. **Phase 2 (Weeks 4–6): Compute Optimization** — Implement Stories **2.1 and 2.2** so simple coding exercises run on lightweight containers while Kubernetes labs run on `vcluster`.
-3. **Phase 3 (Weeks 7–9): AI Differentiation** — Deploy the FastAPI AI service and ship Stories **3.1 and 3.2** (Socratic VS Code tutor + spoken English evaluator).
-4. **Phase 4 (Weeks 10–12): Scale, Contests & Hiring** — Ship Stories **4.1, 4.2, and 4.3** to unlock hackathons, proctored exams, and recruiter workflows.
+| Capability | Status | Where |
+|---|---|---|
+| Partner SSO (HS256 signed redirect) | **Done** | `identity/partner-sso.service.ts` — claims `sub, partnerId, iat, exp, jti, name`; `jti` replay guard; pre-onboarded vs JIT provisioning |
+| Safe Exam Browser integration | **Deferred (ADR-17)** | `.seb` config generator exists; the v1 exam path is browser-level proctoring |
+| Copyleft license gate | **Done** | `scripts/check-licenses.mjs` (permissive-only) |
+| In-house code-quality analyzer | **Done (ADR-13)** | `services/ai/app/quality.py` — no SonarQube/Semgrep |
+| Editor (multi-language, saved, STDIN) | **Done** | `/editor`, CodeMirror 6 (ADR-19), Piston tier-1 |
+| Nimbus (build/host/evaluate projects) | **In progress** | Core + hosting + git publish + auto-evaluation shipped; per-fork cost policy + attendance remain (see §4) |
+
+---
+
+## 4. Delivery Sequence & Current Position
+
+The four-phase plan below has been overtaken by the finer-grained phase tracker
+in `docs/BYTEXL_PARITY_ANALYSIS.md §4` (Phases A–G). This is the mapping:
+
+| Original phase | Maps to | Status |
+|---|---|---|
+| **Phase 1 (wks 1–3): Core LMS & Lab Bridge** (Stories 1.1–1.3) | Parity Phases A–C | **Shipped** — Postgres persistence, auth, batch/gradebook UI, lab launch + webhook grading, editor, assessments |
+| **Phase 2 (wks 4–6): Compute Optimization** (Stories 2.1–2.2) | Parity Phase D | **Largely shipped** — tier router, tier-2 pod provider, warm-pool operator; predictive scale-up remains |
+| **Phase 3 (wks 7–9): AI Differentiation** (Stories 3.1–3.2) | Parity Phases E–F | **In progress** — speech scoring done; Socratic tutor + audio widget pending |
+| **Phase 4 (wks 10–12): Scale, Contests & Hiring** (Stories 4.1–4.3) | Parity Phase G | **Not started** — contests, batch plagiarism, recruiter portal |
+
+### Current focus — finish Nimbus (ByteXL's project-building surface)
+
+Nimbus is the ByteXL-equivalent project surface and the largest remaining
+parity gap. Shipped so far: the project domain, fork lifecycle, submission +
+trainer evaluation, the `/nimbus` UI, **one-click hosting** (E5), **git
+publish** (GitHub device flow + encrypted token + publish history), **tenant
+cost/quota** (`monthlyBudgetCents` + `UsageService.checkLaunch` + the
+`UsageCard`), and **auto-evaluation** (the `ai-bridge` client + `quality.py`
+score, cached on the workspace and snapshotted onto the submission). Remaining,
+in order:
+
+1. **Per-fork stop-when-idle cost policy** (E5b) — `persistent: true`
+   `PodProvider` mode (Deployment + PVC, scale 0/1), a fork idle-limit table,
+   snapshot-on-stop, and the storage dimension.
+2. **Nimbus polish** — AI-generate project title/description, preview-before-
+   publish, and submission-nav parity.
+3. **Phase E6** — dashboard "Up Next"/"Resume Learning" widget and student
+   attendance (overall + session-level).
+
+Then Phase F (Socratic tutor + soft skills) and Phase G (contests, anti-cheat,
+recruiter portal).
+
+---
+
+## 5. Decisions
+
+These were open questions in the original draft and are now resolved; see
+`ARCHITECTURE.md` for the full ADR table.
+
+1. **System of record — NestJS + Next.js (not Frappe).** Confirmed and built.
+2. **KubeLab — adapter-only, no fork (`ADR-8`).** Keeps AGPL out of the
+   product artifact; the `LabProvider` seam keeps the runtime replaceable.
+3. **Tier-1 runner — Piston (`ADR-12`).** Judge0 rejected (GPL-3.0).
+4. **Code-quality gating — in-house `quality.py` (`ADR-13`).** No
+   SonarQube/Semgrep, so the license gate stays permissive-only.
+5. **Editor widget — CodeMirror 6 (`ADR-19`).** Monaco deferred.
+6. **Proctoring — browser-level for v1 (`ADR-15`, `ADR-17`).** Video and full
+   Safe Exam Browser integration are post-v1.
+7. **Single region for v1 (`ADR-18`).** Multi-region-ready, not multi-region.

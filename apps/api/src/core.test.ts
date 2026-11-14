@@ -361,6 +361,9 @@ test('a tier-2 lesson routes to the pod provider and records its IDE URL', async
     async list() {
       return [];
     },
+    async logs() {
+      return '';
+    },
   };
   const provider = new RoutingProvider({
     tier_2_container: new PodProvider({

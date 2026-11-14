@@ -30,6 +30,8 @@ import type {
   ProjectSubmissionRepository,
   ProjectWorkspaceRecord,
   ProjectWorkspaceRepository,
+  QualityEvaluationRecord,
+  QualityEvaluationRepository,
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
@@ -456,17 +458,33 @@ export class InMemoryProjectWorkspaceRepository implements ProjectWorkspaceRepos
   async create(
     input: Omit<
       ProjectWorkspaceRecord,
-      'id' | 'createdAt' | 'lastActivityAt' | 'deployUrl' | 'deployPort'
-    > & { deployUrl?: string | null; deployPort?: number | null },
+      | 'id'
+      | 'createdAt'
+      | 'lastActivityAt'
+      | 'deployUrl'
+      | 'deployPort'
+      | 'qualityScore'
+      | 'qualityReport'
+      | 'analyzedAt'
+    > & {
+      deployUrl?: string | null;
+      deployPort?: number | null;
+      qualityScore?: number | null;
+      qualityReport?: string | null;
+      analyzedAt?: Date | null;
+    },
   ) {
     const now = new Date();
     const row: ProjectWorkspaceRecord = {
+      ...input,
       id: randomUUID(),
       createdAt: now,
       lastActivityAt: now,
-      deployUrl: null,
-      deployPort: null,
-      ...input,
+      deployUrl: input.deployUrl ?? null,
+      deployPort: input.deployPort ?? null,
+      qualityScore: input.qualityScore ?? null,
+      qualityReport: input.qualityReport ?? null,
+      analyzedAt: input.analyzedAt ?? null,
     };
     this.rows.push(row);
     return row;
@@ -522,13 +540,23 @@ export class InMemoryProjectSubmissionRepository
 {
   constructor(private readonly rows: ProjectSubmissionRecord[] = []) {}
   async create(
-    input: Omit<ProjectSubmissionRecord, 'id' | 'submittedAt' | 'evaluatedAt'>,
+    input: Omit<
+      ProjectSubmissionRecord,
+      'id' | 'submittedAt' | 'evaluatedAt' | 'autoScore' | 'autoReport' | 'autoEvaluatedAt'
+    > & {
+      autoScore?: number | null;
+      autoReport?: string | null;
+      autoEvaluatedAt?: Date | null;
+    },
   ) {
     const row: ProjectSubmissionRecord = {
+      ...input,
       id: randomUUID(),
       submittedAt: new Date(),
       evaluatedAt: null,
-      ...input,
+      autoScore: input.autoScore ?? null,
+      autoReport: input.autoReport ?? null,
+      autoEvaluatedAt: input.autoEvaluatedAt ?? null,
     };
     this.rows.push(row);
     return row;
@@ -603,5 +631,25 @@ export class InMemoryGitPublishRepository implements GitPublishRepository {
   async latestByWorkspace(workspaceId: string) {
     const list = await this.listByWorkspace(workspaceId);
     return list.find((r) => r.status === 'succeeded') ?? null;
+  }
+}
+
+export class InMemoryQualityEvaluationRepository
+  implements QualityEvaluationRepository
+{
+  constructor(private readonly rows: QualityEvaluationRecord[] = []) {}
+  async create(input: Omit<QualityEvaluationRecord, 'id' | 'createdAt'>) {
+    const row: QualityEvaluationRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async listByWorkspace(workspaceId: string) {
+    return this.rows
+      .filter((r) => r.workspaceId === workspaceId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  async latestByWorkspace(workspaceId: string) {
+    const list = await this.listByWorkspace(workspaceId);
+    return list[0] ?? null;
   }
 }

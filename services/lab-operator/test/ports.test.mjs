@@ -154,6 +154,9 @@ test('a tick boots warm tier-2 pods through the real provider and DB ports', asy
     async list() {
       return [];
     },
+    async logs() {
+      return '';
+    },
   };
   const provider = new RoutingProvider({
     tier_2_container: new PodProvider({

@@ -129,6 +129,11 @@ function StudentProjects() {
                     Trainer feedback: {s.feedback}
                   </p>
                 ) : null}
+                {s.autoScore !== null ? (
+                  <p className="muted" style={{ marginBottom: 0 }}>
+                    Auto-evaluation: {s.autoScore}/100
+                  </p>
+                ) : null}
                 {s.githubUrl ? (
                   <p style={{ marginBottom: 0 }}>
                     <a href={s.githubUrl} target="_blank" rel="noreferrer">
@@ -415,6 +420,11 @@ function EvaluateRow({
           <a href={submission.githubUrl} target="_blank" rel="noreferrer">
             {submission.githubUrl}
           </a>
+        </p>
+      ) : null}
+      {submission.autoScore !== null ? (
+        <p className="muted" style={{ marginBottom: 8 }}>
+          Auto-evaluation score: {submission.autoScore}/100
         </p>
       ) : null}
       <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>

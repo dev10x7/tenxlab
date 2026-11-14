@@ -152,3 +152,32 @@ test('expose fails loudly when no provider can publish a service', async () => {
     return true;
   });
 });
+
+test('readWorkspaceFiles delegates to the first provider that can read files', async () => {
+  const reads = [];
+  const pod = fakeProvider('pod', {
+    async readWorkspaceFiles(input) {
+      reads.push(input);
+      return [{ path: 'main.py', content: 'print(1)\n' }];
+    },
+  });
+  // KubeLab cannot read a workspace, so it is skipped.
+  const kubelab = fakeProvider('kubelab');
+  const router = new RoutingProvider({ tier_2_container: pod, tier_3_vcluster: kubelab });
+
+  const files = await router.readWorkspaceFiles({ sessionId: 'sess-1', extensions: ['py'] });
+  assert.deepEqual(files, [{ path: 'main.py', content: 'print(1)\n' }]);
+  assert.deepEqual(reads, [{ sessionId: 'sess-1', extensions: ['py'] }]);
+});
+
+test('readWorkspaceFiles fails loudly when no provider can read a workspace', async () => {
+  const router = new RoutingProvider({ tier_3_vcluster: fakeProvider('kubelab') });
+  await assert.rejects(
+    () => router.readWorkspaceFiles({ sessionId: 'sess-1', extensions: ['py'] }),
+    (err) => {
+      assert.ok(err instanceof LabProviderError);
+      assert.equal(err.status, 503);
+      return true;
+    },
+  );
+});

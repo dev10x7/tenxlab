@@ -256,3 +256,52 @@ test('deploy validates the port and refuses a workspace that is not running', as
   assert.equal(undeployed.status, 200);
   assert.equal((undeployed.body as { deployUrl: string | null }).deployUrl, null);
 });
+
+test('auto-evaluation is ownership-gated and requires a running workspace', async () => {
+  const student = await signIn('student@tenxlab.local');
+
+  const list = await call('/api/projects', { cookie: student });
+  const demo = (list.body as Array<{
+    project: { id: string };
+    components: Array<{ id: string; fork: unknown }>;
+  }>).find((p) => p.project.id === 'project-demo-spring-api');
+  assert.ok(demo, 'the demo project is listed');
+  const component = demo.components[0]!;
+  const forked = await call(
+    `/api/projects/project-demo-spring-api/components/${component.id}/fork`,
+    { method: 'POST', cookie: student },
+  );
+  assert.equal(forked.status, 201);
+  const workspaceId = (forked.body as { workspaceId: string }).workspaceId;
+
+  // Provisioning is disabled in tests, so the fork never reaches `running` and
+  // analysis is a conflict rather than a silent no-op.
+  const notRunning = await call(`/api/projects/workspaces/${workspaceId}/analyze`, {
+    method: 'POST',
+    cookie: student,
+  });
+  assert.equal(notRunning.status, 409);
+
+  // An unknown workspace is not found.
+  const missing = await call('/api/projects/workspaces/does-not-exist/analyze', {
+    method: 'POST',
+    cookie: student,
+  });
+  assert.equal(missing.status, 404);
+
+  // The caller's own history is readable (empty before any run).
+  const ownHistory = await call(
+    `/api/projects/workspaces/${workspaceId}/evaluations`,
+    { cookie: student },
+  );
+  assert.equal(ownHistory.status, 200);
+  assert.deepEqual(ownHistory.body, []);
+
+  // Another user cannot read that workspace's history.
+  const instructor = await signIn('instructor@tenxlab.local');
+  const foreign = await call(
+    `/api/projects/workspaces/${workspaceId}/evaluations`,
+    { cookie: instructor },
+  );
+  assert.equal(foreign.status, 404);
+});

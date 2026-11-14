@@ -10,6 +10,7 @@ import {
   type GitPublisher,
   type LabProvider,
   type ServiceExposer,
+  type WorkspaceReader,
 } from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
 import { JwtService } from '../crypto/jwt.service';
@@ -26,6 +27,8 @@ import { LabLaunchService } from '../labs/lab-launch.service';
 import { UsageService } from '../labs/usage.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
+import { QualityEvaluationService } from '../projects/quality-evaluation.service';
+import { AiBridgeClient } from '../ai/ai-bridge.client';
 import { GitHubClient } from '../github/github.client';
 import { GitPublishService } from '../github/git-publish.service';
 import { SecretBox } from '../crypto/secret-box';
@@ -47,9 +50,9 @@ import {
   ProjectsController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE } from './tokens';
+import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE, AI_BRIDGE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH, GIT, GITHUB, SECRET_BOX, USAGE };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY };
 
 const DEMO_STATE = createDemoState();
 
@@ -277,6 +280,36 @@ const STORE_PROVIDER = {
         }),
     },
     {
+      // The AI plane client (FastAPI). A null client disables auto-evaluation;
+      // the controller then answers analysis_unavailable.
+      provide: AI_BRIDGE,
+      inject: [ENV],
+      useFactory: (env: Env) =>
+        env.AI_PLANE_URL
+          ? new AiBridgeClient({
+              baseUrl: env.AI_PLANE_URL,
+              timeoutMs: env.AI_PLANE_TIMEOUT_MS,
+            })
+          : null,
+    },
+    {
+      provide: QUALITY,
+      inject: [STORE, PROVIDER, AI_BRIDGE],
+      useFactory: (
+        store: Repositories,
+        provider: LabProvider | null,
+        analyzer: AiBridgeClient | null,
+      ) =>
+        new QualityEvaluationService({
+          workspaces: store.projectWorkspaces,
+          evaluations: store.qualityEvaluations,
+          // Reading files is a tier-2 (pod) concern; a KubeLab-only deployment
+          // has no reader, so analysis stays unavailable rather than failing.
+          reader: isWorkspaceReader(provider) ? provider : null,
+          analyzer,
+        }),
+    },
+    {
       provide: SECRET_BOX,
       inject: [ENV],
       useFactory: (env: Env) => new SecretBox(env.TOKEN_ENCRYPTION_SECRET),
@@ -347,6 +380,13 @@ function isGitPublisher(
   provider: LabProvider | null,
 ): provider is LabProvider & GitPublisher {
   return typeof (provider as Partial<GitPublisher> | null)?.publish === 'function';
+}
+
+/** Structural check: can this provider read a workspace's files? */
+function isWorkspaceReader(
+  provider: LabProvider | null,
+): provider is LabProvider & WorkspaceReader {
+  return typeof (provider as Partial<WorkspaceReader> | null)?.readWorkspaceFiles === 'function';
 }
 
 function devKeys(kid: string) {
