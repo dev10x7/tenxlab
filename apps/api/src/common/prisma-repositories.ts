@@ -44,6 +44,8 @@ import type {
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
+  SupportIssueRecord,
+  SupportIssueRepository,
   TenantRecord,
   TenantRepository,
   UserRecord,
@@ -907,6 +909,34 @@ export class PrismaQualityEvaluationRepository implements QualityEvaluationRepos
   }
 }
 
+export class PrismaSupportIssueRepository implements SupportIssueRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<SupportIssueRecord, 'id' | 'createdAt'>,
+  ): Promise<SupportIssueRecord> {
+    const row = await this.db.supportIssue.create({ data: input });
+    return toSupportIssue(row);
+  }
+  async findById(id: string): Promise<SupportIssueRecord | null> {
+    const row = await this.db.supportIssue.findUnique({ where: { id } });
+    return row ? toSupportIssue(row) : null;
+  }
+  async listByTenant(tenantId: string): Promise<SupportIssueRecord[]> {
+    const rows = await this.db.supportIssue.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toSupportIssue);
+  }
+  async update(
+    id: string,
+    patch: Partial<SupportIssueRecord>,
+  ): Promise<SupportIssueRecord> {
+    const row = await this.db.supportIssue.update({ where: { id }, data: patch });
+    return toSupportIssue(row);
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -962,6 +992,9 @@ type GitPublishRow = Awaited<
 >;
 type QualityEvaluationRow = Awaited<
   ReturnType<PrismaClient['qualityEvaluation']['findUniqueOrThrow']>
+>;
+type SupportIssueRow = Awaited<
+  ReturnType<PrismaClient['supportIssue']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -1227,5 +1260,19 @@ function toGitPublish(p: GitPublishRow): GitPublishRecord {
     commitSha: p.commitSha ?? null,
     error: p.error ?? null,
     createdAt: p.createdAt,
+  };
+}
+
+function toSupportIssue(s: SupportIssueRow): SupportIssueRecord {
+  return {
+    id: s.id,
+    tenantId: s.tenantId,
+    userId: s.userId ?? null,
+    category: s.category,
+    title: s.title,
+    description: s.description,
+    pageUrl: s.pageUrl ?? null,
+    status: s.status,
+    createdAt: s.createdAt,
   };
 }

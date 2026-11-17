@@ -444,7 +444,7 @@ section.
 | Proctoring event ingest + risk score | **Done** | `proctoring/proctoring.service.ts` |
 | SEB config generation | **Done** | `buildSebConfig` |
 | Tab-switch / copy-paste / time limits | **Done** | Authoritative server timer (`assessments/exam-timer.ts`: deadline, auto-submit, grace) plus browser capture in `ProctorGuard` (blur/focus, copy/paste, fullscreen-exit, offline). Video/webcam (ADR-15) and full SEB (ADR-17) are **out of v1**. |
-| `.seb` download entry point | **Deferred** | No route serving the `.seb` file — full SEB integration is post-v1 (ADR-17) |
+| `.seb` download entry point | **Done (partial)** | `GET /api/assessments/:id/seb` streams the config as `application/seb` with a `content-disposition` filename, and the assessments page offers a download button on proctored tests. Kiosk/network-filtering *enforcement* is the browser's job once SEB opens the config, so the remaining ADR-17 work is the quit password (below). |
 | SEB quit password (test:edit gated) | **Deferred** | Post-v1 (ADR-17) |
 
 ### 2.5 Projects (ByteXL "Nimbus")
@@ -545,18 +545,17 @@ for **surfaces**, independent of the feature backlog above.
 | **Coding Abilities** | The four student modules (Editor / Labs / Assessments / Nimbus) and their behaviour | **Covered** — `/editor`, `/labs`, `/assessments`, `/nimbus` (§2.2–2.5) |
 | **Coding Tests** | Read-only stub regions in tests (`start/end your solution`, one editable region) | **Done** — `assessments/read-only.ts` (§2.4) |
 | **Project Evaluation & Submission** | Create project (AI title/description), attach template workspace, fork, submit, trainer score | **Done** — `project-submission.service.ts` (§2.5); AI title/description generation is the remaining Nimbus-polish item |
-| **SafeExamBrowser Guide** | `.seb` download entry point, kiosk/network filtering, quit password | **Deferred** — `buildSebConfig` only, no `.seb` route (ADR-17) |
+| **SafeExamBrowser Guide** | `.seb` download entry point, kiosk/network filtering, quit password | **Mostly done** — `GET /api/assessments/:id/seb` now serves the `.seb` config (download button on the assessments page); kiosk/network filtering is SEB's job. Quit password still deferred (ADR-17) |
 | **FAQs** | Email delivery, DNS/access, editor STDIN, library policy | **Partial** — our `/help` FAQ covers STDIN + library policy; no email/DNS ops FAQ (not applicable — no mailer yet) |
 | **Video Guides** | Screencast walkthroughs per module | **Missing** — our help centre is text + screenshots; ByteXL embeds video. Optional Phase F polish |
-| **Report an Issue** | In-app issue form (category, title, description, attachments) → support | **Missing** — our `/help` only tells users to contact an admin; no form, no backend |
+| **Report an Issue** | In-app issue form (category, title, description, attachments) → support | **Done** — `/support` form (category/title/description, captures the page URL) → `POST /api/support/issues`, with a tenant-scoped support queue (`GET`/`PATCH`) for instructors/admins. Attachments are the one remaining sub-item |
 
-The takeaway: the **help centre itself** is now at parity (role-scoped guides
-with real screenshots + FAQ), and the module docs (Coding Abilities/Tests,
-Project Evaluation) describe features we already ship. The three support-centre
-items we do **not** match are all small and additive: the in-app **Report an
-Issue** form, **video** guides, and the **`.seb`** download path. None blocks
-core parity; the first is the most valuable (it is a real user-facing workflow,
-not documentation).
+The takeaway: the **help centre itself** is at parity (role-scoped guides with
+real screenshots + FAQ), the module docs describe features we already ship, and
+the two highest-value support-centre gaps — the in-app **Report an Issue** form
+and the **`.seb`** download path — now ship. What remains from this list is
+**video** guides (documentation polish), **file attachments** on a report, and
+the SEB **quit password**.
 
 ---
 

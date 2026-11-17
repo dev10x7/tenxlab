@@ -202,6 +202,15 @@ function AssessmentCard({
       >
         {assessment.mode === 'graded' ? 'Start test' : 'Start practice'}
       </button>
+      {assessment.proctored ? (
+        <a
+          className="btn secondary"
+          style={{ marginTop: 12, marginLeft: 8 }}
+          href={api.sebConfigUrl(assessment.id)}
+        >
+          Download SEB config
+        </a>
+      ) : null}
     </div>
   );
 }

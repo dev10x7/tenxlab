@@ -224,6 +224,20 @@ export type ProctorEventType =
   | 'vm_detected'
   | 'network_lost';
 
+export type SupportCategory = 'bug' | 'feature' | 'question' | 'other';
+export type SupportStatus = 'open' | 'in_progress' | 'resolved';
+
+/** A user-filed support issue, as returned by the Report-an-Issue surface. */
+export interface SupportIssue {
+  id: string;
+  category: SupportCategory;
+  title: string;
+  description: string;
+  pageUrl: string | null;
+  status: SupportStatus;
+  createdAt: string;
+}
+
 export interface ProctorSummary {
   attemptId: string;
   eventCount: number;
@@ -748,6 +762,9 @@ export const api = {
   assessments: () => request<AssessmentView[]>('/api/assessments'),
   assessment: (id: string) =>
     request<AssessmentView>(`/api/assessments/${encodeURIComponent(id)}`),
+  /** Direct download URL for a proctored assessment's Safe Exam Browser config. */
+  sebConfigUrl: (id: string) =>
+    `${API_BASE}/api/assessments/${encodeURIComponent(id)}/seb`,
   startAttempt: (assessmentId: string, passcode?: string) =>
     request<AttemptView>(`/api/assessments/${encodeURIComponent(assessmentId)}/attempts`, {
       method: 'POST',
@@ -761,6 +778,22 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ answers }) },
     ),
   attemptHistory: () => request<AttemptView[]>('/api/assessments/attempts'),
+  reportIssue: (input: {
+    category: SupportCategory;
+    title: string;
+    description: string;
+    pageUrl?: string;
+  }) =>
+    request<SupportIssue>('/api/support/issues', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  supportIssues: () => request<SupportIssue[]>('/api/support/issues'),
+  setSupportIssueStatus: (id: string, status: SupportStatus) =>
+    request<SupportIssue>(`/api/support/issues/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
   recordProctorEvent: (attemptId: string, type: ProctorEventType, detail?: string) =>
     request<{ received: true }>(
       `/api/proctoring/attempts/${encodeURIComponent(attemptId)}/events`,

@@ -141,11 +141,13 @@ export default function Page() {
 
       <div className="card" style={{ marginTop: 24 }}>
         <h3 style={{ marginTop: 0 }}>Report an issue</h3>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Found a bug or have a feature request? Report it to your instructor or
-          platform administrator with the page you were on and what you
-          expected to happen.
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Found a bug or have a feature request? File it from the support page
+          with the page you were on and what you expected to happen.
         </p>
+        <Link className="btn" href="/support">
+          Open the report form
+        </Link>
       </div>
 
       <p className="muted" style={{ marginTop: 16 }}>

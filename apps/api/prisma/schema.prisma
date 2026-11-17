@@ -587,3 +587,22 @@ model GitPublish {
   @@index([tenantId, userId])
   @@map("git_publishes")
 }
+
+// A user-submitted support issue (ByteXL's "Report an Issue" form). Kept as its
+// own table so support can triage without reading app logs; userId is nullable
+// because a report may arrive before a session is established.
+model SupportIssue {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String?
+  category    String   @default("other") // bug | feature | question | other
+  title       String
+  description String
+  pageUrl     String?
+  status      String   @default("open") // open | in_progress | resolved
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@map("support_issues")
+}

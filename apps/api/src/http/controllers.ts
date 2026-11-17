@@ -12,6 +12,7 @@ import {
   HttpStatus,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -37,10 +38,11 @@ import {
 import { requireCapability } from './guards';
 import { BatchService } from '../batches/batch.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { SupportService } from '../support/support.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
-import { ProctoringService, isProctorEventType } from '../proctoring/proctoring.service';
+import { ProctoringService, isProctorEventType, buildSebConfig } from '../proctoring/proctoring.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import {
@@ -50,6 +52,7 @@ import {
 } from '../projects/quality-evaluation.service';
 import { GitPublishService } from '../github/git-publish.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
+import type { Env } from '../config/env';
 import {
   ASSESSMENT,
   ATTENDANCE,
@@ -58,6 +61,7 @@ import {
   COURSE_AUTHORING,
   DASHBOARD,
   EDITOR,
+  ENV,
   GIT,
   GRADEBOOK,
   JWT,
@@ -68,6 +72,7 @@ import {
   QUALITY,
   SESSION,
   SSO,
+  SUPPORT,
   USAGE,
 } from './tokens';
 
@@ -798,6 +803,7 @@ export class AssessmentController {
   constructor(
     @Inject(ASSESSMENT) private readonly assessments: AssessmentService,
     @Inject(SESSION) private readonly sessions: SessionService,
+    @Optional() @Inject(ENV) private readonly env?: Env,
   ) {}
 
   @Get()
@@ -817,6 +823,43 @@ export class AssessmentController {
     const assessment = this.assessments.getAssessment(id);
     if (!assessment) throw new NotFoundException('Assessment not found');
     return assessment;
+  }
+
+  /**
+   * Download the Safe Exam Browser configuration for a proctored assessment
+   * (ByteXL parity §2.8). SEB opens straight at the exam URL; the config is
+   * only served to a signed-in session, and a non-proctored assessment has no
+   * locked-down config to hand out.
+   */
+  @Get(':id/seb')
+  async seb(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    this.requireSession(req);
+    const assessment = this.assessments.getAssessment(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!assessment.proctored) {
+      throw new BadRequestException('This assessment is not proctored');
+    }
+    const config = buildSebConfig({
+      startUrl: `${this.webBaseUrl()}/assessments/${encodeURIComponent(id)}`,
+    });
+    res.setHeader('content-type', 'application/seb');
+    res.setHeader(
+      'content-disposition',
+      `attachment; filename="${id}.seb"`,
+    );
+    res.end(JSON.stringify(config));
+  }
+
+  /** Browser-facing origin the exam runs on; falls back to the API origin. */
+  private webBaseUrl(): string {
+    return (this.env?.WEB_PUBLIC_URL ?? this.env?.API_PUBLIC_URL ?? '').replace(
+      /\/$/,
+      '',
+    );
   }
 
   @Post(':id/attempts')
@@ -1520,5 +1563,93 @@ export class DashboardController {
       throw new ForbiddenException('The student dashboard is for students');
     }
     return this.dashboard.forStudent(session.userId, session.tenantId);
+  }
+}
+
+/**
+ * Report an Issue (ByteXL's in-product support form). Any signed-in member may
+ * file a report; the queue is a support-desk view, so reads and status changes
+ * require instructor or admin. Reports are always scoped to the caller's tenant.
+ */
+@Controller('api/support')
+export class SupportController {
+  constructor(
+    @Inject(SUPPORT) private readonly support: SupportService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** File a report. The page the reporter was on is captured for reproduction. */
+  @Post('issues')
+  @HttpCode(201)
+  async create(
+    @Body()
+    body: {
+      category?: string;
+      title?: string;
+      description?: string;
+      pageUrl?: string;
+    },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.support.create({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      category: body?.category,
+      title: body?.title,
+      description: body?.description,
+      pageUrl: body?.pageUrl,
+    });
+    if (!result.ok) {
+      const message =
+        result.reason === 'title_required'
+          ? 'title is required'
+          : result.reason === 'description_required'
+            ? 'description is required'
+            : result.reason === 'invalid_category'
+              ? 'Unknown issue category'
+              : 'Report is too long';
+      throw new BadRequestException(message);
+    }
+    return result.issue;
+  }
+
+  /** The tenant's support queue, newest first (support desk only). */
+  @Get('issues')
+  async list(@Req() req: Request) {
+    return this.support.list(this.requireInstructor(req).tenantId);
+  }
+
+  /** Move an issue through the queue (support desk only). */
+  @Patch('issues/:id')
+  async setStatus(
+    @Param('id') id: string,
+    @Body() body: { status?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    if (!body?.status) throw new BadRequestException('status is required');
+    const result = await this.support.setStatus(id, session.tenantId, body.status);
+    if (!result.ok) {
+      if (result.reason === 'invalid_status') {
+        throw new BadRequestException('Unknown issue status');
+      }
+      throw new NotFoundException('Issue not found');
+    }
+    return result.issue;
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
   }
 }

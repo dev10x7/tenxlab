@@ -22,6 +22,7 @@ import { CourseAuthoringService } from '../catalog/course-authoring.service';
 import { courseCatalogFrom } from '../catalog/course-catalog';
 import { BatchService } from '../batches/batch.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { SupportService } from '../support/support.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
@@ -57,11 +58,12 @@ import {
   PartnerSsoController,
   ProctoringController,
   ProjectsController,
+  SupportController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE, AI_BRIDGE } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, DASHBOARD };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, DASHBOARD, SUPPORT };
 
 const DEMO_STATE = createDemoState();
 
@@ -104,6 +106,7 @@ const STORE_PROVIDER = {
     ProjectsController,
     GitController,
     DashboardController,
+    SupportController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -185,6 +188,11 @@ const STORE_PROVIDER = {
           enrollments: store.enrollments,
           users: store.users,
         }),
+    },
+    {
+      provide: SUPPORT,
+      inject: [STORE],
+      useFactory: (store: Repositories) => new SupportService(store.supportIssues),
     },
     {
       provide: SSO,

@@ -151,6 +151,17 @@ a:hover {
   border-color: rgba(255, 180, 84, 0.4);
 }
 
+/* ---- Support queue status pills (ByteXL parity §2.11) ---- */
+.pill.open {
+  color: var(--warn);
+  border-color: rgba(255, 180, 84, 0.4);
+}
+
+.pill.resolved {
+  color: var(--ok);
+  border-color: rgba(61, 220, 151, 0.4);
+}
+
 input,
 select {
   width: 100%;

@@ -32,3 +32,4 @@ export const AI_BRIDGE = 'TENXLAB_AI_BRIDGE';
 export const QUALITY = 'TENXLAB_QUALITY';
 export const DASHBOARD = 'TENXLAB_DASHBOARD';
 export const ATTENDANCE = 'TENXLAB_ATTENDANCE';
+export const SUPPORT = 'TENXLAB_SUPPORT';

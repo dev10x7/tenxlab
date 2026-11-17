@@ -46,12 +46,20 @@ test('learning and practice hold the daily destinations', () => {
   );
 });
 
-test('community holds social and the student help centre', () => {
+test('community holds social, support, and the student help centre', () => {
   const community = navSections('student').find((s) => s.title === 'Community');
   assert.deepEqual(
     community?.items.map((i) => i.href),
-    ['/social', '/help/student'],
+    ['/social', '/support', '/help/student'],
   );
+});
+
+test('every role reaches the support desk (live, no phase badge)', () => {
+  for (const role of ['student', 'instructor', 'admin']) {
+    const item = navItems(role).find((i) => i.href === '/support');
+    assert.ok(item, `${role} nav has /support`);
+    assert.equal(item.phase, undefined, `/support is wired to the API (${role})`);
+  }
 });
 
 test('every role links a help centre, and instructors can reach attendance', () => {

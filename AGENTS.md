@@ -297,6 +297,56 @@ above a **left-panel** menu of sections. The menu is data in
   `deploy/kubelab/ide-gateway.mjs`) — code-server otherwise refuses to be
   embedded.
 
+## Report an Issue / support desk (2026-11-11)
+
+ByteXL's help centre exposes an in-app "Report an Issue" form; ours now mirrors
+it end to end.
+
+- **Domain:** `apps/api/src/support/support.service.ts` — `SupportService` over
+  the `SupportIssueRepository` port (`common/ports.ts`), with
+  `SUPPORT_CATEGORIES = bug | feature | question | other` and
+  `SUPPORT_STATUSES = open | in_progress | resolved`. The service validates
+  (title/description required, description length cap, known category/status)
+  and returns a discriminated result (`{ ok, reason }`) rather than throwing;
+  the controller maps each reason to its HTTP status.
+- **HTTP:** `SupportController` (`http/controllers.ts`, `@Controller('api/support')`)
+  — `POST /issues` (any signed-in member), `GET /issues` and
+  `PATCH /issues/:id` (instructor/admin only, **tenant-scoped**: the list and
+  every status change filter through the caller's tenant, so a cross-tenant id
+  is a 404, never a leak).
+- **Persistence:** table `support_issues`
+  (`prisma/migrations/20261122000000_support_issues`) with the
+  `PrismaSupportIssueRepository` adapter; `InMemorySupportIssueRepository`
+  keeps the same behaviour for tests.
+- **Web:** `/support` (`app/support/page.tsx`) — a report form that captures
+  `window.location.pathname` as `pageUrl`, plus a support queue for
+  instructors/admins. It calls a catch-all proxy
+  (`app/api/support/[...path]/route.ts`) so the session cookie stays
+  same-origin; one proxy covers POST/GET/PATCH.
+- **Nav:** `SUPPORT` is added to the Community (student) and More/Insight
+  (instructor/admin) sections in `lib/nav.ts`; `nav.test.mjs` asserts it.
+- **Conventions to remember:** the success notice uses `<p className="muted">`
+  (there is no `.success` class), and secondary buttons use `.btn secondary`
+  (there is no `.btn ghost`). Support status pills use `.pill open/in_progress/
+  resolved`.
+
+## Safe Exam Browser `.seb` download (2026-11-11)
+
+- `GET /api/assessments/:id/seb` streams `buildSebConfig()` as
+  `application/seb` with a `content-disposition: attachment; filename="<id>.seb"`.
+  A non-proctored assessment is a 400, an unknown id a 404, and an anonymous
+  caller a 401 (the route is session-gated like the rest of the controller).
+- The assessments page offers a **Download SEB config** button on proctored
+  tests; the web proxy `app/api/assessments/[id]/seb/route.ts` forwards the
+  bytes through `proxyBinary` (not the text proxy) so the binary and its
+  `content-disposition` survive.
+- `startURL` is built from `WEB_PUBLIC_URL` (falls back to `API_PUBLIC_URL`),
+  which compose sets to `http://localhost:3000`; without it the start URL points
+  at the API host.
+- Still deferred (ADR-17): the **quit password** (ByteXL gates it on
+  `test:edit`), kiosk/network-filtering enforcement (that is SEB's job once it
+  opens the config), and video proctoring (ADR-15).
+
 ## Help centre (role guides, 2026-11-11)
 
 - **Two role pages, one content module.** `/help/student` and

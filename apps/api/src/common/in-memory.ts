@@ -43,6 +43,8 @@ import type {
   ReplayGuard,
   SnippetRecord,
   SnippetRepository,
+  SupportIssueRecord,
+  SupportIssueRepository,
   TenantRecord,
   TenantRepository,
   UserRecord,
@@ -828,5 +830,36 @@ export class InMemoryQualityEvaluationRepository
   async latestByWorkspace(workspaceId: string) {
     const list = await this.listByWorkspace(workspaceId);
     return list[0] ?? null;
+  }
+}
+
+export class InMemorySupportIssueRepository implements SupportIssueRepository {
+  constructor(private readonly rows: SupportIssueRecord[] = []) {}
+  async create(input: Omit<SupportIssueRecord, 'id' | 'createdAt'>) {
+    const row: SupportIssueRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId)
+      // Newest first; equal timestamps (same-millisecond writes) fall back to
+      // insertion order so the queue is deterministic in tests.
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() ||
+          b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async update(id: string, patch: Partial<SupportIssueRecord>) {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) throw new Error(`support issue ${id} not found`);
+    Object.assign(row, patch);
+    return row;
   }
 }

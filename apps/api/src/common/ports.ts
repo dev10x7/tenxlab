@@ -294,6 +294,23 @@ export interface GitPublishRecord {
   createdAt: Date;
 }
 
+/** A user-submitted support issue (ByteXL's "Report an Issue" form). */
+export interface SupportIssueRecord {
+  id: string;
+  tenantId: string;
+  /** The reporting user; null when an anonymous/partner report is accepted. */
+  userId: string | null;
+  /** bug | feature | question | other */
+  category: string;
+  title: string;
+  description: string;
+  /** The page the reporter was on, so support can reproduce. */
+  pageUrl: string | null;
+  /** open | in_progress | resolved */
+  status: string;
+  createdAt: Date;
+}
+
 export interface TenantRepository {
   findById(id: string): Promise<TenantRecord | null>;
   findByDomain(domain: string): Promise<TenantRecord | null>;
@@ -622,4 +639,12 @@ export interface GitPublishRepository {
   listByWorkspace(workspaceId: string): Promise<GitPublishRecord[]>;
   /** The most recent successful publish of a workspace, if any. */
   latestByWorkspace(workspaceId: string): Promise<GitPublishRecord | null>;
+}
+
+export interface SupportIssueRepository {
+  create(input: Omit<SupportIssueRecord, 'id' | 'createdAt'>): Promise<SupportIssueRecord>;
+  findById(id: string): Promise<SupportIssueRecord | null>;
+  /** A tenant's issues, newest first (the support queue). */
+  listByTenant(tenantId: string): Promise<SupportIssueRecord[]>;
+  update(id: string, patch: Partial<SupportIssueRecord>): Promise<SupportIssueRecord>;
 }

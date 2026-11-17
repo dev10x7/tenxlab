@@ -22,6 +22,7 @@ import type {
   QualityEvaluationRepository,
   ReplayGuard,
   SnippetRepository,
+  SupportIssueRepository,
   TenantRepository,
   UserRepository,
 } from '../common/ports';
@@ -56,6 +57,7 @@ export interface Repositories {
   qualityEvaluations: QualityEvaluationRepository;
   gitConnections: GitConnectionRepository;
   gitPublishes: GitPublishRepository;
+  supportIssues: SupportIssueRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

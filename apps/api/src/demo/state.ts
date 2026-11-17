@@ -23,6 +23,7 @@ import {
   InMemoryQualityEvaluationRepository,
   InMemoryReplayGuard,
   InMemorySnippetRepository,
+  InMemorySupportIssueRepository,
   InMemoryTenantRepository,
   InMemoryUserRepository,
 } from '../common/in-memory';
@@ -50,6 +51,7 @@ import {
   PrismaQualityEvaluationRepository,
   PrismaReplayGuard,
   PrismaSnippetRepository,
+  PrismaSupportIssueRepository,
   PrismaTenantRepository,
   PrismaUserRepository,
 } from '../common/prisma-repositories';
@@ -86,6 +88,7 @@ export interface DemoState extends Repositories {
   qualityEvaluations: InMemoryQualityEvaluationRepository;
   gitConnections: InMemoryGitConnectionRepository;
   gitPublishes: InMemoryGitPublishRepository;
+  supportIssues: InMemorySupportIssueRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -207,6 +210,7 @@ export function createDemoState(): DemoState {
     qualityEvaluations: new InMemoryQualityEvaluationRepository(),
     gitConnections: new InMemoryGitConnectionRepository(),
     gitPublishes: new InMemoryGitPublishRepository(),
+    supportIssues: new InMemorySupportIssueRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -238,6 +242,7 @@ export function createPrismaState(db: PrismaClient): Repositories {
     qualityEvaluations: new PrismaQualityEvaluationRepository(db),
     gitConnections: new PrismaGitConnectionRepository(db),
     gitPublishes: new PrismaGitPublishRepository(db),
+    supportIssues: new PrismaSupportIssueRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

@@ -137,6 +137,13 @@ const HELP: NavItem = {
   blurb: 'Step-by-step guides, screenshots, and FAQs for every module.',
 };
 
+const SUPPORT: NavItem = {
+  href: '/support',
+  label: 'Support',
+  icon: '⚑',
+  blurb: 'Report a bug or request a feature; the desk triages tenant reports.',
+};
+
 /** Role-scoped help centre; each persona has its own walkthroughs. */
 const HELP_STUDENT: NavItem = {
   href: '/help/student',
@@ -251,7 +258,7 @@ const STUDENT: NavSection[] = [
   },
   {
     title: 'Community',
-    items: [SOCIAL, HELP_STUDENT],
+    items: [SOCIAL, SUPPORT, HELP_STUDENT],
   },
 ];
 
@@ -270,7 +277,7 @@ const INSTRUCTOR: NavSection[] = [
   },
   {
     title: 'More',
-    items: [REPORTS, NIMBUS, HELP_INSTRUCTOR],
+    items: [REPORTS, NIMBUS, SUPPORT, HELP_INSTRUCTOR],
   },
 ];
 
@@ -285,7 +292,7 @@ const ADMIN: NavSection[] = [
   },
   {
     title: 'Insight',
-    items: [REPORTS, PROCTORING, HELP_INSTRUCTOR],
+    items: [REPORTS, PROCTORING, SUPPORT, HELP_INSTRUCTOR],
   },
 ];
 

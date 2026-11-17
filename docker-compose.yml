@@ -276,6 +276,9 @@ services:
       SESSION_SECRET: dev-session-secret-change-me
       WEBHOOK_SECRET: dev-webhook-secret
       API_PUBLIC_URL: http://localhost:4000
+      # Browser-facing origin, used to build links the API emits (e.g. the Safe
+      # Exam Browser start URL for a proctored assessment).
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3000}
       LAB_ASSET_BASE_URL: http://api:4000
       # KubeLab execution plane, bootstrapped by `k8s-up` on the `labs` network.
       # The control plane is reached by its ingress host (the node's pinned IP

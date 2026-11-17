@@ -61,6 +61,9 @@ const EnvSchema = z.object({
   SESSION_SECRET: z.string().default('dev-session-secret'),
   // Public URL of this API, used to build links the browser follows.
   API_PUBLIC_URL: z.string().default('http://localhost:4000'),
+  // Public URL of the web app, used to build browser-facing links the API emits
+  // (e.g. the Safe Exam Browser start URL). Falls back to API_PUBLIC_URL.
+  WEB_PUBLIC_URL: z.string().optional(),
 
   // When true, lab launches provision real KubeLab sandboxes. Off by default so
   // tests and catalog-only deployments never touch a cluster.

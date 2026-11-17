@@ -168,3 +168,53 @@ test('the assessment view flags a locked test without leaking the code', async (
   assert.equal(view.requiresPasscode, true);
   assert.equal((view as unknown as Record<string, unknown>)['passcode'], undefined);
 });
+
+/** A minimal express Response double that records headers and the body. */
+function fakeRes() {
+  const headers: Record<string, string> = {};
+  let body = '';
+  return {
+    res: {
+      setHeader: (k: string, v: string) => {
+        headers[k] = v;
+      },
+      end: (chunk: unknown) => {
+        body = String(chunk);
+      },
+    },
+    headers,
+    getBody: () => body,
+  };
+}
+
+test('a proctored assessment exposes a downloadable SEB config', async () => {
+  const { assessmentController } = wiring();
+  const out = fakeRes();
+  await assessmentController.seb('k8s-quiz-1', req(cookieFor('u1')), out.res as never);
+  assert.equal(out.headers['content-type'], 'application/seb');
+  assert.match(out.headers['content-disposition'] ?? '', /filename="k8s-quiz-1\.seb"/);
+  const config = JSON.parse(out.getBody()) as Record<string, unknown>;
+  assert.match(String(config.startURL), /\/assessments\/k8s-quiz-1$/);
+  // Locked down: no app switching, no quitting, no capture.
+  assert.equal(config.allowSwitchToApplications, false);
+  assert.equal(config.allowQuit, false);
+  assert.equal(config.enableScreenCapture, false);
+});
+
+test('a non-proctored assessment has no SEB config', async () => {
+  const { assessmentController } = wiring();
+  const out = fakeRes();
+  await assert.rejects(
+    () => assessmentController.seb('k8s-practice-1', req(cookieFor('u1')), out.res as never),
+    /not proctored/i,
+  );
+});
+
+test('the SEB config is not served to an anonymous caller', async () => {
+  const { assessmentController } = wiring();
+  const out = fakeRes();
+  await assert.rejects(
+    () => assessmentController.seb('k8s-quiz-1', req(), out.res as never),
+    /Sign in required/,
+  );
+});
