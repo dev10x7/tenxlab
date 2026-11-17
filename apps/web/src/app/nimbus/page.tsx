@@ -98,6 +98,7 @@ function StudentProjects() {
         deadline: view.project.deadline,
       },
       components: view.components.map((c) => ({
+        id: c.id,
         title: c.title,
         technology: c.technology,
         fork: c.fork ? { id: c.fork.id } : null,
@@ -313,6 +314,19 @@ function WorkspaceCard({
     }
   }
 
+  async function restart() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.forkProjectComponent(row.projectId, row.componentId);
+      onChanged();
+    } catch {
+      setError('Could not restart the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function destroy() {
     if (
       typeof window !== 'undefined' &&
@@ -335,6 +349,7 @@ function WorkspaceCard({
   }
 
   const running = row.status === 'running';
+  const failed = row.status === 'failed';
   const downloadable = row.status === 'running' || row.status === 'stopped';
 
   return (
@@ -369,6 +384,11 @@ function WorkspaceCard({
         {running ? (
           <button className="btn secondary" onClick={stop} disabled={busy}>
             Stop
+          </button>
+        ) : null}
+        {failed ? (
+          <button className="btn" onClick={restart} disabled={busy}>
+            Start again
           </button>
         ) : null}
         {running && !liveUrl ? (

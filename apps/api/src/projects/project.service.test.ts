@@ -341,6 +341,22 @@ async function runningWorkspace(
   return w;
 }
 
+/** A fork row pointing at an existing workspace, for the reconcile tests. */
+async function seedFork(
+  fx: ReturnType<typeof fixture>,
+  workspaceId: string,
+) {
+  return fx.forks.create({
+    projectId: 'p1',
+    componentId: 'c1',
+    tenantId: 't1',
+    userId: 'u1',
+    workspaceId,
+    sourceTemplateSlug: 'spring-boot',
+    sourceWorkspaceId: null,
+  });
+}
+
 test('deploy exposes a running workspace and records its URL and port', async () => {
   const { exposer, calls } = fakeExposer();
   const fx = fixture({ exposer });
@@ -681,6 +697,109 @@ test('re-forking a failed workspace re-provisions instead of patching a gone Dep
   await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
   assert.deepEqual(calls.resume, [], 'a failed workspace must not be resumed');
   assert.deepEqual(provisioned, [first.workspaceId, first.workspaceId]);
+});
+
+test('reading a running workspace whose workload is gone marks it failed', async () => {
+  // A rebuilt cluster leaves the row claiming `running` with a host while the
+  // workload is gone; the read path repairs it so the UI never shows a link
+  // that 404s at the ingress.
+  const fx = fixture({
+    provider: { ...fakeProvider().provider, async status() { return null; } },
+  });
+  const w = await runningWorkspace(fx.workspaces);
+  const fork = await seedFork(fx, w.id);
+  const res = await fx.svc.getForkStatus(fork.id);
+  assert.equal(res?.workspace?.status, 'failed');
+  assert.equal(res?.workspace?.ideHost, null);
+  assert.equal((await fx.workspaces.findById(w.id))?.status, 'failed');
+});
+
+test('reading a running workspace whose workload still exists leaves it running', async () => {
+  const fx = fixture({ provider: fakeProvider().provider });
+  const w = await runningWorkspace(fx.workspaces);
+  const fork = await seedFork(fx, w.id);
+  const res = await fx.svc.getForkStatus(fork.id);
+  assert.equal(res?.workspace?.status, 'running');
+  assert.equal(res?.workspace?.ideHost, 'ide.example.com');
+});
+
+test('reading a running workspace survives a provider error', async () => {
+  // A transient control-plane blip must not condemn a healthy workspace.
+  const fx = fixture({
+    provider: {
+      ...fakeProvider().provider,
+      async status() {
+        throw new Error('control plane unreachable');
+      },
+    },
+  });
+  const w = await runningWorkspace(fx.workspaces);
+  const fork = await seedFork(fx, w.id);
+  const res = await fx.svc.getForkStatus(fork.id);
+  assert.equal(res?.workspace?.status, 'running');
+});
+
+test('reading a stopped workspace does not probe the execution plane', async () => {
+  // A stopped workspace legitimately has no running compute; reconciling it
+  // would wrongly flip a resumable workspace to failed.
+  let probed = false;
+  const fx = fixture({
+    provider: {
+      ...fakeProvider().provider,
+      async status() {
+        probed = true;
+        return null;
+      },
+    },
+  });
+  const w = await runningWorkspace(fx.workspaces);
+  await fx.svc.stopWorkspace('u1', w.id);
+  const fork = await seedFork(fx, w.id);
+  const res = await fx.svc.getForkStatus(fork.id);
+  assert.equal(res?.workspace?.status, 'stopped');
+  assert.equal(probed, false, 'a stopped workspace must not be reconciled');
+});
+
+test('re-forking a stale running workspace re-provisions instead of re-attaching', async () => {
+  // The row says `running` but the workload is gone; a plain re-attach would
+  // hand back a dead IDE URL, so the reconcile turns it into a re-provision.
+  const provisioned: string[] = [];
+  const provider = {
+    ...suspendableProvider().provider,
+    async status() {
+      return null;
+    },
+    async provision(spec: LabSpec) {
+      provisioned.push(spec.session_id);
+      return {
+        session_id: spec.session_id,
+        status: 'ACTIVE' as const,
+        tier: spec.runtime_tier,
+        ide_host: 'ide.example.com',
+        ide_url: 'https://ide.example.com/ws',
+        provider_ref: `ns-${spec.session_id}`,
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: spec.ttl_seconds,
+      };
+    },
+  };
+  const fx = fixture({ provider });
+  const w = await runningWorkspace(fx.workspaces);
+  const fork = await seedFork(fx, w.id);
+
+  const res = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.forkId, fork.id);
+  await waitFor(async () => provisioned.length === 1);
+  assert.deepEqual(provisioned, [w.id], 'a stale workspace must be re-provisioned');
+  assert.equal((await fx.workspaces.findById(w.id))?.status, 'running');
 });
 
 test('a non-suspendable provider is terminated on stop', async () => {

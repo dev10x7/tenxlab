@@ -221,7 +221,7 @@ test('partner SSO rejects unknown user when JIT is disabled', async () => {
 
 // -------------------------------------------------------------- Lab launch
 
-function labFixture(maxConcurrentLabs = 10) {
+function labFixture(maxConcurrentLabs = 10, providerOverride?: unknown) {
   const tenants = new InMemoryTenantRepository();
   tenants.seed({
     id: 'tenant_1',
@@ -263,7 +263,7 @@ function labFixture(maxConcurrentLabs = 10) {
     memberships,
     tenants,
     sessions,
-    provider: {
+    provider: (providerOverride ?? {
       name: 'fake',
       async provision(spec: { session_id: string }) {
         return {
@@ -278,7 +278,7 @@ function labFixture(maxConcurrentLabs = 10) {
           ttl_seconds: 1800,
         };
       },
-    } as never,
+    }) as never,
   });
   return { svc, sessions, memberships, lessons, tenants };
 }
@@ -403,6 +403,69 @@ test('lab launch provisions through the provider and records the IDE URL', async
   assert.equal(row?.kubelabRef, 'kl-1');
   assert.equal(provisioned.length, 1);
   assert.equal(provisioned[0]?.['exercise_id'], 'create-simple-pod');
+});
+
+test('reading an ACTIVE session whose workload is gone marks it FAILED', async () => {
+  // A rebuilt cluster leaves the row claiming ACTIVE with a host while the
+  // workload is gone; the read path repairs it so the UI reports a dead lab
+  // instead of handing out a link that 404s at the ingress.
+  const { svc, sessions } = labFixture(10, {
+    name: 'fake',
+    async status() {
+      return null;
+    },
+  });
+  const row = await sessions.create({
+    tenantId: 'tenant_1',
+    userId: 'user_1',
+    exerciseSlug: 'create-simple-pod',
+    tier: 'tier_3_vcluster',
+    status: 'ACTIVE',
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    ttlSeconds: 1800,
+    ideHost: 'ide.example.com',
+    kubelabRef: 'kl-1',
+  });
+
+  const read = await svc.getSession(row.id);
+  assert.equal(read?.status, 'FAILED');
+  assert.equal(read?.ideHost, null);
+  assert.equal((await sessions.findById(row.id))?.status, 'FAILED');
+});
+
+test('reading an ACTIVE session whose workload still exists leaves it ACTIVE', async () => {
+  const { svc, sessions } = labFixture(10, {
+    name: 'fake',
+    async status(id: string) {
+      return {
+        session_id: id,
+        status: 'ACTIVE' as const,
+        tier: 'tier_3_vcluster' as const,
+        ide_host: 'ide.example.com',
+        provider_ref: 'kl-1',
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: 1800,
+      };
+    },
+  });
+  const row = await sessions.create({
+    tenantId: 'tenant_1',
+    userId: 'user_1',
+    exerciseSlug: 'create-simple-pod',
+    tier: 'tier_3_vcluster',
+    status: 'ACTIVE',
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    ttlSeconds: 1800,
+    ideHost: 'ide.example.com',
+    kubelabRef: 'kl-1',
+  });
+
+  const read = await svc.getSession(row.id);
+  assert.equal(read?.status, 'ACTIVE');
+  assert.equal(read?.ideHost, 'ide.example.com');
 });
 
 test('a tier-2 lesson routes to the pod provider and records its IDE URL', async () => {

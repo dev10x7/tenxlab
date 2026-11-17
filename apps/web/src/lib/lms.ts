@@ -236,6 +236,8 @@ export interface NimbusWorkspaceRow {
   componentTitle: string;
   technology: string;
   forkId: string;
+  /** The component the fork was made from, for re-forking a failed workspace. */
+  componentId: string;
   /** The workspace the quick actions act on (stop/deploy/download/delete). */
   workspaceId: string;
   status: string;
@@ -278,6 +280,7 @@ export function nimbusLanding(input: {
   projects: Array<{
     project: { id: string; title: string; deadline: string | null };
     components: Array<{
+      id: string;
       title: string;
       technology: string;
       fork: { id: string } | null;
@@ -303,6 +306,7 @@ export function nimbusLanding(input: {
         componentTitle: component.title,
         technology: component.technology,
         forkId: fork.id,
+        componentId: component.id,
         workspaceId: status?.workspaceId ?? '',
         status: status?.status ?? 'provisioning',
         ideUrl: status?.ideUrl ?? null,

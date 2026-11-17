@@ -316,13 +316,13 @@ test('nimbusLanding folds projects, statuses, and submissions into one view', ()
       {
         project: { id: 'p1', title: 'Task API', deadline: null },
         components: [
-          { title: 'API', technology: 'spring-boot', fork: { id: 'f1' } },
-          { title: 'Web', technology: 'react', fork: null },
+          { id: 'c1', title: 'API', technology: 'spring-boot', fork: { id: 'f1' } },
+          { id: 'c2', title: 'Web', technology: 'react', fork: null },
         ],
       },
       {
         project: { id: 'p2', title: 'Data Lab', deadline: null },
-        components: [{ title: 'DB', technology: 'postgres', fork: null }],
+        components: [{ id: 'c3', title: 'DB', technology: 'postgres', fork: null }],
       },
     ],
     statuses: {
@@ -338,6 +338,7 @@ test('nimbusLanding folds projects, statuses, and submissions into one view', ()
 
   assert.equal(landing.workspaces.length, 1);
   assert.equal(landing.workspaces[0].forkId, 'f1');
+  assert.equal(landing.workspaces[0].componentId, 'c1');
   assert.equal(landing.workspaces[0].workspaceId, 'w1');
   assert.equal(landing.workspaces[0].deployUrl, 'https://app');
   assert.deepEqual(landing.counts, {
@@ -354,7 +355,7 @@ test('nimbusLanding lists only projects with an unforked component', () => {
     projects: [
       {
         project: { id: 'p1', title: 'Done', deadline: null },
-        components: [{ title: 'API', technology: 'java', fork: { id: 'f1' } }],
+        components: [{ id: 'c1', title: 'API', technology: 'java', fork: { id: 'f1' } }],
       },
     ],
     statuses: { f1: { workspaceId: 'w1', status: 'stopped', ideUrl: null, deployUrl: null } },
@@ -371,7 +372,7 @@ test('nimbusLanding treats a missing status as still provisioning', () => {
     projects: [
       {
         project: { id: 'p1', title: 'Task API', deadline: null },
-        components: [{ title: 'API', technology: 'java', fork: { id: 'f1' } }],
+        components: [{ id: 'c1', title: 'API', technology: 'java', fork: { id: 'f1' } }],
       },
     ],
     statuses: {},

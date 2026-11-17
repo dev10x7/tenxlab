@@ -87,6 +87,24 @@ export default function NimbusWorkspacePage({
     }
   }
 
+  async function restart() {
+    if (!status) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.forkProjectComponent(
+        status.projectId,
+        status.componentId,
+      );
+      setPhase('provisioning');
+      void poll(result.forkId, Date.now() + MAX_WAIT_MS);
+    } catch {
+      setError('Could not restart the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (phase === 'ready' && status?.ideUrl) {
     return (
       <div className="ide-panel">
@@ -134,6 +152,18 @@ export default function NimbusWorkspacePage({
           <Link href="/nimbus">Nimbus</Link> to resume building — your files are
           kept.
         </p>
+      ) : null}
+
+      {phase === 'failed' ? (
+        <div>
+          <p className="muted">
+            This workspace is no longer available. Start it again to get a fresh
+            one.
+          </p>
+          <button className="btn" onClick={restart} disabled={busy || !status}>
+            Start again
+          </button>
+        </div>
       ) : null}
 
       <Link className="btn secondary" href="/nimbus">

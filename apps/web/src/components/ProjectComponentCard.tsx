@@ -173,6 +173,18 @@ export function ProjectComponentCard({
         </button>
       ) : null}
 
+      {phase === 'failed' ? (
+        <div>
+          <p className="muted" style={{ marginBottom: 8 }}>
+            This workspace is no longer available. Start it again to get a fresh
+            one.
+          </p>
+          <button className="btn" onClick={fork} disabled={busy}>
+            Start again
+          </button>
+        </div>
+      ) : null}
+
       {phase === 'provisioning' ? (
         <p className="muted" style={{ marginBottom: 0 }}>
           Starting your cloud workspace… this usually takes one to two minutes.

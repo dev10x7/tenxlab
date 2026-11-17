@@ -1128,6 +1128,8 @@ export class ProjectsController {
     return {
       forkId: status.fork.id,
       workspaceId: status.fork.workspaceId,
+      componentId: status.fork.componentId,
+      projectId: status.fork.projectId,
       status: status.workspace?.status ?? 'stopped',
       tier: status.workspace?.runtimeTier ?? null,
       ideUrl: status.workspace ? this.projects.ideUrlFor(status.workspace) : null,

@@ -1,4 +1,4 @@
-import type { RuntimeTier } from '@tenxlab/contracts';
+import type { RuntimeTier, SessionHandle } from '@tenxlab/contracts';
 import { composeIdeUrl, type LabProvider } from '@tenxlab/lab-provider';
 import { routeTier } from '@tenxlab/runtime-policy';
 import type {
@@ -148,7 +148,43 @@ export class LabLaunchService {
   }
 
   async getSession(sessionId: string): Promise<LabSessionRecord | null> {
-    return this.deps.sessions.findById(sessionId);
+    const session = await this.deps.sessions.findById(sessionId);
+    return session ? this.reconcile(session) : null;
+  }
+
+  /**
+   * Repair an `ACTIVE` session against the execution plane on read.
+   *
+   * A session row outlives the cluster it describes: a rebuilt cluster leaves
+   * the row claiming `ACTIVE` with an `ideHost`, so the student's IDE link
+   * resolves to an ingress with no matching rule and 404s. When the provider no
+   * longer knows the session, the row is flipped to `FAILED` and its host
+   * cleared, so the UI reports a dead lab instead of a broken link.
+   *
+   * Only `ACTIVE` is reconciled (a `WARM` session may still be cold-starting),
+   * and a provider error leaves the row untouched — a transient blip must not
+   * condemn a healthy session.
+   */
+  private async reconcile(session: LabSessionRecord): Promise<LabSessionRecord> {
+    if (session.status !== 'ACTIVE') return session;
+    const provider = this.deps.provider;
+    if (!provider) return session;
+    let handle: SessionHandle | null;
+    try {
+      handle = await provider.status(session.id);
+    } catch {
+      return session;
+    }
+    if (handle) return session;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[lab-launch] session ${session.id} is gone from the execution plane; marking FAILED`,
+    );
+    return this.deps.sessions.update(session.id, {
+      status: 'FAILED',
+      ideHost: null,
+      lastActivityAt: new Date(),
+    });
   }
 
   /**

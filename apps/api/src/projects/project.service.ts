@@ -212,7 +212,12 @@ export class ProjectService {
       req.userId,
     );
     if (existing) {
-      const workspace = await this.deps.workspaces.findById(existing.workspaceId);
+      const found = await this.deps.workspaces.findById(existing.workspaceId);
+      // Repair a stale `running` row first: a rebuilt cluster leaves the row
+      // claiming `running` while the workload is gone, so a plain re-attach
+      // would hand back a dead IDE URL. Reconciling turns it into `failed`,
+      // which the branch below then re-provisions.
+      const workspace = found ? await this.reconcile(found) : null;
       // Re-forking a stopped or failed workspace brings it back: a stopped one
       // resumes from its surviving volume, a failed one re-provisions against
       // the same id, rather than re-attaching to a dead environment.
@@ -668,7 +673,49 @@ export class ProjectService {
   ): Promise<{ fork: ProjectForkRecord; workspace: ProjectWorkspaceRecord | null } | null> {
     const fork = await this.deps.forks.findById(forkId);
     if (!fork) return null;
-    return { fork, workspace: await this.deps.workspaces.findById(fork.workspaceId) };
+    const workspace = await this.deps.workspaces.findById(fork.workspaceId);
+    return { fork, workspace: workspace ? await this.reconcile(workspace) : null };
+  }
+
+  /**
+   * Repair a `running` workspace against the execution plane on read.
+   *
+   * A workspace row outlives the cluster it describes. A rebuilt cluster (or a
+   * namespace reaped out of band) leaves the row claiming `running` with an
+   * `ideHost`, so the student's "Open workspace" link resolves to an ingress
+   * with no matching rule and returns a bare 404. The row is the only durable
+   * record of the workspace, so the read path repairs it: when the provider no
+   * longer knows the workspace, the row is flipped to `failed` and its host
+   * cleared.
+   *
+   * Only `running` is reconciled. A `provisioning` row may still be in flight,
+   * and a `stopped` row legitimately has no running compute (its volume is the
+   * promise; a re-fork resumes or re-provisions it). A provider error leaves the
+   * row untouched — a transient control-plane blip must not condemn a healthy
+   * workspace.
+   */
+  private async reconcile(
+    workspace: ProjectWorkspaceRecord,
+  ): Promise<ProjectWorkspaceRecord> {
+    if (workspace.status !== 'running') return workspace;
+    const provider = this.deps.provider;
+    if (!provider) return workspace;
+    let handle: SessionHandle | null;
+    try {
+      handle = await provider.status(workspace.id);
+    } catch {
+      return workspace;
+    }
+    if (handle) return workspace;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[project-fork] workspace ${workspace.id} is gone from the execution plane; marking failed`,
+    );
+    return this.deps.workspaces.update(workspace.id, {
+      status: 'failed',
+      ideHost: null,
+      lastActivityAt: new Date(),
+    });
   }
 
   /**

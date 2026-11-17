@@ -380,6 +380,10 @@ export interface InstructorProjectView {
 export interface ForkStatus {
   forkId: string;
   workspaceId: string;
+  /** The component the fork was made from; lets the UI re-fork a failed one. */
+  componentId: string;
+  /** The project the fork belongs to. */
+  projectId: string;
   status: WorkspaceStatus;
   tier: string | null;
   ideUrl: string | null;
