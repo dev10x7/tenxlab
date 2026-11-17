@@ -40,10 +40,23 @@ test('manifests declare a namespace, service account and binding', () => {
 
 test('the cluster role can manage every object the pod provider applies', () => {
   const role = byKind('ClusterRole');
-  for (const resource of ['namespaces', 'pods', 'services', 'persistentvolumeclaims', 'ingresses']) {
+  for (const resource of [
+    'namespaces',
+    'pods',
+    'services',
+    'persistentvolumeclaims',
+    'ingresses',
+    // Forks run as Deployments (ADR-20), so the role must manage them too.
+    'deployments',
+    // File reads and archives run as Jobs and are read back from pod logs.
+    'jobs',
+    'pods/log',
+  ]) {
     assert.match(role.body, new RegExp(resource), `ClusterRole cannot manage ${resource}`);
   }
   assert.match(role.body, /networking\.k8s\.io/);
+  assert.match(role.body, /apiGroups:\s*\['apps'\]/);
+  assert.match(role.body, /apiGroups:\s*\['batch'\]/);
 });
 
 test('the operator runs as a single replica with the service account', () => {

@@ -1,0 +1,33 @@
+# kind cluster used by the compose lab execution plane.
+#
+# This is the same plane `scripts/dev-up.sh` runs on minikube, but backed by a
+# kind cluster that `docker compose` bootstraps on its own: no host-installed
+# minikube, no separate `--addons=ingress` step.
+#
+# Two details matter:
+#   - The control-plane node is labelled `ingress-ready=true` so the upstream
+#     ingress-nginx `kind` manifest schedules its controller onto it.
+#   - `certSANs` include the node's pinned lab-network address (`__LAB_NODE_IP__`,
+#     substituted by deploy/kubelab/k8s-up.sh). The compose network pins that
+#     address so the API can reach the API server at https://<ip>:6443 with TLS
+#     verification intact. Without the SAN, only 127.0.0.1 and the boot-time
+#     address are valid, and certificate-based calls fail once the node is
+#     re-pinned to its stable address.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: tenxlab
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          certSANs:
+            - "127.0.0.1"
+            - "localhost"
+            - "__LAB_NODE_IP__"

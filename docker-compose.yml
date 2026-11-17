@@ -7,7 +7,19 @@
 # Prisma migrations and seeds the demo catalog on first boot.
 #
 # Ports: web 3000, api 4000, ai 8000, postgres 5432, redis 6379, minio 9000/9001,
-# piston 2000 (opt-in via the `runner` profile).
+# piston 2000, IDE gateway 12001.
+#
+# The Editor's Run button is backed by Piston (the tier-1 pool), which is part of
+# the default stack. `piston-init` installs the editor's language runtimes on
+# first boot; the API starts with PISTON_ENABLED=true so Run works out of the box.
+#
+# The lab execution plane (tiers 2 and 3) is bootstrapped by `k8s-up`, which
+# creates a kind cluster, installs ingress-nginx and applies KubeLab, then exits.
+# The API waits for it and starts with KUBELAB_ENABLED=true and
+# POD_PROVIDER_ENABLED=true, so lab launches provision real sandboxes. The kind
+# node is a sibling container (driven through the host Docker socket), not a
+# compose service, so `docker compose down` leaves it behind: tear the plane
+# down with `kind delete cluster --name tenxlab`.
 #
 # services/lab-operator is intentionally not here yet: it exits until a
 # deployment bootstrap injects OperatorPorts (a KubeLab-backed provider plus a
@@ -84,13 +96,11 @@ services:
       echo 'MinIO buckets ready';
       "
 
-  # Tier-1 code execution pool (Piston, ADR-12). Opt-in: `docker compose
-  # --profile runner up`. Piston runs untrusted code, so it is kept out of the
-  # default stack and only started when the Editor's Run button is needed.
+  # Tier-1 code execution pool (Piston, ADR-12). Runs by default so the Editor's
+  # Run button works out of the box; `piston-init` installs the language runtimes.
   piston:
     image: ghcr.io/engineer-man/piston:latest
     container_name: tenxlab-piston
-    profiles: ['runner']
     # Piston needs to spawn sandboxes; the default seccomp profile blocks the
     # clone/unshare it relies on, so it runs privileged and disables isolation.
     privileged: true
@@ -101,6 +111,68 @@ services:
       - '2000:2000'
     volumes:
       - ./data/piston:/piston
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:2000/api/v2/runtimes',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # Installs the Editor's language runtimes into Piston on first boot. The stock
+  # Piston image ships almost nothing, and it fetches each package from GitHub at
+  # install time, so this runs once here rather than on the first student Run.
+  # Idempotent: runtimes already present are skipped, so later boots are cheap
+  # (installs persist in the ./data/piston volume).
+  piston-init:
+    image: curlimages/curl:latest
+    container_name: tenxlab-piston-init
+    depends_on:
+      piston:
+        condition: service_healthy
+    entrypoint: ['sh', '-c']
+    command:
+      - |
+        set -eu
+        api=http://piston:2000/api/v2
+        # Piston *package* name -> the runtime language it provides. They differ
+        # (node runs javascript, gcc runs c/c++, mono runs csharp), and the
+        # install API keys on the package name while /runtimes reports the
+        # language, so both halves are needed. Keep in sync with
+        # EDITOR_LANGUAGES (packages/contracts).
+        packages="python:python node:javascript typescript:typescript java:java gcc:c sqlite3:sqlite3 mono:csharp go:go rust:rust php:php ruby:ruby kotlin:kotlin bash:bash"
+        installed=$$(curl -fsS "$$api/runtimes" || echo '[]')
+        for pair in $$packages; do
+          pkg=$${pair%%:*}
+          lang=$${pair##*:}
+          if echo "$$installed" | grep -q "\"language\":\"$$lang\""; then
+            echo "piston runtime already installed: $$pkg"
+            continue
+          fi
+          echo "installing piston runtime: $$pkg"
+          n=0
+          while :; do
+            body=$$(curl -sS -X POST "$$api/packages" \
+              -H 'content-type: application/json' \
+              -d "{\"language\":\"$$pkg\",\"version\":\"*\"}" 2>&1) && break
+            # A concurrent/previous install that finished first is not an error.
+            case "$$body" in
+              *'Already installed'*) break ;;
+            esac
+            n=$$((n + 1))
+            if [ "$$n" -ge 5 ]; then
+              echo "gave up installing piston runtime: $$pkg ($$body)" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+        done
+        echo 'piston runtimes ready'
 
   # Warm-pool reconciler for the lab execution plane. Off by default; enable
   # with `--profile operator`. It needs a reachable cluster (KUBECONFIG) and
@@ -116,12 +188,70 @@ services:
         condition: service_healthy
     environment:
       LAB_OPERATOR_DATABASE_URL: postgresql://tenxlab:tenxlab@postgres:5432/tenxlab?schema=public
-      KUBELAB_ALLOWED_HOSTS: 192.168.49.2.nip.io
+      KUBELAB_ALLOWED_HOSTS: ${LAB_NODE_IP:-192.168.240.2}.nip.io
       KUBELAB_IDE_SCHEME: https
       RECONCILE_INTERVAL_MS: '30000'
     # The cluster config is mounted read-only; the operator never writes it.
     volumes:
       - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+
+  # Bootstraps the lab execution plane, then exits. Creates the kind cluster on
+  # the `labs` network, installs ingress-nginx, applies KubeLab, mints the
+  # KubeLab admin and writes the API's kubeconfig. `api` waits for it to finish,
+  # so a single `docker compose up --build` yields a working plane. Idempotent:
+  # a second run reuses the existing cluster.
+  #
+  # The Docker socket lets kind create the node as a sibling container on the
+  # host (kind has no other way to run), and LAB_NODE_IP is the fixed address
+  # the `labs` network pins for it — that is what makes per-session
+  # `*.nip.io` ingress hosts (and the API's kubeconfig) deterministic.
+  k8s-up:
+    build:
+      context: .
+      dockerfile: deploy/kubelab/Dockerfile
+    container_name: tenxlab-k8s-up
+    restart: 'no'
+    environment:
+      LAB_NODE_IP: ${LAB_NODE_IP:-192.168.240.2}
+      LAB_DOCKER_NETWORK: tenxlab_labs
+      KUBELAB_ALLOWED_HOSTS: ${LAB_NODE_IP:-192.168.240.2}.nip.io
+      KUBELAB_ADMIN_EMAIL: ${KUBELAB_ADMIN_EMAIL:-tenxlab@tenxlab.local}
+      KUBELAB_ADMIN_PASSWORD: ${KUBELAB_ADMIN_PASSWORD:-tenxlab-dev-admin}
+      KUBECONFIG_OUT: /kubeconfig/config
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kubeconfig:/kubeconfig
+    # Static address so the node is the network's only dynamically-addressed
+    # member and therefore gets LAB_NODE_IP by construction.
+    networks:
+      labs:
+        ipv4_address: ${LAB_K8SUP_IP:-192.168.240.3}
+
+  # Public entry point for per-session lab IDEs. The browser reaches the IDE
+  # through this single port as <public>/lab/<ingress-host>/…, which the gateway
+  # proxies to the ingress host over TLS. It must resolve those hosts, so it
+  # joins the `labs` network alongside the node.
+  ide-gateway:
+    image: node:22-slim
+    container_name: tenxlab-ide-gateway
+    restart: unless-stopped
+    depends_on:
+      k8s-up:
+        condition: service_completed_successfully
+    environment:
+      IDE_PROXY_PORT: '12001'
+    command: ['node', 'deploy/kubelab/ide-gateway.mjs']
+    working_dir: /app
+    volumes:
+      - ./deploy/kubelab/ide-gateway.mjs:/app/deploy/kubelab/ide-gateway.mjs:ro
+    ports:
+      - '12001:12001'
+    # Static address: see `k8s-up`. `default` is not attached, so the gateway
+    # keeps no route back into the LMS services it does not need.
+    networks:
+      labs:
+        ipv4_address: ${LAB_GATEWAY_IP:-192.168.240.4}
+
 
   api:
     build:
@@ -133,6 +263,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      piston:
+        condition: service_healthy
+      k8s-up:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: '4000'
@@ -143,21 +277,43 @@ services:
       WEBHOOK_SECRET: dev-webhook-secret
       API_PUBLIC_URL: http://localhost:4000
       LAB_ASSET_BASE_URL: http://api:4000
-      # KubeLab is an external execution plane; point these at a reachable
-      # instance and set KUBELAB_ENABLED=true to provision real sandboxes.
-      KUBELAB_ENABLED: 'false'
-      KUBELAB_BASE_URL: http://kubelab.local
+      # KubeLab execution plane, bootstrapped by `k8s-up` on the `labs` network.
+      # The control plane is reached by its ingress host (the node's pinned IP
+      # under nip.io), so the API needs no port-forward.
+      KUBELAB_ENABLED: 'true'
+      KUBELAB_BASE_URL: http://kubelab.${LAB_NODE_IP:-192.168.240.2}.nip.io
+      KUBELAB_ADMIN_EMAIL: ${KUBELAB_ADMIN_EMAIL:-tenxlab@tenxlab.local}
+      KUBELAB_ADMIN_PASSWORD: ${KUBELAB_ADMIN_PASSWORD:-tenxlab-dev-admin}
+      KUBELAB_ALLOWED_HOSTS: ${LAB_NODE_IP:-192.168.240.2}.nip.io
+      KUBELAB_IDE_SCHEME: https
+      # Emit IDE URLs behind the gateway so a remote browser (which cannot route
+      # to the node IP) reaches them over one public port.
+      KUBELAB_IDE_PUBLIC_URL: ${KUBELAB_IDE_PUBLIC_URL:-http://localhost:12001}
       # Tier-2 pod provider (code-server + terminal). Needs in-cluster RBAC; see
-      # deploy/lab-operator/operator.yaml for the service account it uses.
-      POD_PROVIDER_ENABLED: 'false'
+      # deploy/lab-operator/rbac.yaml for the service account it uses.
+      POD_PROVIDER_ENABLED: 'true'
+      # Project forks provision a persistent tier-2 workspace (Deployment + PVC).
+      PROJECTS_ENABLED: 'true'
+      PROJECTS_TIER: ${PROJECTS_TIER:-tier_2_container}
+      KUBECONFIG: /kubeconfig/config
       CODE_SERVER_IMAGE: codercom/code-server:latest
-      # Tier-1 code execution (Piston, ADR-12) for the Editor. The service below
-      # runs under the `runner` profile; keep this in sync with that profile.
-      PISTON_ENABLED: 'false'
+      # Tier-1 code execution (Piston, ADR-12) for the Editor. Enabled so the Run
+      # button works out of the box; `piston-init` installs the runtimes.
+      PISTON_ENABLED: 'true'
       PISTON_BASE_URL: http://piston:2000
       # Auto-evaluation (E4, ADR-13): the AI plane scores a fork's source on
       # demand. Empty disables it; point at the `ai` service to enable.
       AI_PLANE_URL: http://ai:8000
+    # The API reads the kubeconfig `k8s-up` wrote to drive the tier-2 provider.
+    volumes:
+      - kubeconfig:/kubeconfig:ro
+    # `labs` lets the API reach the node by its address (KubeLab + the K8s API);
+    # the default network carries Postgres, Redis and Piston. The static address
+    # keeps the node the labs network's only dynamic member (see `k8s-up`).
+    networks:
+      default: {}
+      labs:
+        ipv4_address: ${LAB_API_IP:-192.168.240.5}
     ports:
       - '4000:4000'
     healthcheck:
@@ -206,3 +362,35 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+# The Docker daemon on some hosts (including the OpenHands sandbox) is
+# configured with an MTU (1450) below the host's own (1460), because the outer
+# network adds tunnelling overhead. A user-defined compose network ignores that
+# and defaults to 1500, which is larger than the real path MTU: small packets
+# pass, but full-size TLS records are silently dropped. That broke Piston's
+# package downloads from GitHub (they hang until timeout) while leaving npm and
+# other smaller responses working. Pin the network MTU so container egress
+# matches the daemon's.
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: '${DOCKER_NETWORK_MTU:-1450}'
+  # The lab execution plane. A fixed subnet pins the kind node to a stable
+  # address (`LAB_NODE_IP`), which per-session IDE ingress hosts and the API's
+  # kubeconfig both derive from; the node's boot-time address is random. The MTU
+  # matches `default`: a second network with a larger MTU hijacks the node's
+  # default route and black-holes its large image pulls.
+  labs:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: '${DOCKER_NETWORK_MTU:-1450}'
+    ipam:
+      config:
+        - subnet: ${LAB_SUBNET:-192.168.240.0/24}
+          gateway: ${LAB_GATEWAY:-192.168.240.1}
+
+volumes:
+  # Holds the kubeconfig `k8s-up` writes and `api` mounts, so the tier-2
+  # provider can authenticate to the cluster without in-cluster credentials.
+  kubeconfig:

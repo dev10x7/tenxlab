@@ -1,6 +1,11 @@
 import type { LabSpec, RuntimeTier, SessionHandle } from '@tenxlab/contracts';
-import type { LabProvider, ServiceExposer } from '@tenxlab/lab-provider';
-import { routeTier } from '@tenxlab/runtime-policy';
+import type {
+  LabProvider,
+  ServiceExposer,
+  Suspendable,
+  WorkspaceArchiver,
+} from '@tenxlab/lab-provider';
+import { routeTier, checkStorageQuota, forkStorageGb } from '@tenxlab/runtime-policy';
 import type {
   MembershipRepository,
   ProjectComponentRecord,
@@ -11,6 +16,7 @@ import type {
   ProjectRepository,
   ProjectWorkspaceRecord,
   ProjectWorkspaceRepository,
+  TenantRepository,
 } from '../common/ports';
 import { findTemplate, listTemplates, type TemplateSeed } from './templates';
 
@@ -73,6 +79,21 @@ export type DeployFailureReason =
   | 'deploy_unavailable'
   | 'deploy_failed';
 
+export type DownloadResult =
+  | { ok: true; archive: Uint8Array }
+  | { ok: false; reason: DownloadFailureReason; message: string };
+
+export type DownloadFailureReason =
+  | 'workspace_not_found'
+  | 'workspace_not_running'
+  | 'download_unavailable'
+  | 'download_empty'
+  | 'download_failed';
+
+export type DeleteResult =
+  | { ok: true; workspaceId: string }
+  | { ok: false; reason: 'workspace_not_found'; message: string };
+
 export interface ForkRequest {
   userId: string;
   tenantId: string;
@@ -95,7 +116,8 @@ export type ForkFailureReason =
   | 'project_not_found'
   | 'project_not_published'
   | 'component_not_found'
-  | 'membership_required';
+  | 'membership_required'
+  | 'storage_exceeded';
 
 export interface ForkDeps {
   projects: ProjectRepository;
@@ -103,6 +125,8 @@ export interface ForkDeps {
   workspaces: ProjectWorkspaceRepository;
   forks: ProjectForkRepository;
   memberships: MembershipRepository;
+  /** Tenant plan limits; optional so a fork-only test can omit the quota gate. */
+  tenants?: TenantRepository;
   /** Null disables real provisioning (unit tests, catalog-only deployments). */
   provider?: LabProvider | null;
   /**
@@ -110,6 +134,11 @@ export interface ForkDeps {
    * Deploy, exactly as a null `provider` disables forking.
    */
   exposer?: ServiceExposer | null;
+  /**
+   * Exports a workspace's files as a tar for download (Nov'25 §1.5). Null
+   * disables Download, exactly as a null `provider` disables forking.
+   */
+  archiver?: WorkspaceArchiver | null;
   /** Default runtime tier for a fork when the project declares none. */
   defaultTier?: RuntimeTier;
 }
@@ -175,22 +204,38 @@ export class ProjectService {
     );
     if (existing) {
       const workspace = await this.deps.workspaces.findById(existing.workspaceId);
-      // Re-forking a stopped or failed workspace resumes it: the durable volume
-      // survived, so re-provision against the same id rather than re-attaching
-      // to a dead environment.
+      // Re-forking a stopped or failed workspace brings it back: a stopped one
+      // resumes from its surviving volume, a failed one re-provisions against
+      // the same id, rather than re-attaching to a dead environment.
       if (
         workspace &&
         (workspace.status === 'stopped' || workspace.status === 'failed') &&
         this.deps.provider
       ) {
+        // Capture the pre-resume status before update(): repositories may mutate
+        // the row in place, so `workspace.status` is not reliable afterwards.
+        const resumable = workspace.status === 'stopped';
         const resumed = await this.deps.workspaces.update(workspace.id, {
           status: 'provisioning',
           ideUrl: null,
           lastActivityAt: new Date(),
         });
-        void this.provision(resumed, existing, component, tier).catch(() => {
-          // provision() records the failure on the workspace row.
-        });
+        // A suspendable provider (ADR-20) kept the volume and only scaled the
+        // workload down, so resuming a *stopped* workspace is a scale-up.
+        // A *failed* workspace may have no namespace at all (provisioning died
+        // before creating one, or the cluster was rebuilt), so it always
+        // re-provisions: the provider's applies are idempotent, which repairs a
+        // half-built environment rather than patching a Deployment that is gone.
+        const suspender = resumable ? suspendable(this.deps.provider) : null;
+        if (suspender) {
+          void this.resume(resumed).catch(() => {
+            // resume() records a failed scale-up on the workspace row.
+          });
+        } else {
+          void this.provision(resumed, existing, component, tier).catch(() => {
+            // provision() records the failure on the workspace row.
+          });
+        }
         return {
           ok: true,
           forkId: existing.id,
@@ -209,6 +254,13 @@ export class ProjectService {
         ideUrl: workspace?.ideUrl ?? null,
       };
     }
+
+    // Storage is a fork-only cost dimension (ADR-20): a tenant's forks each hold
+    // a durable volume, so a *new* fork must fit under the tenant's storage
+    // ceiling. Re-attaching to or resuming an existing fork adds no volume, so it
+    // is checked above this point and never gated.
+    const quotaFailure = await this.enforceStorageQuota(req.tenantId, tier);
+    if (quotaFailure) return quotaFailure;
 
     const workspace = await this.deps.workspaces.create({
       tenantId: req.tenantId,
@@ -367,9 +419,14 @@ export class ProjectService {
   }
 
   /**
-   * Stop a fork's workspace so it can be submitted. The provider namespace is
-   * torn down but the durable volume is kept, so the files survive — `stopped`,
-   * not `failed`. Required before submit (ByteXL stops the session first, §1.2).
+   * Stop a fork's workspace so it can be submitted. The compute is torn down but
+   * the durable volume is kept, so the files survive — `stopped`, not `failed`.
+   * Required before submit (ByteXL stops the session first, §1.2).
+   *
+   * A provider that can suspend (ADR-20) scales the workload to zero and keeps
+   * the volume, which is what makes stop-when-idle cheap: a re-fork scales back
+   * up rather than rebuilding. A provider that cannot suspend is torn down; its
+   * volume is still assumed durable.
    */
   async stopWorkspace(
     userId: string,
@@ -386,7 +443,15 @@ export class ProjectService {
     if (workspace.status !== 'running' && workspace.status !== 'provisioning') {
       return { ok: true, workspace };
     }
-    if (this.deps.provider) {
+    const suspender = suspendable(this.deps.provider);
+    if (suspender) {
+      try {
+        await suspender.suspend(workspace.id);
+      } catch {
+        // The workload may already be scaled down; the volume is untouched, so
+        // a failed suspend still leaves the workspace stoppable.
+      }
+    } else if (this.deps.provider) {
       try {
         await this.deps.provider.terminate(workspace.id);
       } catch {
@@ -397,7 +462,7 @@ export class ProjectService {
     const stopped = await this.deps.workspaces.update(workspace.id, {
       status: 'stopped',
       ideUrl: null,
-      // A stop tears the namespace down, so any exposed service is gone with it.
+      // A stop tears the compute down, so any exposed service is gone with it.
       deployUrl: null,
       deployPort: null,
       lastActivityAt: new Date(),
@@ -481,6 +546,88 @@ export class ProjectService {
     return { ok: true, workspace: updated };
   }
 
+  /**
+   * Permanently delete a workspace and its fork (ByteXL's "delete" quick
+   * action, Nov'25 §1.5).
+   *
+   * Unlike Stop (which keeps the durable volume), Delete is destructive: the
+   * compute is terminated, the volume released, and the fork row removed so the
+   * component becomes forkable again. A submission that referenced the workspace
+   * keeps its own row (the FK is by id, not cascade from the workspace), so an
+   * already-evaluated submission survives its workspace.
+   */
+  async deleteWorkspace(userId: string, workspaceId: string): Promise<DeleteResult> {
+    const workspace = await this.deps.workspaces.findById(workspaceId);
+    if (!workspace || workspace.userId !== userId) {
+      return { ok: false, reason: 'workspace_not_found', message: 'Workspace not found' };
+    }
+    if (this.deps.provider) {
+      try {
+        await this.deps.provider.terminate(workspace.id);
+      } catch {
+        // The workload may already be gone; the rows are still cleared so the
+        // component is forkable again.
+      }
+    }
+    // Remove the fork first: it holds the FK to the workspace.
+    const fork = await this.deps.forks.findByWorkspaceId(workspaceId);
+    if (fork) await this.deps.forks.delete(fork.id);
+    await this.deps.workspaces.delete(workspaceId);
+    return { ok: true, workspaceId };
+  }
+
+  /**
+   * Export the workspace's files as a tar archive (ByteXL's "download
+   * workspace" quick action, Nov'25 §1.5).
+   *
+   * Like Deploy, this is a running-workspace concern: the volume is mounted only
+   * while the workload runs, so a stopped fork must be resumed first. The
+   * provider returns the tar bytes; the controller streams them to the student.
+   */
+  async download(userId: string, workspaceId: string): Promise<DownloadResult> {
+    const workspace = await this.deps.workspaces.findById(workspaceId);
+    if (!workspace || workspace.userId !== userId) {
+      return { ok: false, reason: 'workspace_not_found', message: 'Workspace not found' };
+    }
+    if (workspace.status !== 'running') {
+      return {
+        ok: false,
+        reason: 'workspace_not_running',
+        message: 'Start the workspace before downloading its files',
+      };
+    }
+    const archiver = this.deps.archiver;
+    if (!archiver) {
+      return {
+        ok: false,
+        reason: 'download_unavailable',
+        message: 'Workspace download is not available in this deployment',
+      };
+    }
+    try {
+      const archive = await archiver.archiveWorkspaceFiles({ sessionId: workspace.id });
+      if (!archive || archive.length === 0) {
+        return {
+          ok: false,
+          reason: 'download_empty',
+          message: 'This workspace has no files to download yet',
+        };
+      }
+      return { ok: true, archive };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[project-download] archive failed for workspace ${workspace.id}:`,
+        err instanceof Error ? `${err.name}: ${err.message}` : err,
+      );
+      return {
+        ok: false,
+        reason: 'download_failed',
+        message: 'Could not prepare the workspace download. Please try again.',
+      };
+    }
+  }
+
   private async componentsWithFork(
     projectId: string,
     userId: string,
@@ -531,6 +678,58 @@ export class ProjectService {
       if (source) return source.templateSlug;
     }
     return 'debian-base';
+  }
+
+  /**
+   * Scale a suspended fork's workload back up (ADR-20). The volume survived the
+   * stop, so the IDE comes back on the same URL; a failure is recorded as
+   * `failed` so ops can see the scale-up did not land.
+   */
+  private async resume(workspace: ProjectWorkspaceRecord): Promise<void> {
+    const suspender = suspendable(this.deps.provider);
+    if (!suspender) return;
+    try {
+      await suspender.resume(workspace.id);
+      await this.deps.workspaces.update(workspace.id, {
+        status: 'running',
+        ideUrl: workspace.ideUrl ?? null,
+        lastActivityAt: new Date(),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[project-fork] resume failed for workspace ${workspace.id}:`,
+        err instanceof Error ? `${err.name}: ${err.message}` : err,
+      );
+      await this.deps.workspaces.update(workspace.id, {
+        status: 'failed',
+        lastActivityAt: new Date(),
+      });
+    }
+  }
+
+  /**
+   * The storage gate for a new fork (ADR-20). The tenant's ceiling is 0 (or
+   * unset) for unlimited. A tenant that is over its ceiling gets a fork failure
+   * the caller can surface, rather than a silently leaking volume. A deployment
+   * with no tenant repository (a fork-only test) skips the gate.
+   */
+  private async enforceStorageQuota(
+    tenantId: string,
+    tier: RuntimeTier,
+  ): Promise<{ ok: false; reason: ForkFailureReason; message: string } | null> {
+    if (!this.deps.tenants) return null;
+    const tenant = await this.deps.tenants.findById(tenantId);
+    if (!tenant) return null;
+    const decision = checkStorageQuota(
+      { maxConcurrentLabs: tenant.maxConcurrentLabs, monthlyBudgetCents: tenant.monthlyBudgetCents, maxStorageGb: tenant.maxStorageGb ?? 0 },
+      // Each fork holds one volume of the tier's size.
+      (await this.deps.workspaces.countByTenant(tenantId)) * forkStorageGb(tier),
+      forkStorageGb(tier),
+    );
+    return decision.allowed
+      ? null
+      : { ok: false, reason: 'storage_exceeded', message: decision.message };
   }
 
   private async provision(
@@ -589,4 +788,16 @@ export function parseDeadline(value: string | null | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Structural check: can this provider suspend/resume a fork's compute? */
+function suspendable(
+  provider: LabProvider | null | undefined,
+): Suspendable | null {
+  const candidate = provider as Partial<Suspendable> | null | undefined;
+  return candidate &&
+    typeof candidate.suspend === 'function' &&
+    typeof candidate.resume === 'function'
+    ? (candidate as Suspendable)
+    : null;
 }

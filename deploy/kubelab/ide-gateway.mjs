@@ -42,6 +42,30 @@ export function upstreamHeaders(reqHeaders, host) {
   return headers;
 }
 
+/**
+ * Strip the headers that stop the IDE being embedded in our main panel.
+ *
+ * code-server answers with `X-Frame-Options: SAMEORIGIN` (and some builds add a
+ * `frame-ancestors` directive), which blocks the cross-origin iframe the Nimbus
+ * workspace view renders. Drop the frame-blocking headers on the way back so the
+ * IDE embeds, keeping every other header (CSP without frame-ancestors, etc.).
+ */
+export function sanitizeResponseHeaders(headers) {
+  const out = { ...headers };
+  delete out['x-frame-options'];
+  delete out['X-Frame-Options'];
+  const csp = out['content-security-policy'] ?? out['Content-Security-Policy'];
+  if (typeof csp === 'string') {
+    const stripped = csp
+      .split(';')
+      .filter((directive) => !directive.trim().toLowerCase().startsWith('frame-ancestors'))
+      .join(';');
+    if (out['content-security-policy'] !== undefined) out['content-security-policy'] = stripped;
+    if (out['Content-Security-Policy'] !== undefined) out['Content-Security-Policy'] = stripped;
+  }
+  return out;
+}
+
 function forward(req, res) {
   const target = resolveTarget(req.url);
   if (!target) {
@@ -60,7 +84,7 @@ function forward(req, res) {
       agent,
     },
     (up) => {
-      res.writeHead(up.statusCode || 502, up.headers);
+      res.writeHead(up.statusCode || 502, sanitizeResponseHeaders(up.headers));
       up.pipe(res);
     },
   );

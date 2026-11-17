@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
-import type { LabProvider, ServiceExposer } from '@tenxlab/lab-provider';
+import type { LabProvider, ServiceExposer, WorkspaceArchiver } from '@tenxlab/lab-provider';
 import { ProjectService } from './project.service';
 import {
   InMemoryMembershipRepository,
@@ -9,8 +9,13 @@ import {
   InMemoryProjectForkRepository,
   InMemoryProjectRepository,
   InMemoryProjectWorkspaceRepository,
+  InMemoryTenantRepository,
 } from '../common/in-memory';
-import type { ProjectComponentRecord, ProjectRecord } from '../common/ports';
+import type {
+  ProjectComponentRecord,
+  ProjectRecord,
+  TenantRecord,
+} from '../common/ports';
 
 const PROJECT: ProjectRecord = {
   id: 'p1',
@@ -41,6 +46,8 @@ function fixture(
     project?: Partial<ProjectRecord>;
     provider?: LabProvider | null;
     exposer?: ServiceExposer | null;
+    archiver?: WorkspaceArchiver | null;
+    tenant?: Partial<TenantRecord> | null;
   } = {},
 ) {
   const projects = new InMemoryProjectRepository([{ ...PROJECT, ...overrides.project }]);
@@ -50,17 +57,35 @@ function fixture(
   const memberships = new InMemoryMembershipRepository([
     { id: 'm1', userId: 'u1', tenantId: 't1', role: 'student', status: 'active' },
   ]);
+  const tenants =
+    overrides.tenant === null
+      ? undefined
+      : new InMemoryTenantRepository([
+          {
+            id: 't1',
+            name: 'Acme',
+            domain: 'acme',
+            maxConcurrentLabs: 50,
+            monthlyBudgetCents: 0,
+            maxStorageGb: 0,
+            plan: 'standard',
+            status: 'active',
+            ...overrides.tenant,
+          },
+        ]);
   const svc = new ProjectService({
     projects,
     components,
     workspaces,
     forks,
     memberships,
+    tenants,
     provider: overrides.provider ?? null,
     exposer: overrides.exposer ?? null,
+    archiver: overrides.archiver ?? null,
     defaultTier: 'tier_2_container',
   });
-  return { svc, projects, components, workspaces, forks, memberships };
+  return { svc, projects, components, workspaces, forks, memberships, tenants };
 }
 
 function fakeProvider(handle?: Partial<SessionHandle>): {
@@ -381,4 +406,349 @@ test('stopping a workspace clears its deployment', async () => {
   if (!stopped.ok) return;
   assert.equal(stopped.workspace.deployUrl, null);
   assert.equal(stopped.workspace.deployPort, null);
+});
+
+// ----------------------------------------------------------- download (E6)
+
+function fakeArchiver(options: { fail?: boolean; empty?: boolean } = {}): {
+  archiver: WorkspaceArchiver;
+  calls: string[];
+} {
+  const calls: string[] = [];
+  const archiver: WorkspaceArchiver = {
+    name: 'fake',
+    async archiveWorkspaceFiles(input) {
+      calls.push(input.sessionId);
+      if (options.fail) throw new Error('boom');
+      if (options.empty) return null;
+      return new Uint8Array([1, 2, 3, 4]);
+    },
+  };
+  return { archiver, calls };
+}
+
+test('download returns a running workspace\'s archive', async () => {
+  const fake = fakeArchiver();
+  const fx = fixture({ archiver: fake.archiver });
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.deepEqual([...res.archive], [1, 2, 3, 4]);
+  assert.deepEqual(fake.calls, [w.id]);
+});
+
+test('download rejects a workspace that is not running', async () => {
+  const fx = fixture({ archiver: fakeArchiver().archiver });
+  const w = await fx.workspaces.create({
+    tenantId: 't1',
+    userId: 'u1',
+    templateSlug: 'spring-boot',
+    runtimeTier: 'tier_2_container',
+    status: 'stopped',
+    ideUrl: null,
+    storageRef: null,
+  });
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_running');
+});
+
+test('download rejects a workspace owned by another user', async () => {
+  const fx = fixture({ archiver: fakeArchiver().archiver });
+  const w = await runningWorkspace(fx.workspaces, 'someone-else');
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_found');
+});
+
+test('download reports unavailable when no archiver is configured', async () => {
+  const fx = fixture();
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'download_unavailable');
+});
+
+test('download reports an empty workspace distinctly', async () => {
+  const fx = fixture({ archiver: fakeArchiver({ empty: true }).archiver });
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'download_empty');
+});
+
+test('an archiver error during download is reported, not thrown', async () => {
+  const fx = fixture({ archiver: fakeArchiver({ fail: true }).archiver });
+  const w = await runningWorkspace(fx.workspaces);
+  const res = await fx.svc.download('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'download_failed');
+});
+
+// ------------------------------------------------------------ delete (E6)
+
+test('deleting a workspace terminates its compute and removes the fork', async () => {
+  const { provider } = fakeProvider();
+  const terminated: string[] = [];
+  provider.terminate = async (id) => {
+    terminated.push(id);
+  };
+  const fx = fixture({ provider });
+  const forked = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(forked.ok, true);
+  if (!forked.ok) return;
+
+  const res = await fx.svc.deleteWorkspace('u1', forked.workspaceId);
+  assert.equal(res.ok, true);
+  assert.deepEqual(terminated, [forked.workspaceId]);
+  assert.equal(await fx.workspaces.findById(forked.workspaceId), null);
+  assert.equal(await fx.forks.findById(forked.forkId), null);
+  // The component is forkable again from scratch.
+  const again = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(again.ok, true);
+  if (!again.ok) return;
+  assert.notEqual(again.workspaceId, forked.workspaceId);
+});
+
+test('deleting another user\'s workspace is not found and touches nothing', async () => {
+  const fx = fixture();
+  const w = await runningWorkspace(fx.workspaces, 'someone-else');
+  const res = await fx.svc.deleteWorkspace('u1', w.id);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_found');
+  assert.ok(await fx.workspaces.findById(w.id), 'the other user\'s workspace is untouched');
+});
+
+test('deleting an unknown workspace reports not found', async () => {
+  const fx = fixture();
+  const res = await fx.svc.deleteWorkspace('u1', 'does-not-exist');
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'workspace_not_found');
+});
+
+/** A provider that records suspend/resume/terminate, for the ADR-20 tests. */
+function suspendableProvider() {
+  const calls: { suspend: string[]; resume: string[]; terminate: string[] } = {
+    suspend: [],
+    resume: [],
+    terminate: [],
+  };
+  const provider: LabProvider & { suspend(id: string): Promise<void>; resume(id: string): Promise<void> } = {
+    name: 'suspendable',
+    async provision(spec) {
+      return {
+        session_id: spec.session_id,
+        status: 'ACTIVE',
+        tier: spec.runtime_tier,
+        ide_url: 'https://ide.example.com/ws',
+        provider_ref: `ns-${spec.session_id}`,
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: spec.ttl_seconds,
+      };
+    },
+    async status() {
+      return null;
+    },
+    async heartbeat() {
+      throw new Error('not used');
+    },
+    async terminate(id) {
+      calls.terminate.push(id);
+    },
+    async suspend(id) {
+      calls.suspend.push(id);
+    },
+    async resume(id) {
+      calls.resume.push(id);
+    },
+  };
+  return { provider, calls };
+}
+
+test('stopping a fork suspends its compute instead of destroying the volume', async () => {
+  const { provider, calls } = suspendableProvider();
+  const fx = fixture({ provider });
+  const w = await runningWorkspace(fx.workspaces);
+  const stopped = await fx.svc.stopWorkspace('u1', w.id);
+  assert.equal(stopped.ok, true);
+  assert.deepEqual(calls.suspend, [w.id]);
+  assert.deepEqual(calls.terminate, [], 'a suspendable provider must not be torn down');
+  assert.equal((await fx.workspaces.findById(w.id))?.status, 'stopped');
+});
+
+test('re-forking a stopped suspendable workspace resumes it without re-provisioning', async () => {
+  const { provider, calls } = suspendableProvider();
+  const fx = fixture({ provider });
+
+  const first = await fx.svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
+
+  await fx.svc.stopWorkspace('u1', first.workspaceId);
+  const resumed = await fx.svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(resumed.ok, true);
+  if (!resumed.ok) return;
+  assert.equal(resumed.forkId, first.forkId);
+
+  await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
+  assert.deepEqual(calls.resume, [first.workspaceId]);
+  assert.deepEqual(calls.terminate, [], 'resume must not re-provision from scratch');
+});
+
+test('re-forking a failed workspace re-provisions instead of patching a gone Deployment', async () => {
+  // A failed fork may have no namespace at all (provisioning died early, or the
+  // cluster was rebuilt), so a scale-up patch would 404. The provider's applies
+  // are idempotent, so re-provisioning repairs it.
+  const { provider, calls } = suspendableProvider();
+  const provisioned: string[] = [];
+  provider.provision = async (spec) => {
+    provisioned.push(spec.session_id);
+    return {
+      session_id: spec.session_id,
+      status: 'ACTIVE',
+      tier: spec.runtime_tier,
+      ide_url: 'https://ide.example.com/ws',
+      provider_ref: `ns-${spec.session_id}`,
+      started_at: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+      ttl_seconds: spec.ttl_seconds,
+    };
+  };
+  const fx = fixture({ provider });
+
+  const first = await fx.svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
+
+  await fx.workspaces.update(first.workspaceId, { status: 'failed' });
+  const again = await fx.svc.fork({ userId: 'u1', tenantId: 't1', projectId: 'p1', componentId: 'c1' });
+  assert.equal(again.ok, true);
+  if (!again.ok) return;
+
+  await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
+  assert.deepEqual(calls.resume, [], 'a failed workspace must not be resumed');
+  assert.deepEqual(provisioned, [first.workspaceId, first.workspaceId]);
+});
+
+test('a non-suspendable provider is terminated on stop', async () => {
+  const { provider } = fakeProvider();
+  const terminated: string[] = [];
+  provider.terminate = async (id) => {
+    terminated.push(id);
+  };
+  const fx = fixture({ provider });
+  const w = await runningWorkspace(fx.workspaces);
+  await fx.svc.stopWorkspace('u1', w.id);
+  assert.deepEqual(terminated, [w.id]);
+});
+
+test('a new fork is rejected once the tenant storage ceiling is reached', async () => {
+  // tier-2 forks are 2 GiB each, so a 4 GiB ceiling admits two workspaces.
+  const fx = fixture({ tenant: { maxStorageGb: 4 } });
+  for (const id of ['w1', 'w2']) {
+    await fx.workspaces.seed({
+      id,
+      tenantId: 't1',
+      userId: 'u1',
+      templateSlug: 'spring-boot',
+      runtimeTier: 'tier_2_container',
+      status: 'stopped',
+      ideUrl: null,
+      storageRef: `vol-${id}`,
+      deployUrl: null,
+      deployPort: null,
+      qualityScore: null,
+      qualityReport: null,
+      analyzedAt: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+    });
+  }
+
+  const res = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'storage_exceeded');
+  assert.equal((await fx.workspaces.countByTenant('t1')), 2, 'no third volume is created');
+});
+
+test('an unlimited tenant is never storage-gated', async () => {
+  const fx = fixture({ tenant: { maxStorageGb: 0 } });
+  for (let i = 0; i < 5; i += 1) {
+    await fx.workspaces.seed({
+      id: `w${i}`,
+      tenantId: 't1',
+      userId: 'u1',
+      templateSlug: 'spring-boot',
+      runtimeTier: 'tier_2_container',
+      status: 'stopped',
+      ideUrl: null,
+      storageRef: `vol-${i}`,
+      deployUrl: null,
+      deployPort: null,
+      qualityScore: null,
+      qualityReport: null,
+      analyzedAt: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+    });
+  }
+  const res = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(res.ok, true);
+});
+
+test('re-forking a stopped workspace is not storage-gated', async () => {
+  // The tenant is already at its ceiling, but resuming an existing fork adds no
+  // volume, so it must still succeed.
+  const fx = fixture({ tenant: { maxStorageGb: 2 } });
+  const first = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  await fx.workspaces.update(first.workspaceId, { status: 'stopped' });
+
+  const resumed = await fx.svc.fork({
+    userId: 'u1',
+    tenantId: 't1',
+    projectId: 'p1',
+    componentId: 'c1',
+  });
+  assert.equal(resumed.ok, true);
+  if (!resumed.ok) return;
+  assert.equal(resumed.forkId, first.forkId);
 });
