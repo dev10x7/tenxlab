@@ -57,10 +57,17 @@ university/batch ranks, and the profile-completion tile; **student attendance**
 each Nimbus fork card offers **deploy / download / delete** quick actions.
 **E5b** stop-when-idle fork cost/quota policy has also shipped (ADR-20 — a stop
 suspends the compute and keeps the durable volume; forks get their own sweep and
-a storage ceiling). What remains for differentiation is the **editor
-tutor's assessment-path guardrails** (the practice-editor tutor has shipped —
-`assist`/`socratic`, §1.6), **soft skills** (Phase F), and **contests /
-recruiter portal** (Phase G).
+a storage ceiling). **P3 (ByteXL-parity feature surfaces) has since shipped** —
+the AI Mentor, the AI Interviewer (mock interviews scored for communication and
+written onto the Skill Passport), the tenant micro-feed and social graph, the
+reusable Question Bank, cohort Student Reports, the Recruiter shortlist over
+Skill Passports, and the admin Organizations console are all live end to end
+(API services + controllers, AI-plane `/v1/mentor/ask`, web pages behind the
+same-origin `/api/*` proxy, and `e2e.p3.test.ts`), verified against real
+Postgres via `docker compose up --build`. What remains for differentiation is
+the **editor tutor's assessment-path guardrails** (the practice-editor tutor has
+shipped — `assist`/`socratic`, §1.6), **contests** (Phase G), and video help
+guides.
 
 **Observation fixes (2026-11-19).** A round of live-stack observations: (1)
 `/api/projects` returned `[]` because the demo project existed only in the
@@ -94,7 +101,7 @@ standalone **CEFR-graded English-communication** product. These are tracked in
 | Nimbus (build/host/evaluate projects) | `/nimbus` | **E0–E6 shipped** — core fork→build→stop→submit→evaluate, one-click hosting, git publish, auto-evaluation, fork cost/quota policy, attendance, and the deploy/download/delete quick actions |
 | Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
 | Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
-| Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
+| Recruiter / hiring | `/resumes` (Skill Passport) + recruiter shortlist | **Shipped** (P3) — `PassportService` derives badges from labs, assessments, projects, and mock interviews; `GET /api/passport/recruiter` ranks candidates for instructors/admins |
 
 The rest of this document is the detailed gap analysis (§1–§3) and the phased
 plan (§4–§6).
@@ -492,14 +499,16 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | Speech/soft-skills | **Done** | `speech.py` |
 | Webhook signer | **Done** | `webhooks.py` |
 | Socratic tutor with anti-leak guardrails | **Partial** | `tutor.py` + `/v1/tutor/review` shipped (`assist`/`socratic`); the `socratic` guardrail still needs an anti-leak red-team eval suite and wiring into the assessment path |
+| AI Mentor (study coach, text) | **Done** | AI-plane `mentor.py` + `/v1/mentor/ask`, a deterministic topic-keyed knowledge base with next steps; the conversation persists per student (`/api/mentor/messages`) |
+| AI Interviewer (mock interview + soft-skills score) | **Done** | Prompt bank (`hiring/interview-prompts.ts`); a sitting is scored for grammar, vocabulary, filler words, and technical accuracy and written onto the Skill Passport |
 | VS Code sidebar integration | **Missing** | — |
 
 ### 2.8 Contests & hiring
 
 | Capability | Status | Gap |
 |---|---|---|
-| Contest lifecycle + Redis leaderboard | **Missing** | — |
-| Recruiter Skill Passport portal | **Missing** | — |
+| Contest lifecycle + Redis leaderboard | **Missing** | Phase G |
+| Recruiter Skill Passport portal | **Done** | `/resumes` renders the student's own Skill Passport and, for instructors/admins, a filterable recruiter shortlist (`GET /api/passport/recruiter`, ranked by a blended readiness score). Badges are derived on read from labs, assessments, projects, and mock-interview sittings (`PassportService`) |
 
 ### 2.9 Attendance (found only in the Jan'26 video, not in our backlog)
 
@@ -528,7 +537,7 @@ and one-click publish; what remains here is the visual AI Mentor / Clarity
 | Publish Apps (published-workspaces list + one-click publish) | **Done** | One-click **Publish app** on each landing workspace card (default port, override inline) → `POST /api/projects/workspaces/:id/deploy`; the live URL appears in place, and `/nimbus/apps` lists every published workspace |
 | Template categories (front end / backend / full stack / other) | **Done** | Every template carries a `category`; the picker groups them into `<optgroup>`s (`groupTemplates` + `templateCategoryLabel`), covering front end / backend / full stack / database / other |
 | Database workspaces (MySQL / Postgres / SQL Server / MongoDB) | **Done** | Four `database`-category templates ship (`projects/templates.ts`), each a `framework` image with the engine pre-installed |
-| AI Mentor — diagram/image generation | **Missing** | Phase F tutor is text-only in our plan; ByteXL's mentor is *visual* |
+| AI Mentor — diagram/image generation | **Partial** | The text mentor ships (§2.7, `/ai-mentor`); diagram/image generation is not built — ByteXL's mentor is *visual* |
 | Dashboard university rank + batch rank | **Done** | `DashboardService` ranks the student within the university cohort and their batch (competition ranking) and the dashboard shows both tiles |
 | Profile-completion tile (recruiter visibility) | **Done** | 7-item checklist on the dashboard drives the recruiter-visibility nudge |
 | Exam passcode before starting a test | **Done** | `POST /api/assessments/:id/attempts` takes an optional `passcode`; a protected sitting is refused (403) without the right code, resumed attempts never re-check |
@@ -577,14 +586,17 @@ These are not gaps; they are choices to keep or revisit.
 
 ### 3.1 Backlog items not yet surfaced in the product
 
-The overview's Epics 4.x (contests, anti-cheat plagiarism, recruiter portal)
-still have no user-facing entry point; the Editor's "AI help" now does:
+Most of the overview's Epics 4.x now have a user-facing entry point (the Skill
+Passport + recruiter shortlist, the AI Mentor/Interviewer, the Question Bank,
+Student Reports, the social/feed surfaces, and the Organizations console are all
+live). The one epic still without a surface is contests:
 
 - **No contest surface.** There is no nav entry or route for hackathons/contests
   (`apps/web/src/lib/nav.ts` lists Editor/Labs/Assessments/Nimbus/Learn/Reports/
   Resumes only), and no `contests` module in `apps/api/src`. Phase G.
-- **No recruiter portal.** `/resumes` is a `SurfacePage` placeholder; the Skill
-  Passport aggregate it reads is Phase G.
+- **Recruiter portal ships.** `/resumes` renders the Skill Passport and a
+  recruiter shortlist (`GET /api/passport/recruiter`) ranked by a blended
+  readiness score; `PassportService` derives badges on read from real work.
 - **Editor AI help** now ships: `POST /api/editor/review` (assist + socratic)
   over the AI plane's `/v1/tutor/review`, surfaced in the `/editor` side panel
   (§1.6). The remaining Phase F work is the **assessment** path — only the

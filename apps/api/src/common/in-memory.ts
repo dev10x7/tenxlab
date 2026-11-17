@@ -50,6 +50,20 @@ import type {
   UserRecord,
   UserRepository,
   LessonProgressRecord,
+  BankQuestionRecord,
+  BankQuestionRepository,
+  DepartmentRecord,
+  DepartmentRepository,
+  InterviewAttemptRecord,
+  InterviewAttemptRepository,
+  MentorMessageRecord,
+  MentorMessageRepository,
+  SkillPassportRecord,
+  SkillPassportRepository,
+  SocialFollowRecord,
+  SocialFollowRepository,
+  SocialPostRecord,
+  SocialPostRepository,
 } from './ports';
 
 /**
@@ -861,5 +875,222 @@ export class InMemorySupportIssueRepository implements SupportIssueRepository {
     if (!row) throw new Error(`support issue ${id} not found`);
     Object.assign(row, patch);
     return row;
+  }
+}
+
+// ---------------------------------------------------------------- P3 adapters
+
+export class InMemorySkillPassportRepository implements SkillPassportRepository {
+  constructor(private readonly rows: SkillPassportRecord[] = []) {}
+  async find(userId: string, tenantId: string) {
+    return (
+      this.rows.find((r) => r.userId === userId && r.tenantId === tenantId) ?? null
+    );
+  }
+  async upsert(input: Omit<SkillPassportRecord, 'id' | 'updatedAt'>) {
+    const existing = this.rows.find(
+      (r) => r.userId === input.userId && r.tenantId === input.tenantId,
+    );
+    if (existing) {
+      Object.assign(existing, input, { updatedAt: new Date() });
+      return existing;
+    }
+    const row: SkillPassportRecord = {
+      id: randomUUID(),
+      updatedAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows.filter((r) => r.tenantId === tenantId);
+  }
+}
+
+export class InMemoryInterviewAttemptRepository implements InterviewAttemptRepository {
+  constructor(private readonly rows: InterviewAttemptRecord[] = []) {}
+  async create(input: Omit<InterviewAttemptRecord, 'id' | 'createdAt'>) {
+    const row: InterviewAttemptRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByUser(userId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.userId === userId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async latestByUser(userId: string) {
+    return (await this.listByUser(userId))[0] ?? null;
+  }
+}
+
+export class InMemoryMentorMessageRepository implements MentorMessageRepository {
+  constructor(private readonly rows: MentorMessageRecord[] = []) {}
+  async create(input: Omit<MentorMessageRecord, 'id' | 'createdAt'>) {
+    const row: MentorMessageRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByUser(userId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.userId === userId)
+      // Oldest first: a conversation reads top to bottom.
+      .sort(
+        (a, b) =>
+          a.row.createdAt.getTime() - b.row.createdAt.getTime() || a.index - b.index,
+      )
+      .map(({ row }) => row);
+  }
+  async clearByUser(userId: string) {
+    for (let i = this.rows.length - 1; i >= 0; i--) {
+      if (this.rows[i]!.userId === userId) this.rows.splice(i, 1);
+    }
+  }
+}
+
+export class InMemoryBankQuestionRepository implements BankQuestionRepository {
+  constructor(private readonly rows: BankQuestionRecord[] = []) {}
+  async create(input: Omit<BankQuestionRecord, 'id' | 'createdAt'>) {
+    const row: BankQuestionRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async update(id: string, patch: Partial<BankQuestionRecord>) {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) throw new Error(`bank question ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((r) => r.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
+  }
+}
+
+export class InMemorySocialPostRepository implements SocialPostRepository {
+  constructor(private readonly rows: SocialPostRecord[] = []) {}
+  async create(input: Omit<SocialPostRecord, 'id' | 'createdAt'>) {
+    const row: SocialPostRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async listByUsers(tenantId: string, userIds: string[]) {
+    const set = new Set(userIds);
+    return (await this.listByTenant(tenantId)).filter((r) => set.has(r.userId));
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((r) => r.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
+  }
+}
+
+export class InMemorySocialFollowRepository implements SocialFollowRepository {
+  constructor(private readonly rows: SocialFollowRecord[] = []) {}
+  async follow(input: Omit<SocialFollowRecord, 'id' | 'createdAt'>) {
+    const existing = this.rows.find(
+      (r) => r.followerId === input.followerId && r.followeeId === input.followeeId,
+    );
+    if (existing) return existing;
+    const row: SocialFollowRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async unfollow(followerId: string, followeeId: string) {
+    const index = this.rows.findIndex(
+      (r) => r.followerId === followerId && r.followeeId === followeeId,
+    );
+    if (index < 0) return false;
+    this.rows.splice(index, 1);
+    return true;
+  }
+  async listFollowing(tenantId: string, followerId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId && row.followerId === followerId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async listFollowers(tenantId: string, followeeId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId && row.followeeId === followeeId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+}
+
+export class InMemoryDepartmentRepository implements DepartmentRepository {
+  constructor(private readonly rows: DepartmentRecord[] = []) {}
+  async create(input: Omit<DepartmentRecord, 'id' | 'createdAt'>) {
+    const row: DepartmentRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .filter((r) => r.tenantId === tenantId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((r) => r.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
   }
 }

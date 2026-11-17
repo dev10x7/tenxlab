@@ -606,3 +606,87 @@ model SupportIssue {
   @@index([userId])
   @@map("support_issues")
 }
+
+// ---------------------------------------------------------------- P3: Hiring
+
+// SkillPassport is defined above (its columns predate P3; the PassportService
+// now populates it from lab progress, interviews, and contests).
+
+model InterviewAttempt {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  userId              String
+  promptId            String
+  promptTitle         String
+  transcript          String
+  communicationScore  Int
+  grammar             Int
+  vocabulary          Int
+  fillerWords         Int
+  technicalAccuracy   Int
+  createdAt           DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([tenantId])
+  @@map("interview_attempts")
+}
+
+// ---------------------------------------------------------------- P3: AI Mentor
+
+model MentorMessage {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      String // user | mentor
+  content   String
+  topic     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("mentor_messages")
+}
+
+// ---------------------------------------------------------------- P3: Question bank
+
+model BankQuestion {
+  id        String   @id @default(uuid())
+  tenantId  String
+  createdBy String
+  kind      String // coding | mcq | fill | descriptive
+  prompt    String
+  options   String? // JSON array
+  correct   String? // JSON
+  maxScore  Int      @default(1)
+  tags      String? // JSON array of strings
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("bank_questions")
+}
+
+// ---------------------------------------------------------------- P3: Social
+
+model SocialPost {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@map("social_posts")
+}
+
+model SocialFollow {
+  id         String   @id @default(uuid())
+  tenantId   String
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  @@unique([followerId, followeeId])
+  @@index([tenantId, followerId])
+  @@index([tenantId, followeeId])
+  @@map("social_follows")
+}

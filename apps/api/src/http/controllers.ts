@@ -16,6 +16,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -46,6 +47,14 @@ import { ProctoringService, isProctorEventType, buildSebConfig } from '../procto
 import { ProjectService } from '../projects/project.service';
 import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
+import { PassportService } from '../hiring/passport.service';
+import { InterviewerService } from '../hiring/interviewer.service';
+import { ReportsService } from '../insights/reports.service';
+import { MentorService } from '../mentor/mentor.service';
+import { FeedService } from '../social/feed.service';
+import { SocialService } from '../social/social.service';
+import { QuestionBankService } from '../questions/question-bank.service';
+import { OrgService } from '../organizations/org.service';
 import {
   QualityEvaluationService,
   WorkspaceNotFoundError,
@@ -76,6 +85,14 @@ import {
   SSO,
   SUPPORT,
   USAGE,
+  PASSPORT,
+  REPORTS,
+  MENTOR,
+  INTERVIEWER,
+  FEED,
+  SOCIAL,
+  QUESTION_BANK,
+  ORGS,
 } from './tokens';
 
 @Controller()
@@ -1683,4 +1700,447 @@ export class SupportController {
     }
     return session;
   }
+}
+
+/**
+ * Skill Passport (ByteXL parity §2.8, "Resumes"). A student reads their own
+ * passport; a recruiter (instructor or admin) reads the filtered shortlist. The
+ * passport is derived on read, so it is never stale and needs no write path.
+ */
+@Controller('api/passport')
+export class PassportController {
+  constructor(
+    @Inject(PASSPORT) private readonly passports: PassportService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The caller's own Skill Passport. */
+  @Get('me')
+  async me(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.passports.forStudent(session.userId, session.tenantId);
+  }
+
+  /** The recruiter's shortlist, with optional score/name filters. */
+  @Get('recruiter')
+  async recruiter(
+    @Req() req: Request,
+    @Query('minLabScore') minLabScore?: string,
+    @Query('minCommunicationScore') minCommunicationScore?: string,
+    @Query('query') query?: string,
+  ) {
+    const session = this.requireInstructor(req);
+    return this.passports.recruiter(session.tenantId, {
+      minLabScore: numberOrUndefined(minLabScore),
+      minCommunicationScore: numberOrUndefined(minCommunicationScore),
+      query: query?.trim() || undefined,
+    });
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+/**
+ * AI Interviewer (parity §2.6). A student picks a prompt, records an answer, and
+ * gets a communication score that lands on their Skill Passport.
+ */
+@Controller('api/interviews')
+export class InterviewerController {
+  constructor(
+    @Inject(INTERVIEWER) private readonly interviewer: InterviewerService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The prompt bank to choose from. */
+  @Get('prompts')
+  prompts(@Req() req: Request) {
+    this.requireSession(req);
+    return this.interviewer.prompts();
+  }
+
+  /** The caller's own sittings, newest first. */
+  @Get('me')
+  async history(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.interviewer.history(session.userId);
+  }
+
+  /** Submit an answer for scoring. */
+  @Post()
+  @HttpCode(201)
+  async submit(
+    @Body() body: { promptId?: string; transcript?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    if (!body?.promptId) throw new BadRequestException('promptId is required');
+    const result = await this.interviewer.submit(
+      session.userId,
+      session.tenantId,
+      body.promptId,
+      body.transcript ?? '',
+    );
+    if (!result.ok) {
+      const message =
+        result.reason === 'unknown_prompt'
+          ? 'Unknown interview prompt'
+          : result.reason === 'empty'
+            ? 'An answer is required'
+            : 'Your answer is too long';
+      throw new BadRequestException(message);
+    }
+    return result.attempt;
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * AI Mentor (parity §2.5). A study coach the student can ask about a topic; the
+ * conversation is persisted so it survives a reload.
+ */
+@Controller('api/mentor')
+export class MentorController {
+  constructor(
+    @Inject(MENTOR) private readonly mentor: MentorService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The caller's conversation, oldest first. */
+  @Get('messages')
+  async history(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.mentor.history(session.userId);
+  }
+
+  /** Ask a question; the answer is appended to the conversation. */
+  @Post('messages')
+  @HttpCode(201)
+  async ask(@Body() body: { question?: string }, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const result = await this.mentor.ask(
+      session.userId,
+      session.tenantId,
+      body?.question ?? '',
+    );
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'empty' ? 'A question is required' : 'Your question is too long',
+      );
+    }
+    return result.result;
+  }
+
+  /** Clear the caller's conversation. */
+  @Delete('messages')
+  async clear(@Req() req: Request) {
+    const session = this.requireSession(req);
+    await this.mentor.clear(session.userId);
+    return { cleared: true };
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * Feed (parity §2.9). A reverse-chronological stream of cohort activity —
+ * submissions, completions, and posts — derived from the primary tables.
+ */
+@Controller('api/feed')
+export class FeedController {
+  constructor(
+    @Inject(FEED) private readonly feed: FeedService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get()
+  async view(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.feed.forUser(session.userId, session.tenantId);
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * Social (parity §2.9). A tenant-scoped micro-feed: posts and one-way follows.
+ */
+@Controller('api/social')
+export class SocialController {
+  constructor(
+    @Inject(SOCIAL) private readonly social: SocialService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The tenant feed; `?following=1` narrows to followed peers. */
+  @Get('feed')
+  async feed(@Req() req: Request, @Query('following') following?: string) {
+    const session = this.requireSession(req);
+    return this.social.feed(session.userId, session.tenantId, {
+      followingOnly: following === '1' || following === 'true',
+    });
+  }
+
+  /** The tenant directory with follow state. */
+  @Get('members')
+  async members(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.social.directory(session.userId, session.tenantId);
+  }
+
+  /** Publish a post. */
+  @Post('posts')
+  @HttpCode(201)
+  async post(@Body() body: { body?: string }, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const result = await this.social.post(session.userId, session.tenantId, body?.body ?? '');
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'empty' ? 'A message is required' : 'Your message is too long',
+      );
+    }
+    return result.post;
+  }
+
+  /** Delete a post the caller owns. */
+  @Delete('posts/:id')
+  async remove(@Param('id') id: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const result = await this.social.delete(session.userId, id);
+    if (!result.ok) {
+      if (result.reason === 'forbidden') {
+        throw new ForbiddenException('You can only delete your own posts');
+      }
+      throw new NotFoundException('Post not found');
+    }
+    return { deleted: true };
+  }
+
+  /** Follow a peer. */
+  @Post('follows/:userId')
+  @HttpCode(201)
+  async follow(@Param('userId') userId: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    const result = await this.social.follow(session.userId, session.tenantId, userId);
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'self' ? 'You cannot follow yourself' : 'Unknown user',
+      );
+    }
+    return { following: true };
+  }
+
+  /** Unfollow a peer. */
+  @Delete('follows/:userId')
+  async unfollow(@Param('userId') userId: string, @Req() req: Request) {
+    const session = this.requireSession(req);
+    await this.social.unfollow(session.userId, session.tenantId, userId);
+    return { following: false };
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * Student Reports (parity §2.10). Cohort-level analytics for a trainer, rolled
+ * from the same rows the gradebook and attendance boards read.
+ */
+@Controller('api/reports')
+export class ReportsController {
+  constructor(
+    @Inject(REPORTS) private readonly reports: ReportsService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** Every batch in the tenant, each with its cohort roll-up. */
+  @Get('batches')
+  async list(@Req() req: Request) {
+    const session = this.requireInstructor(req);
+    return this.reports.forTenant(session.tenantId);
+  }
+
+  /** One batch's roll-up plus its per-student rows. */
+  @Get('batches/:id')
+  async detail(@Param('id') id: string, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const detail = await this.reports.forBatch(session.tenantId, id);
+    if (!detail) throw new NotFoundException('Batch not found');
+    return detail;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+/**
+ * Question Bank (parity §2.4). A tenant-scoped library of reusable questions an
+ * author can drop into a test. Authoring is instructor/admin only.
+ */
+@Controller('api/question-bank')
+export class QuestionBankController {
+  constructor(
+    @Inject(QUESTION_BANK) private readonly bank: QuestionBankService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The tenant's bank, optionally filtered by kind or tag. */
+  @Get()
+  async list(@Req() req: Request, @Query('kind') kind?: string, @Query('tag') tag?: string) {
+    const session = this.requireInstructor(req);
+    return this.bank.list(session.tenantId, { kind, tag });
+  }
+
+  /** Add a question to the bank. */
+  @Post()
+  @HttpCode(201)
+  async create(
+    @Body()
+    body: {
+      kind?: string;
+      prompt?: string;
+      options?: string[];
+      correct?: unknown;
+      maxScore?: number;
+      tags?: string[];
+    },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    const result = await this.bank.create({
+      tenantId: session.tenantId,
+      createdBy: session.userId,
+      kind: body?.kind,
+      prompt: body?.prompt,
+      options: body?.options,
+      correct: body?.correct,
+      maxScore: body?.maxScore,
+      tags: body?.tags,
+    });
+    if (!result.ok) {
+      const message =
+        result.reason === 'invalid_kind'
+          ? 'Unknown question kind'
+          : result.reason === 'prompt_required'
+            ? 'A prompt is required'
+            : result.reason === 'options_required'
+              ? 'A multiple-choice question needs at least two options'
+              : 'The prompt is too long';
+      throw new BadRequestException(message);
+    }
+    return result.question;
+  }
+
+  /** Remove a question the tenant owns. */
+  @Delete(':id')
+  async remove(@Param('id') id: string, @Req() req: Request) {
+    const session = this.requireInstructor(req);
+    const removed = await this.bank.remove(session.tenantId, id);
+    if (!removed) throw new NotFoundException('Question not found');
+    return { deleted: true };
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+/**
+ * Organizations (parity §2.2). The admin console's view of the tenant — its
+ * departments, headcounts, and batch count — plus department management.
+ */
+@Controller('api/organizations')
+export class OrganizationsController {
+  constructor(
+    @Inject(ORGS) private readonly orgs: OrgService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The caller's tenant structure. */
+  @Get()
+  async view(@Req() req: Request) {
+    const session = this.requireAdmin(req);
+    const view = await this.orgs.view(session.tenantId);
+    if (!view) throw new NotFoundException('Organization not found');
+    return view;
+  }
+
+  /** Create a department. */
+  @Post('departments')
+  @HttpCode(201)
+  async createDepartment(@Body() body: { name?: string }, @Req() req: Request) {
+    const session = this.requireAdmin(req);
+    const result = await this.orgs.createDepartment(session.tenantId, body?.name ?? '');
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'name_required'
+          ? 'A department name is required'
+          : 'A department with that name already exists',
+      );
+    }
+    return result.department;
+  }
+
+  /** Delete a department the tenant owns. */
+  @Delete('departments/:id')
+  async removeDepartment(@Param('id') id: string, @Req() req: Request) {
+    const session = this.requireAdmin(req);
+    const removed = await this.orgs.removeDepartment(session.tenantId, id);
+    if (!removed) throw new NotFoundException('Department not found');
+    return { deleted: true };
+  }
+
+  private requireAdmin(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    if (session.role !== 'admin') {
+      throw new ForbiddenException('Admin role required');
+    }
+    return session;
+  }
+}
+
+/** Parse a query value to a finite number, or undefined when absent/invalid. */
+function numberOrUndefined(value: string | undefined): number | undefined {
+  if (value == null || value.trim() === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }

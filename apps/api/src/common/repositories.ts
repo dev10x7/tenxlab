@@ -6,11 +6,15 @@ import type {
   CourseRepository,
   EnrollmentRepository,
   EventLedger,
+  BankQuestionRepository,
+  DepartmentRepository,
   GitConnectionRepository,
   GitPublishRepository,
+  InterviewAttemptRepository,
   LabSessionRepository,
   LessonRepository,
   MembershipRepository,
+  MentorMessageRepository,
   ModuleRepository,
   ProctorEventRepository,
   ProgressRepository,
@@ -21,7 +25,10 @@ import type {
   ProjectWorkspaceRepository,
   QualityEvaluationRepository,
   ReplayGuard,
+  SkillPassportRepository,
   SnippetRepository,
+  SocialFollowRepository,
+  SocialPostRepository,
   SupportIssueRepository,
   TenantRepository,
   UserRepository,
@@ -58,6 +65,13 @@ export interface Repositories {
   gitConnections: GitConnectionRepository;
   gitPublishes: GitPublishRepository;
   supportIssues: SupportIssueRepository;
+  passports: SkillPassportRepository;
+  interviews: InterviewAttemptRepository;
+  mentorMessages: MentorMessageRepository;
+  bankQuestions: BankQuestionRepository;
+  socialPosts: SocialPostRepository;
+  socialFollows: SocialFollowRepository;
+  departments: DepartmentRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

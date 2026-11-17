@@ -31,6 +31,11 @@ const STUDENT = [
   ['nimbus', '/nimbus'],
   ['nimbus-submissions', '/nimbus/submissions'],
   ['nimbus-apps', '/nimbus/apps'],
+  ['ai-mentor', '/ai-mentor'],
+  ['ai-interviewer', '/ai-interviewer'],
+  ['resumes', '/resumes'],
+  ['feed', '/feed'],
+  ['social', '/social'],
 ];
 
 const INSTRUCTOR = [
@@ -42,6 +47,8 @@ const INSTRUCTOR = [
   ['authoring', '/authoring'],
   ['nimbus', '/nimbus'],
   ['assessments', '/assessments'],
+  ['question-bank', '/question-bank'],
+  ['reports', '/reports'],
 ];
 
 /** Give the instructor-attendance screenshots real rows to show. */

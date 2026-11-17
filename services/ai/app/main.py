@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .copy import suggest_copy
+from .mentor import mentor_answer
 from .plagiarism import compare_against_cohort
 from .quality import score_quality
 from .speech import evaluate_speech
@@ -92,6 +93,14 @@ class CopyRequest(BaseModel):
     stacks: list[str] = Field(default_factory=list)
     # Technology slot names, e.g. ["Task API", "Web UI"].
     component_titles: list[str] = Field(default_factory=list)
+
+
+class MentorRequest(BaseModel):
+    """One AI Mentor question. The responder is rule-based, not an LLM."""
+
+    tenant_id: str
+    student_id: str
+    question: str
 
 
 # ------------------------------------------------------------------ routes
@@ -234,6 +243,27 @@ async def copy_suggest(req: CopyRequest) -> dict:
         "title": suggestion.title,
         "description": suggestion.description,
         "based_on": suggestion.based_on,
+    }
+
+
+@app.post("/v1/mentor/ask")
+async def mentor_ask(req: MentorRequest) -> dict:
+    """Answer a student's study question from a fixed, deterministic KB."""
+    answer = mentor_answer(req.question)
+    await _emit(
+        {
+            "event": "mentor.answered",
+            "event_id": str(uuid.uuid4()),
+            "tenant_id": req.tenant_id,
+            "student_id": req.student_id,
+            "topic": answer.topic,
+        }
+    )
+    return {
+        "topic": answer.topic,
+        "answer": answer.answer,
+        "next_steps": answer.next_steps,
+        "suggested_question": answer.suggested_question,
     }
 
 

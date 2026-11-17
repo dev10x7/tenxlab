@@ -255,10 +255,12 @@ above a **left-panel** menu of sections. The menu is data in
 - **Student sections, in order:** `Home` (Dashboard, Feed), `Learning` (AI
   Mentor, Courses→`/learn`, Catalog→`/catalog`, Classes), `Practice` (Editor,
   Labs, Assessments), `Nimbus` (build→`/nimbus`, Submissions→`/nimbus/submissions`,
-  Apps→`/nimbus/apps`), `Insights` (Student Reports, Resumes, AI Interviewer),
-  `Community` (Social, Help→`/help/student`). The `Feed`, `Social`, and
-  `Student Reports` entries are P3 placeholders and render through
-  `SurfacePage`; `Classes` and `Help` are live.
+  Apps→`/nimbus/apps`), `Insights` (Student Reports→`/reports`, Resumes→`/resumes`,
+  AI Interviewer→`/ai-interviewer`), `Community` (Social→`/social`,
+  Help→`/help/student`). Every one of these is now a live surface wired to the
+  API: `Feed`, `Social`, `Student Reports`, `Resumes`, `AI Mentor`,
+  `AI Interviewer`, `Question Bank`, and `Organizations` all render real data
+  through the same-origin `/api/*` proxy — none is a `SurfacePage` stub.
 - **The dashboard is a three-panel view** (`app/dashboard/page.tsx`): the header
   (shell), a main column of **industry roadmaps** + **competitive rankings**
   (university + batch), and a right rail with the **profile-completion** nudge.

@@ -41,7 +41,6 @@ const FEED: NavItem = {
   label: 'Feed',
   icon: '≡',
   blurb: 'Activity from your batch: completions, submissions, and milestones.',
-  phase: 'P3',
 };
 
 const LEARN: NavItem = {
@@ -119,7 +118,6 @@ const REPORTS: NavItem = {
   label: 'Student Reports',
   icon: '▦',
   blurb: 'Scores, completion, and cohort analytics.',
-  phase: 'P3',
 };
 
 const SOCIAL: NavItem = {
@@ -127,7 +125,6 @@ const SOCIAL: NavItem = {
   label: 'Social',
   icon: '◎',
   blurb: 'Follow peers, share progress, and join batch discussions.',
-  phase: 'P3',
 };
 
 const HELP: NavItem = {
@@ -164,7 +161,6 @@ const RESUMES: NavItem = {
   label: 'Resumes',
   icon: '▣',
   blurb: 'Your skill passport: verified lab and assessment evidence.',
-  phase: 'P3',
 };
 
 const AI_MENTOR: NavItem = {
@@ -172,7 +168,6 @@ const AI_MENTOR: NavItem = {
   label: 'AI Mentor',
   icon: '✦',
   blurb: 'A Socratic tutor that guides without handing over the answer.',
-  phase: 'P3',
 };
 
 const AI_INTERVIEWER: NavItem = {
@@ -180,7 +175,6 @@ const AI_INTERVIEWER: NavItem = {
   label: 'AI Interviewer',
   icon: '◉',
   blurb: 'Mock interviews with automated soft-skills scoring.',
-  phase: 'P3',
 };
 
 const BATCHES: NavItem = {
@@ -195,7 +189,6 @@ const QUESTION_BANK: NavItem = {
   label: 'Question Bank',
   icon: '⊞',
   blurb: 'Reusable questions and test cases across courses.',
-  phase: 'P3',
 };
 
 const GRADING: NavItem = {
@@ -225,7 +218,6 @@ const ORGS: NavItem = {
   label: 'Organizations',
   icon: '⌂',
   blurb: 'Tenants, departments, and institution settings.',
-  phase: 'P3',
 };
 
 /**

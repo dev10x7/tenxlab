@@ -432,3 +432,63 @@ export function attendancePercentLabel(percent: number): string {
   return pct < 75 ? `${pct}% — below 75%` : `${pct}%`;
 }
 
+
+// ------------------------------------------------------------ P3 helpers
+
+/** A 0-100 score as "NN%" or "—" when null. */
+export function scoreLabel(score: number | null | undefined): string {
+  if (score == null) return '—';
+  return `${Math.min(Math.max(Math.round(score), 0), 100)}%`;
+}
+
+/** How ready a candidate looks from their passport evidence, as a label. */
+export function readinessLabel(readiness: number | null): string {
+  if (readiness == null) return 'No evidence yet';
+  if (readiness >= 75) return 'Interview ready';
+  if (readiness >= 50) return 'Developing';
+  return 'Early';
+}
+
+/** The badge kind as a title-cased label, e.g. "lab" -> "Lab". */
+export function badgeKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    lab: 'Lab',
+    assessment: 'Assessment',
+    project: 'Project',
+    interview: 'Interview',
+  };
+  return labels[kind] ?? 'Badge';
+}
+
+/** The question kind as a title-cased label. */
+export function questionKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    coding: 'Coding',
+    mcq: 'Multiple choice',
+    fill: 'Fill in the blank',
+    descriptive: 'Descriptive',
+  };
+  return labels[kind] ?? 'Question';
+}
+
+/** The feed item kind as a title-cased label. */
+export function feedKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    submission: 'Submission',
+    completion: 'Completion',
+    post: 'Post',
+  };
+  return labels[kind] ?? 'Activity';
+}
+
+/**
+ * The communication score as a label with a qualitative band, mirroring how
+ * ByteXL frames soft-skills scoring for students.
+ */
+export function communicationLabel(score: number | null): string {
+  if (score == null) return 'Not yet interviewed';
+  const pct = Math.min(Math.max(Math.round(score), 0), 100);
+  if (pct >= 80) return `${pct}% — strong`;
+  if (pct >= 60) return `${pct}% — solid`;
+  return `${pct}% — needs practice`;
+}

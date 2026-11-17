@@ -26,6 +26,13 @@ import {
   InMemorySupportIssueRepository,
   InMemoryTenantRepository,
   InMemoryUserRepository,
+  InMemorySkillPassportRepository,
+  InMemoryInterviewAttemptRepository,
+  InMemoryMentorMessageRepository,
+  InMemoryBankQuestionRepository,
+  InMemorySocialPostRepository,
+  InMemorySocialFollowRepository,
+  InMemoryDepartmentRepository,
 } from '../common/in-memory';
 import {
   PrismaAttendanceRepository,
@@ -54,6 +61,13 @@ import {
   PrismaSupportIssueRepository,
   PrismaTenantRepository,
   PrismaUserRepository,
+  PrismaSkillPassportRepository,
+  PrismaInterviewAttemptRepository,
+  PrismaMentorMessageRepository,
+  PrismaBankQuestionRepository,
+  PrismaSocialPostRepository,
+  PrismaSocialFollowRepository,
+  PrismaDepartmentRepository,
 } from '../common/prisma-repositories';
 import type { Repositories } from '../common/repositories';
 import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from '../catalog/demo-data';
@@ -89,6 +103,13 @@ export interface DemoState extends Repositories {
   gitConnections: InMemoryGitConnectionRepository;
   gitPublishes: InMemoryGitPublishRepository;
   supportIssues: InMemorySupportIssueRepository;
+  passports: InMemorySkillPassportRepository;
+  interviews: InMemoryInterviewAttemptRepository;
+  mentorMessages: InMemoryMentorMessageRepository;
+  bankQuestions: InMemoryBankQuestionRepository;
+  socialPosts: InMemorySocialPostRepository;
+  socialFollows: InMemorySocialFollowRepository;
+  departments: InMemoryDepartmentRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -211,6 +232,13 @@ export function createDemoState(): DemoState {
     gitConnections: new InMemoryGitConnectionRepository(),
     gitPublishes: new InMemoryGitPublishRepository(),
     supportIssues: new InMemorySupportIssueRepository(),
+    passports: new InMemorySkillPassportRepository(),
+    interviews: new InMemoryInterviewAttemptRepository(),
+    mentorMessages: new InMemoryMentorMessageRepository(),
+    bankQuestions: new InMemoryBankQuestionRepository(),
+    socialPosts: new InMemorySocialPostRepository(),
+    socialFollows: new InMemorySocialFollowRepository(),
+    departments: new InMemoryDepartmentRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -243,6 +271,13 @@ export function createPrismaState(db: PrismaClient): Repositories {
     gitConnections: new PrismaGitConnectionRepository(db),
     gitPublishes: new PrismaGitPublishRepository(db),
     supportIssues: new PrismaSupportIssueRepository(db),
+    passports: new PrismaSkillPassportRepository(db),
+    interviews: new PrismaInterviewAttemptRepository(db),
+    mentorMessages: new PrismaMentorMessageRepository(db),
+    bankQuestions: new PrismaBankQuestionRepository(db),
+    socialPosts: new PrismaSocialPostRepository(db),
+    socialFollows: new PrismaSocialFollowRepository(db),
+    departments: new PrismaDepartmentRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

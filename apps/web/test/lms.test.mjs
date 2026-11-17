@@ -29,6 +29,12 @@ import {
   attendanceStatusClass,
   attendancePercentLabel,
   nimbusLanding,
+  scoreLabel,
+  readinessLabel,
+  badgeKindLabel,
+  questionKindLabel,
+  feedKindLabel,
+  communicationLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -374,4 +380,49 @@ test('nimbusLanding with no projects is empty', () => {
   assert.deepEqual(landing.workspaces, []);
   assert.deepEqual(landing.openProjects, []);
   assert.equal(landing.counts.workspaces, 0);
+});
+
+// ------------------------------------------------------------ P3 helpers
+
+test('scoreLabel formats a score as a percent, or a dash when null', () => {
+  assert.equal(scoreLabel(0), '0%');
+  assert.equal(scoreLabel(72.4), '72%');
+  assert.equal(scoreLabel(140), '100%');
+  assert.equal(scoreLabel(-5), '0%');
+  assert.equal(scoreLabel(null), '\u2014');
+  assert.equal(scoreLabel(undefined), '\u2014');
+});
+
+test('readinessLabel bands a passport readiness score', () => {
+  assert.equal(readinessLabel(null), 'No evidence yet');
+  assert.equal(readinessLabel(80), 'Interview ready');
+  assert.equal(readinessLabel(60), 'Developing');
+  assert.equal(readinessLabel(20), 'Early');
+});
+
+test('badgeKindLabel title-cases known kinds and falls back', () => {
+  assert.equal(badgeKindLabel('lab'), 'Lab');
+  assert.equal(badgeKindLabel('assessment'), 'Assessment');
+  assert.equal(badgeKindLabel('interview'), 'Interview');
+  assert.equal(badgeKindLabel('mystery'), 'Badge');
+});
+
+test('questionKindLabel title-cases known kinds and falls back', () => {
+  assert.equal(questionKindLabel('mcq'), 'Multiple choice');
+  assert.equal(questionKindLabel('fill'), 'Fill in the blank');
+  assert.equal(questionKindLabel('coding'), 'Coding');
+  assert.equal(questionKindLabel('mystery'), 'Question');
+});
+
+test('feedKindLabel title-cases known kinds and falls back', () => {
+  assert.equal(feedKindLabel('submission'), 'Submission');
+  assert.equal(feedKindLabel('completion'), 'Completion');
+  assert.equal(feedKindLabel('mystery'), 'Activity');
+});
+
+test('communicationLabel bands a communication score', () => {
+  assert.equal(communicationLabel(null), 'Not yet interviewed');
+  assert.equal(communicationLabel(85), '85% \u2014 strong');
+  assert.equal(communicationLabel(65), '65% \u2014 solid');
+  assert.equal(communicationLabel(30), '30% \u2014 needs practice');
 });

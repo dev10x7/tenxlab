@@ -94,9 +94,48 @@ export interface CopySuggester {
   }): Promise<CopySuggestion>;
 }
 
+/** A study-coach answer for one AI Mentor question (parity §2.5). */
+export interface MentorAnswer {
+  topic: string;
+  answer: string;
+  nextSteps: string[];
+  suggestedQuestion: string;
+}
+
+/** What the AI Mentor surface needs from the AI plane (fakeable in tests). */
+export interface MentorAssistant {
+  askMentor(input: {
+    tenantId: string;
+    studentId: string;
+    question: string;
+  }): Promise<MentorAnswer>;
+}
+
+/** A communication score for one mock-interview answer (parity §2.6). */
+export interface SpeechReport {
+  communicationScore: number;
+  grammar: number;
+  vocabulary: number;
+  fillerWords: number;
+  technicalAccuracy: number;
+}
+
+/** What the AI Interviewer surface needs from the AI plane (fakeable in tests). */
+export interface SpeechEvaluator {
+  evaluateSpeech(input: {
+    tenantId: string;
+    studentId: string;
+    promptId: string;
+    transcript: string;
+    expectedTerms: string[];
+  }): Promise<SpeechReport>;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-export class AiBridgeClient implements QualityAnalyzer, CodeReviewer, CopySuggester {
+export class AiBridgeClient
+  implements QualityAnalyzer, CodeReviewer, CopySuggester, MentorAssistant, SpeechEvaluator
+{
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
@@ -207,6 +246,53 @@ export class AiBridgeClient implements QualityAnalyzer, CodeReviewer, CopySugges
       basedOn: Array.isArray(json.based_on)
         ? json.based_on.map((v) => String(v))
         : [],
+    };
+  }
+
+  /** Ask the AI Mentor a study question. */
+  async askMentor(input: {
+    tenantId: string;
+    studentId: string;
+    question: string;
+  }): Promise<MentorAnswer> {
+    const json = await this.postJson('/v1/mentor/ask', {
+      tenant_id: input.tenantId,
+      student_id: input.studentId,
+      question: input.question,
+    });
+    return {
+      topic: typeof json.topic === 'string' ? json.topic : 'General',
+      answer: typeof json.answer === 'string' ? json.answer : '',
+      nextSteps: Array.isArray(json.next_steps)
+        ? json.next_steps.map((v) => String(v))
+        : [],
+      suggestedQuestion:
+        typeof json.suggested_question === 'string' ? json.suggested_question : '',
+    };
+  }
+
+  /** Score a mock-interview transcript (grammar, vocabulary, fillers, tech). */
+  async evaluateSpeech(input: {
+    tenantId: string;
+    studentId: string;
+    promptId: string;
+    transcript: string;
+    expectedTerms: string[];
+  }): Promise<SpeechReport> {
+    const json = await this.postJson('/v1/speech/evaluate', {
+      tenant_id: input.tenantId,
+      student_id: input.studentId,
+      prompt_id: input.promptId,
+      transcript: input.transcript,
+      expected_terms: input.expectedTerms,
+    });
+    const breakdown = (json.breakdown ?? {}) as Record<string, unknown>;
+    return {
+      communicationScore: clampScore(json.communication_score),
+      grammar: clampScore(breakdown.grammar),
+      vocabulary: clampScore(breakdown.vocabulary),
+      fillerWords: clampScore(breakdown.filler_words),
+      technicalAccuracy: clampScore(breakdown.technical_accuracy),
     };
   }
 

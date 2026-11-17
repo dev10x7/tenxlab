@@ -648,3 +648,188 @@ export interface SupportIssueRepository {
   listByTenant(tenantId: string): Promise<SupportIssueRecord[]>;
   update(id: string, patch: Partial<SupportIssueRecord>): Promise<SupportIssueRecord>;
 }
+
+// ---------------------------------------------------------------- P3: Hiring
+
+/**
+ * The indexed Skill Passport (ByteXL parity §2.8). One row per (user, tenant)
+ * aggregates the evidence a recruiter reads: verified badges, the student's best
+ * contest rank, their average lab score, and their AI communication score. It is
+ * a *derived* cache — rebuilt from the primary tables by `PassportService`, never
+ * authored directly — so the recruiter portal can filter without joining.
+ */
+export interface SkillPassportRecord {
+  id: string;
+  userId: string;
+  tenantId: string;
+  verifiedBadges: number;
+  bestContestRank: number | null;
+  avgLabScore: number | null;
+  communicationScore: number | null;
+  updatedAt: Date;
+}
+
+export interface SkillPassportRepository {
+  /** The passport for a user in a tenant, or null when never built. */
+  find(userId: string, tenantId: string): Promise<SkillPassportRecord | null>;
+  /** Upsert on (user, tenant): a rebuild replaces the cached aggregates. */
+  upsert(
+    input: Omit<SkillPassportRecord, 'id' | 'updatedAt'>,
+  ): Promise<SkillPassportRecord>;
+  /** A tenant's passports, for the recruiter filter (unfiltered). */
+  listByTenant(tenantId: string): Promise<SkillPassportRecord[]>;
+}
+
+/**
+ * One AI mock-interview sitting. The transcript is scored by the AI plane's
+ * `speech.py` (grammar / vocabulary / filler / technical), and the overall
+ * communication score is written back onto the student's Skill Passport.
+ */
+export interface InterviewAttemptRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  /** The prompt the student answered (a role/topic, e.g. "Explain Kubernetes"). */
+  promptId: string;
+  promptTitle: string;
+  transcript: string;
+  communicationScore: number;
+  grammar: number;
+  vocabulary: number;
+  fillerWords: number;
+  technicalAccuracy: number;
+  createdAt: Date;
+}
+
+export interface InterviewAttemptRepository {
+  create(
+    input: Omit<InterviewAttemptRecord, 'id' | 'createdAt'>,
+  ): Promise<InterviewAttemptRecord>;
+  /** A user's own sittings, newest first. */
+  listByUser(userId: string): Promise<InterviewAttemptRecord[]>;
+  /** The most recent sitting of a user, if any. */
+  latestByUser(userId: string): Promise<InterviewAttemptRecord | null>;
+}
+
+// ---------------------------------------------------------------- P3: AI Mentor
+
+/**
+ * One turn in an AI Mentor conversation. The mentor answers from a fixed,
+ * deterministic knowledge base (no LLM), so the log is small and replayable.
+ */
+export interface MentorMessageRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  /** `user` or `mentor`. */
+  role: string;
+  content: string;
+  /** The topic the mentor keyed off, when the turn is a mentor answer. */
+  topic: string | null;
+  createdAt: Date;
+}
+
+export interface MentorMessageRepository {
+  create(
+    input: Omit<MentorMessageRecord, 'id' | 'createdAt'>,
+  ): Promise<MentorMessageRecord>;
+  /** A user's conversation, oldest first. */
+  listByUser(userId: string): Promise<MentorMessageRecord[]>;
+  /** Clear a user's conversation. */
+  clearByUser(userId: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------- P3: Question bank
+
+/**
+ * A reusable question in the tenant's bank. It mirrors the fields an assessment
+ * question carries, so an author can copy a bank question into a test without
+ * re-typing it. Kept tenant-scoped and independent of any one assessment.
+ */
+export interface BankQuestionRecord {
+  id: string;
+  tenantId: string;
+  createdBy: string;
+  /** coding | mcq | fill | descriptive */
+  kind: string;
+  prompt: string;
+  /** JSON array of options (choice questions only). */
+  options: string | null;
+  /** JSON: correct answer / index (choice questions only). */
+  correct: string | null;
+  maxScore: number;
+  /** Free-form tags for filtering, JSON array of strings. */
+  tags: string | null;
+  createdAt: Date;
+}
+
+export interface BankQuestionRepository {
+  create(
+    input: Omit<BankQuestionRecord, 'id' | 'createdAt'>,
+  ): Promise<BankQuestionRecord>;
+  findById(id: string): Promise<BankQuestionRecord | null>;
+  /** A tenant's questions, newest first. */
+  listByTenant(tenantId: string): Promise<BankQuestionRecord[]>;
+  update(id: string, patch: Partial<BankQuestionRecord>): Promise<BankQuestionRecord>;
+  delete(id: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------- P3: Social
+
+/** A short update a student posts to their batch's activity feed. */
+export interface SocialPostRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  body: string;
+  createdAt: Date;
+}
+
+export interface SocialPostRepository {
+  create(input: Omit<SocialPostRecord, 'id' | 'createdAt'>): Promise<SocialPostRecord>;
+  findById(id: string): Promise<SocialPostRecord | null>;
+  /** A tenant's posts, newest first. */
+  listByTenant(tenantId: string): Promise<SocialPostRecord[]>;
+  /** Posts by a set of users, newest first (the "following" filter). */
+  listByUsers(tenantId: string, userIds: string[]): Promise<SocialPostRecord[]>;
+  delete(id: string): Promise<void>;
+}
+
+/** A one-way follow edge: `followerId` follows `followeeId`. */
+export interface SocialFollowRecord {
+  id: string;
+  tenantId: string;
+  followerId: string;
+  followeeId: string;
+  createdAt: Date;
+}
+
+export interface SocialFollowRepository {
+  /** Idempotent: following twice returns the existing edge. */
+  follow(
+    input: Omit<SocialFollowRecord, 'id' | 'createdAt'>,
+  ): Promise<SocialFollowRecord>;
+  unfollow(followerId: string, followeeId: string): Promise<boolean>;
+  /** The users this follower follows, newest first. */
+  listFollowing(tenantId: string, followerId: string): Promise<SocialFollowRecord[]>;
+  /** The users following this account, newest first. */
+  listFollowers(tenantId: string, followeeId: string): Promise<SocialFollowRecord[]>;
+}
+
+// ---------------------------------------------------------------- P3: Organizations
+
+/** A department within a tenant; batches group under one. */
+export interface DepartmentRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  createdAt: Date;
+}
+
+export interface DepartmentRepository {
+  create(input: Omit<DepartmentRecord, 'id' | 'createdAt'>): Promise<DepartmentRecord>;
+  findById(id: string): Promise<DepartmentRecord | null>;
+  /** A tenant's departments, alphabetical. */
+  listByTenant(tenantId: string): Promise<DepartmentRecord[]>;
+  delete(id: string): Promise<void>;
+}

@@ -176,11 +176,19 @@ test('the dashboard and its Nimbus sub-surfaces are live (no phase badge)', () =
   }
 });
 
-test('P3 surfaces still carry their phase badge', () => {
-  const reports = navItems('student').find((i) => i.href === '/reports');
-  assert.equal(reports?.phase, 'P3');
-  const feed = navItems('student').find((i) => i.href === '/feed');
-  assert.equal(feed?.phase, 'P3');
+test('the P3 surfaces are live destinations (no phase badge)', () => {
+  const student = navItems('student');
+  for (const href of ['/reports', '/feed', '/social', '/resumes', '/ai-mentor', '/ai-interviewer']) {
+    const item = student.find((i) => i.href === href);
+    assert.ok(item, `student nav has ${href}`);
+    assert.equal(item.phase, undefined, `${href} is wired to the API`);
+  }
+  const instructor = navItems('instructor').find((i) => i.href === '/question-bank');
+  assert.ok(instructor, 'instructor nav has /question-bank');
+  assert.equal(instructor.phase, undefined, '/question-bank is wired to the API');
+  const admin = navItems('admin').find((i) => i.href === '/admin/organizations');
+  assert.ok(admin, 'admin nav has /admin/organizations');
+  assert.equal(admin.phase, undefined, '/admin/organizations is wired to the API');
 });
 
 test('nimbus is a live student and instructor surface (no phase badge)', () => {

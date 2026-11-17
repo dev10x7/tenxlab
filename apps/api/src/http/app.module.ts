@@ -36,6 +36,14 @@ import { ProjectService } from '../projects/project.service';
 import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { QualityEvaluationService } from '../projects/quality-evaluation.service';
+import { PassportService } from '../hiring/passport.service';
+import { InterviewerService } from '../hiring/interviewer.service';
+import { ReportsService } from '../insights/reports.service';
+import { MentorService } from '../mentor/mentor.service';
+import { FeedService } from '../social/feed.service';
+import { SocialService } from '../social/social.service';
+import { QuestionBankService } from '../questions/question-bank.service';
+import { OrgService } from '../organizations/org.service';
 import { AiBridgeClient } from '../ai/ai-bridge.client';
 import { GitHubClient } from '../github/github.client';
 import { GitPublishService } from '../github/git-publish.service';
@@ -61,10 +69,18 @@ import {
   ProjectsController,
   SupportController,
   WebhookController,
+  PassportController,
+  InterviewerController,
+  MentorController,
+  FeedController,
+  SocialController,
+  ReportsController,
+  QuestionBankController,
+  OrganizationsController,
 } from './controllers';
-import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS };
 
 const DEMO_STATE = createDemoState();
 
@@ -108,6 +124,14 @@ const STORE_PROVIDER = {
     GitController,
     DashboardController,
     SupportController,
+    PassportController,
+    InterviewerController,
+    MentorController,
+    FeedController,
+    SocialController,
+    ReportsController,
+    QuestionBankController,
+    OrganizationsController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -194,6 +218,97 @@ const STORE_PROVIDER = {
       provide: SUPPORT,
       inject: [STORE],
       useFactory: (store: Repositories) => new SupportService(store.supportIssues),
+    },
+    {
+      provide: PASSPORT,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new PassportService({
+          passports: store.passports,
+          progress: store.progress,
+          interviews: store.interviews,
+          memberships: store.memberships,
+          users: store.users,
+        }),
+    },
+    {
+      provide: INTERVIEWER,
+      inject: [STORE, AI_BRIDGE, PASSPORT],
+      useFactory: (
+        store: Repositories,
+        bridge: AiBridgeClient | null,
+        passports: PassportService,
+      ) =>
+        new InterviewerService({
+          interviews: store.interviews,
+          evaluator: bridge,
+          passports,
+        }),
+    },
+    {
+      provide: MENTOR,
+      inject: [STORE, AI_BRIDGE],
+      useFactory: (store: Repositories, bridge: AiBridgeClient | null) =>
+        new MentorService({ messages: store.mentorMessages, assistant: bridge }),
+    },
+    {
+      provide: FEED,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new FeedService({
+          memberships: store.memberships,
+          enrollments: store.enrollments,
+          progress: store.progress,
+          users: store.users,
+          projects: store.projects,
+          submissions: store.projectSubmissions,
+          posts: store.socialPosts,
+          lessons: store.lessons,
+        }),
+    },
+    {
+      provide: SOCIAL,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new SocialService({
+          posts: store.socialPosts,
+          follows: store.socialFollows,
+          users: store.users,
+          memberships: store.memberships,
+        }),
+    },
+    {
+      provide: REPORTS,
+      inject: [STORE, COURSE_CATALOG],
+      useFactory: (store: Repositories, catalog: CourseCatalog) =>
+        new ReportsService({
+          batches: store.batches,
+          enrollments: store.enrollments,
+          progress: store.progress,
+          users: store.users,
+          classSessions: store.classSessions,
+          attendance: store.attendance,
+          projects: store.projects,
+          submissions: store.projectSubmissions,
+          courses: catalog,
+        }),
+    },
+    {
+      provide: QUESTION_BANK,
+      inject: [STORE],
+      useFactory: (store: Repositories) => new QuestionBankService(store.bankQuestions),
+    },
+    {
+      provide: ORGS,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new OrgService({
+          tenants: store.tenants,
+          departments: store.departments,
+          batches: store.batches,
+          memberships: store.memberships,
+          users: store.users,
+        }),
     },
     {
       provide: SSO,

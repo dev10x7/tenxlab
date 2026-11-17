@@ -337,3 +337,43 @@ def test_healthz():
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+# -------------------------------------------------------------------- mentor
+
+
+def test_mentor_answers_a_kubernetes_question():
+    from app.mentor import mentor_answer
+
+    answer = mentor_answer("How does a Kubernetes Deployment work?")
+    assert answer.topic == "Kubernetes"
+    assert "Kubernetes" in answer.answer
+    assert len(answer.next_steps) >= 3
+    assert answer.suggested_question
+
+
+def test_mentor_recognises_crashloopbackoff_and_falls_back():
+    from app.mentor import mentor_answer
+
+    crash = mentor_answer("my pod is in CrashLoopBackOff")
+    assert crash.topic == "CrashLoopBackOff"
+
+    unknown = mentor_answer("what is the meaning of life?")
+    assert unknown.topic == "General"
+    assert unknown.next_steps
+
+
+def test_mentor_endpoint_returns_a_study_plan():
+    resp = client.post(
+        "/v1/mentor/ask",
+        json={
+            "tenant_id": "t1",
+            "student_id": "s1",
+            "question": "What should I study for an interview?",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["topic"] == "Interview preparation"
+    assert body["answer"]
+    assert len(body["next_steps"]) >= 3

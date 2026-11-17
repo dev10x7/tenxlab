@@ -50,6 +50,20 @@ import type {
   TenantRepository,
   UserRecord,
   UserRepository,
+  BankQuestionRecord,
+  BankQuestionRepository,
+  DepartmentRecord,
+  DepartmentRepository,
+  InterviewAttemptRecord,
+  InterviewAttemptRepository,
+  MentorMessageRecord,
+  MentorMessageRepository,
+  SkillPassportRecord,
+  SkillPassportRepository,
+  SocialFollowRecord,
+  SocialFollowRepository,
+  SocialPostRecord,
+  SocialPostRepository,
 } from './ports';
 
 /**
@@ -937,6 +951,219 @@ export class PrismaSupportIssueRepository implements SupportIssueRepository {
   }
 }
 
+// ---------------------------------------------------------------- P3 adapters
+
+export class PrismaSkillPassportRepository implements SkillPassportRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async find(userId: string, tenantId: string): Promise<SkillPassportRecord | null> {
+    const row = await this.db.skillPassport.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+    });
+    return row ? toSkillPassport(row) : null;
+  }
+  async upsert(
+    input: Omit<SkillPassportRecord, 'id' | 'updatedAt'>,
+  ): Promise<SkillPassportRecord> {
+    const row = await this.db.skillPassport.upsert({
+      where: { userId_tenantId: { userId: input.userId, tenantId: input.tenantId } },
+      update: {
+        verifiedBadges: input.verifiedBadges,
+        bestContestRank: input.bestContestRank,
+        avgLabScore: input.avgLabScore,
+        communicationScore: input.communicationScore,
+      },
+      create: {
+        userId: input.userId,
+        tenantId: input.tenantId,
+        verifiedBadges: input.verifiedBadges,
+        bestContestRank: input.bestContestRank,
+        avgLabScore: input.avgLabScore,
+        communicationScore: input.communicationScore,
+      },
+    });
+    return toSkillPassport(row);
+  }
+  async listByTenant(tenantId: string): Promise<SkillPassportRecord[]> {
+    const rows = await this.db.skillPassport.findMany({ where: { tenantId } });
+    return rows.map(toSkillPassport);
+  }
+}
+
+export class PrismaInterviewAttemptRepository implements InterviewAttemptRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<InterviewAttemptRecord, 'id' | 'createdAt'>,
+  ): Promise<InterviewAttemptRecord> {
+    const row = await this.db.interviewAttempt.create({ data: input });
+    return toInterviewAttempt(row);
+  }
+  async listByUser(userId: string): Promise<InterviewAttemptRecord[]> {
+    const rows = await this.db.interviewAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toInterviewAttempt);
+  }
+  async latestByUser(userId: string): Promise<InterviewAttemptRecord | null> {
+    const row = await this.db.interviewAttempt.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return row ? toInterviewAttempt(row) : null;
+  }
+}
+
+export class PrismaMentorMessageRepository implements MentorMessageRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<MentorMessageRecord, 'id' | 'createdAt'>,
+  ): Promise<MentorMessageRecord> {
+    const row = await this.db.mentorMessage.create({ data: input });
+    return toMentorMessage(row);
+  }
+  async listByUser(userId: string): Promise<MentorMessageRecord[]> {
+    const rows = await this.db.mentorMessage.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toMentorMessage);
+  }
+  async clearByUser(userId: string): Promise<void> {
+    await this.db.mentorMessage.deleteMany({ where: { userId } });
+  }
+}
+
+export class PrismaBankQuestionRepository implements BankQuestionRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<BankQuestionRecord, 'id' | 'createdAt'>,
+  ): Promise<BankQuestionRecord> {
+    const row = await this.db.bankQuestion.create({ data: input });
+    return toBankQuestion(row);
+  }
+  async findById(id: string): Promise<BankQuestionRecord | null> {
+    const row = await this.db.bankQuestion.findUnique({ where: { id } });
+    return row ? toBankQuestion(row) : null;
+  }
+  async listByTenant(tenantId: string): Promise<BankQuestionRecord[]> {
+    const rows = await this.db.bankQuestion.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toBankQuestion);
+  }
+  async update(
+    id: string,
+    patch: Partial<BankQuestionRecord>,
+  ): Promise<BankQuestionRecord> {
+    const row = await this.db.bankQuestion.update({ where: { id }, data: patch });
+    return toBankQuestion(row);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.bankQuestion.delete({ where: { id } });
+  }
+}
+
+export class PrismaSocialPostRepository implements SocialPostRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<SocialPostRecord, 'id' | 'createdAt'>,
+  ): Promise<SocialPostRecord> {
+    const row = await this.db.socialPost.create({ data: input });
+    return toSocialPost(row);
+  }
+  async findById(id: string): Promise<SocialPostRecord | null> {
+    const row = await this.db.socialPost.findUnique({ where: { id } });
+    return row ? toSocialPost(row) : null;
+  }
+  async listByTenant(tenantId: string): Promise<SocialPostRecord[]> {
+    const rows = await this.db.socialPost.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toSocialPost);
+  }
+  async listByUsers(tenantId: string, userIds: string[]): Promise<SocialPostRecord[]> {
+    const rows = await this.db.socialPost.findMany({
+      where: { tenantId, userId: { in: userIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toSocialPost);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.socialPost.delete({ where: { id } });
+  }
+}
+
+export class PrismaSocialFollowRepository implements SocialFollowRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async follow(
+    input: Omit<SocialFollowRecord, 'id' | 'createdAt'>,
+  ): Promise<SocialFollowRecord> {
+    const row = await this.db.socialFollow.upsert({
+      where: {
+        followerId_followeeId: {
+          followerId: input.followerId,
+          followeeId: input.followeeId,
+        },
+      },
+      update: {},
+      create: input,
+    });
+    return toSocialFollow(row);
+  }
+  async unfollow(followerId: string, followeeId: string): Promise<boolean> {
+    const result = await this.db.socialFollow.deleteMany({
+      where: { followerId, followeeId },
+    });
+    return result.count > 0;
+  }
+  async listFollowing(
+    tenantId: string,
+    followerId: string,
+  ): Promise<SocialFollowRecord[]> {
+    const rows = await this.db.socialFollow.findMany({
+      where: { tenantId, followerId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toSocialFollow);
+  }
+  async listFollowers(
+    tenantId: string,
+    followeeId: string,
+  ): Promise<SocialFollowRecord[]> {
+    const rows = await this.db.socialFollow.findMany({
+      where: { tenantId, followeeId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toSocialFollow);
+  }
+}
+
+export class PrismaDepartmentRepository implements DepartmentRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<DepartmentRecord, 'id' | 'createdAt'>,
+  ): Promise<DepartmentRecord> {
+    const row = await this.db.department.create({ data: input });
+    return toDepartment(row);
+  }
+  async findById(id: string): Promise<DepartmentRecord | null> {
+    const row = await this.db.department.findUnique({ where: { id } });
+    return row ? toDepartment(row) : null;
+  }
+  async listByTenant(tenantId: string): Promise<DepartmentRecord[]> {
+    const rows = await this.db.department.findMany({
+      where: { tenantId },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(toDepartment);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.department.delete({ where: { id } });
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -995,6 +1222,27 @@ type QualityEvaluationRow = Awaited<
 >;
 type SupportIssueRow = Awaited<
   ReturnType<PrismaClient['supportIssue']['findUniqueOrThrow']>
+>;
+type SkillPassportRow = Awaited<
+  ReturnType<PrismaClient['skillPassport']['findUniqueOrThrow']>
+>;
+type InterviewAttemptRow = Awaited<
+  ReturnType<PrismaClient['interviewAttempt']['findUniqueOrThrow']>
+>;
+type MentorMessageRow = Awaited<
+  ReturnType<PrismaClient['mentorMessage']['findUniqueOrThrow']>
+>;
+type BankQuestionRow = Awaited<
+  ReturnType<PrismaClient['bankQuestion']['findUniqueOrThrow']>
+>;
+type SocialPostRow = Awaited<
+  ReturnType<PrismaClient['socialPost']['findUniqueOrThrow']>
+>;
+type SocialFollowRow = Awaited<
+  ReturnType<PrismaClient['socialFollow']['findUniqueOrThrow']>
+>;
+type DepartmentRow = Awaited<
+  ReturnType<PrismaClient['department']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -1274,5 +1522,91 @@ function toSupportIssue(s: SupportIssueRow): SupportIssueRecord {
     pageUrl: s.pageUrl ?? null,
     status: s.status,
     createdAt: s.createdAt,
+  };
+}
+
+function toSkillPassport(s: SkillPassportRow): SkillPassportRecord {
+  return {
+    id: s.id,
+    userId: s.userId,
+    tenantId: s.tenantId,
+    verifiedBadges: s.verifiedBadges,
+    bestContestRank: s.bestContestRank ?? null,
+    avgLabScore: s.avgLabScore ?? null,
+    communicationScore: s.communicationScore ?? null,
+    updatedAt: s.updatedAt,
+  };
+}
+
+function toInterviewAttempt(a: InterviewAttemptRow): InterviewAttemptRecord {
+  return {
+    id: a.id,
+    tenantId: a.tenantId,
+    userId: a.userId,
+    promptId: a.promptId,
+    promptTitle: a.promptTitle,
+    transcript: a.transcript,
+    communicationScore: a.communicationScore,
+    grammar: a.grammar,
+    vocabulary: a.vocabulary,
+    fillerWords: a.fillerWords,
+    technicalAccuracy: a.technicalAccuracy,
+    createdAt: a.createdAt,
+  };
+}
+
+function toMentorMessage(m: MentorMessageRow): MentorMessageRecord {
+  return {
+    id: m.id,
+    tenantId: m.tenantId,
+    userId: m.userId,
+    role: m.role,
+    content: m.content,
+    topic: m.topic ?? null,
+    createdAt: m.createdAt,
+  };
+}
+
+function toBankQuestion(q: BankQuestionRow): BankQuestionRecord {
+  return {
+    id: q.id,
+    tenantId: q.tenantId,
+    createdBy: q.createdBy,
+    kind: q.kind,
+    prompt: q.prompt,
+    options: q.options ?? null,
+    correct: q.correct ?? null,
+    maxScore: q.maxScore,
+    tags: q.tags ?? null,
+    createdAt: q.createdAt,
+  };
+}
+
+function toSocialPost(p: SocialPostRow): SocialPostRecord {
+  return {
+    id: p.id,
+    tenantId: p.tenantId,
+    userId: p.userId,
+    body: p.body,
+    createdAt: p.createdAt,
+  };
+}
+
+function toSocialFollow(f: SocialFollowRow): SocialFollowRecord {
+  return {
+    id: f.id,
+    tenantId: f.tenantId,
+    followerId: f.followerId,
+    followeeId: f.followeeId,
+    createdAt: f.createdAt,
+  };
+}
+
+function toDepartment(d: DepartmentRow): DepartmentRecord {
+  return {
+    id: d.id,
+    tenantId: d.tenantId,
+    name: d.name,
+    createdAt: d.createdAt,
   };
 }

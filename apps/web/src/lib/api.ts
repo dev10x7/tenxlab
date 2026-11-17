@@ -587,6 +587,189 @@ export interface TenantUsage {
   } | null;
 }
 
+// --------------------------------------------------------- P3: Skill Passport
+
+/** One verified badge on a student's Skill Passport (parity §2.8). */
+export interface PassportBadge {
+  id: string;
+  kind: 'lab' | 'assessment' | 'project' | 'interview';
+  label: string;
+  /** Score that earned it, 0-100, or null for a completion badge. */
+  score: number | null;
+  earnedAt: string;
+}
+
+/** A student's Skill Passport, derived on read from their evidence. */
+export interface SkillPassport {
+  userId: string;
+  fullName: string;
+  email: string;
+  verifiedBadges: number;
+  avgLabScore: number | null;
+  avgAssessmentScore: number | null;
+  communicationScore: number | null;
+  badges: PassportBadge[];
+  updatedAt: string;
+}
+
+/** One row of the recruiter shortlist. */
+export interface RecruiterRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  verifiedBadges: number;
+  avgLabScore: number | null;
+  communicationScore: number | null;
+  /** 0-100 blended readiness, or null when there is no evidence yet. */
+  readiness: number | null;
+}
+
+// ------------------------------------------------------- P3: AI Interviewer
+
+/** One prompt in the AI Interviewer bank. */
+export interface InterviewPrompt {
+  id: string;
+  title: string;
+  question: string;
+  expectedTerms: string[];
+}
+
+/** One scored mock-interview sitting. */
+export interface InterviewAttempt {
+  id: string;
+  promptId: string;
+  promptTitle: string;
+  transcript: string;
+  communicationScore: number;
+  grammar: number;
+  vocabulary: number;
+  fillerWords: number;
+  technicalAccuracy: number;
+  createdAt: string;
+}
+
+// ------------------------------------------------------------ P3: AI Mentor
+
+/** One turn in the AI Mentor conversation. */
+export interface MentorTurn {
+  id: string;
+  role: 'user' | 'mentor';
+  content: string;
+  topic: string | null;
+  createdAt: string;
+}
+
+/** The mentor's reply, with the steps it suggests. */
+export interface MentorReply {
+  reply: MentorTurn;
+  nextSteps: string[];
+  suggestedQuestion: string;
+}
+
+// ------------------------------------------------------- P3: Social + Feed
+
+/** One post in the tenant micro-feed. */
+export interface SocialPost {
+  id: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+/** A member in the directory, with follow state. */
+export interface SocialMember {
+  userId: string;
+  fullName: string;
+  email: string;
+  followers: number;
+  following: number;
+  followedByMe: boolean;
+}
+
+/** One item in the derived activity feed. */
+export interface FeedItem {
+  id: string;
+  kind: string;
+  actorId: string;
+  actorName: string;
+  title: string;
+  detail: string | null;
+  href: string | null;
+  createdAt: string;
+}
+
+// --------------------------------------------------- P3: Question Bank
+
+/** One reusable question in the tenant's bank. */
+export interface BankQuestion {
+  id: string;
+  kind: 'coding' | 'mcq' | 'fill' | 'descriptive';
+  prompt: string;
+  options: string[];
+  correct: unknown;
+  maxScore: number;
+  tags: string[];
+  createdAt: string;
+}
+
+// ---------------------------------------------------- P3: Student Reports
+
+/** One batch's cohort roll-up. */
+export interface BatchReport {
+  batchId: string;
+  batchName: string;
+  studentCount: number;
+  avgCompletion: number;
+  avgScore: number | null;
+  attendancePercent: number | null;
+  pendingSubmissions: number;
+}
+
+/** One student row inside a batch report. */
+export interface BatchReportRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  lessonsComplete: number;
+  lessonsTotal: number;
+  completion: number;
+  averageScore: number | null;
+  attendancePercent: number | null;
+}
+
+export interface BatchReportDetail {
+  report: BatchReport;
+  rows: BatchReportRow[];
+}
+
+// ------------------------------------------------- P3: Organizations
+
+/** One department in the admin console. */
+export interface Department {
+  id: string;
+  name: string;
+  batchCount: number;
+  createdAt: string;
+}
+
+/** The admin console's view of the tenant. */
+export interface OrganizationView {
+  tenant: {
+    id: string;
+    name: string;
+    domain: string;
+    plan: string;
+    status: string;
+    maxConcurrentLabs: number;
+    monthlyBudgetCents: number;
+    maxStorageGb: number;
+  };
+  departments: Department[];
+  members: { total: number; students: number; instructors: number; admins: number };
+  batchCount: number;
+}
+
 export const api = {
   session: () => request<Session | null>('/api/auth/session'),
   login: (email: string, password: string) =>
@@ -943,4 +1126,114 @@ export const api = {
     ),
   /** Tenant cost and quota for the current billing period. */
   usage: () => request<TenantUsage>('/api/labs/usage'),
+  // ------------------------------------------------------------- P3 surfaces
+  /** Skill Passport: the caller's own passport. */
+  passport: () => request<SkillPassport>('/api/passport/me'),
+  /** Skill Passport: the recruiter shortlist (instructor/admin only). */
+  recruiterPassports: (filters: {
+    minLabScore?: number;
+    minCommunicationScore?: number;
+    query?: string;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    if (filters.minLabScore != null) qs.set('minLabScore', String(filters.minLabScore));
+    if (filters.minCommunicationScore != null) {
+      qs.set('minCommunicationScore', String(filters.minCommunicationScore));
+    }
+    if (filters.query) qs.set('query', filters.query);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return request<RecruiterRow[]>(`/api/passport/recruiter${suffix}`);
+  },
+  /** AI Interviewer: the prompt bank. */
+  interviewPrompts: () => request<InterviewPrompt[]>('/api/interviews/prompts'),
+  /** AI Interviewer: the caller's sittings. */
+  interviewHistory: () => request<InterviewAttempt[]>('/api/interviews/me'),
+  /** AI Interviewer: submit an answer for scoring. */
+  submitInterview: (promptId: string, transcript: string) =>
+    request<InterviewAttempt>('/api/interviews', {
+      method: 'POST',
+      body: JSON.stringify({ promptId, transcript }),
+    }),
+  /** AI Mentor: the caller's conversation. */
+  mentorHistory: () => request<MentorTurn[]>('/api/mentor/messages'),
+  /** AI Mentor: ask a question; the answer is appended to the conversation. */
+  askMentor: (question: string) =>
+    request<MentorReply>('/api/mentor/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question }),
+    }),
+  /** AI Mentor: clear the conversation. */
+  clearMentor: () => request<{ cleared: true }>('/api/mentor/messages', { method: 'DELETE' }),
+  /** Feed: cohort activity, newest first. */
+  feed: () => request<FeedItem[]>('/api/feed'),
+  /** Social: the tenant feed; `followingOnly` narrows to followed peers. */
+  socialFeed: (followingOnly = false) =>
+    request<SocialPost[]>(`/api/social/feed${followingOnly ? '?following=1' : ''}`),
+  /** Social: the tenant directory with follow state. */
+  socialMembers: () => request<SocialMember[]>('/api/social/members'),
+  /** Social: publish a post. */
+  createPost: (body: string) =>
+    request<SocialPost>('/api/social/posts', {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    }),
+  /** Social: delete a post the caller owns. */
+  deletePost: (id: string) =>
+    request<{ deleted: true }>(`/api/social/posts/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  /** Social: follow a peer. */
+  followMember: (userId: string) =>
+    request<{ following: true }>(`/api/social/follows/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+    }),
+  /** Social: unfollow a peer. */
+  unfollowMember: (userId: string) =>
+    request<{ following: false }>(`/api/social/follows/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }),
+  /** Question Bank: the tenant's questions. */
+  bankQuestions: (filters: { kind?: string; tag?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (filters.kind) qs.set('kind', filters.kind);
+    if (filters.tag) qs.set('tag', filters.tag);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return request<BankQuestion[]>(`/api/question-bank${suffix}`);
+  },
+  /** Question Bank: add a question. */
+  createBankQuestion: (input: {
+    kind: string;
+    prompt: string;
+    options?: string[];
+    correct?: unknown;
+    maxScore?: number;
+    tags?: string[];
+  }) =>
+    request<BankQuestion>('/api/question-bank', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  /** Question Bank: remove a question. */
+  deleteBankQuestion: (id: string) =>
+    request<{ deleted: true }>(`/api/question-bank/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  /** Student Reports: every batch's cohort roll-up. */
+  batchReports: () => request<BatchReport[]>('/api/reports/batches'),
+  /** Student Reports: one batch's roll-up plus its per-student rows. */
+  batchReport: (batchId: string) =>
+    request<BatchReportDetail>(`/api/reports/batches/${encodeURIComponent(batchId)}`),
+  /** Organizations: the admin console's tenant view. */
+  organization: () => request<OrganizationView>('/api/organizations'),
+  /** Organizations: create a department. */
+  createDepartment: (name: string) =>
+    request<Department>('/api/organizations/departments', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  /** Organizations: delete a department. */
+  deleteDepartment: (id: string) =>
+    request<{ deleted: true }>(`/api/organizations/departments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 };
