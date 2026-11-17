@@ -3,6 +3,7 @@ import type {
   AttemptRepository,
   BatchRepository,
   ClassSessionRepository,
+  ClarityAttemptRepository,
   ContestEntryRepository,
   ContestRepository,
   CourseRepository,
@@ -69,6 +70,7 @@ export interface Repositories {
   supportIssues: SupportIssueRepository;
   passports: SkillPassportRepository;
   interviews: InterviewAttemptRepository;
+  clarity: ClarityAttemptRepository;
   mentorMessages: MentorMessageRepository;
   bankQuestions: BankQuestionRepository;
   socialPosts: SocialPostRepository;

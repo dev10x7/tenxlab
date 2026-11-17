@@ -76,7 +76,12 @@ export interface LabSessionRecord {
   exerciseSlug: string;
   tier: string;
   status: string;
-  ideUrl?: string | null;
+  /**
+   * Stable ingress host for the session's IDE (no scheme, no path). The
+   * browser-facing URL is composed from this at read time, so a deployment's
+   * public base URL is never persisted. Null until provisioned.
+   */
+  ideHost?: string | null;
   kubelabRef?: string | null;
   startedAt: Date;
   lastActivityAt: Date;
@@ -208,7 +213,11 @@ export interface ProjectWorkspaceRecord {
   templateSlug: string;
   runtimeTier: string;
   status: string;
-  ideUrl: string | null;
+  /**
+   * Stable ingress host for the workspace's IDE (no scheme, no path). The
+   * browser-facing URL is composed at read time; null while stopped.
+   */
+  ideHost: string | null;
   /** Public URL the workspace's service is exposed on after a Deploy (E5). */
   deployUrl: string | null;
   /** Container port the deploy exposes. */
@@ -899,4 +908,42 @@ export interface ContestEntryRepository {
   find(contestId: string, userId: string): Promise<ContestEntryRecord | null>;
   /** A user's best entries across contests; backs the passport's contest rank. */
   listByUser(userId: string): Promise<ContestEntryRecord[]>;
+}
+
+// ---------------------------------------------------------------- Phase F: Clarity
+
+/**
+ * One scored Clarity practice attempt (§2.10). Clarity is ByteXL's CEFR-graded
+ * English practice; each attempt carries the skill practised, the response, the
+ * 0-100 score, and the CEFR band the score falls in. Kept as a durable record so
+ * a student's level per skill is derived from their history, not stored twice.
+ */
+export interface ClarityAttemptRecord {
+  id: string;
+  tenantId: string;
+  userId: string;
+  /** The task answered, e.g. `reading-k8s-1`. */
+  taskId: string;
+  taskTitle: string;
+  /** reading | writing | listening | speaking */
+  skill: string;
+  response: string;
+  score: number;
+  /** CEFR band the score maps to: A1, A2, B1, B2, C1, or C2. */
+  band: string;
+  grammar: number;
+  vocabulary: number;
+  content: number;
+  fluency: number;
+  createdAt: Date;
+}
+
+export interface ClarityAttemptRepository {
+  create(
+    input: Omit<ClarityAttemptRecord, 'id' | 'createdAt'>,
+  ): Promise<ClarityAttemptRecord>;
+  /** A user's own attempts, newest first. */
+  listByUser(userId: string): Promise<ClarityAttemptRecord[]>;
+  /** Every attempt in a tenant; backs the faculty roster. */
+  listByTenant(tenantId: string): Promise<ClarityAttemptRecord[]>;
 }

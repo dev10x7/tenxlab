@@ -1,4 +1,5 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
+import { composeIdeUrl } from './ide-url';
 import { LabProviderError, type LabProvider } from './types';
 
 /** Identity KubeLab needs to materialise a lab user record. */
@@ -88,19 +89,22 @@ export class KubeLabAdapter implements LabProvider {
     this.readinessPollMs = opts.readinessPollMs ?? 3_000;
   }
 
+  /** The stable ingress host for a lab session (no scheme, no path). */
+  ideHostFor(labId: string, exerciseId: string, userId: string): string {
+    return `kubelab-${labId}-${exerciseId}-${userId}.${this.opts.allowedHosts}`;
+  }
+
   /** The browser-facing IDE URL for a lab session. */
   ideUrlFor(labId: string, exerciseId: string, userId: string): string {
-    const host = `kubelab-${labId}-${exerciseId}-${userId}.${this.opts.allowedHosts}`;
-    if (this.publicIdeBaseUrl) {
-      return `${this.publicIdeBaseUrl}/lab/${host}/`;
-    }
-    return `${this.scheme}://${host}/`;
+    return composeIdeUrl(this.ideHostFor(labId, exerciseId, userId), {
+      publicIdeBaseUrl: this.publicIdeBaseUrl,
+      ideScheme: this.scheme as 'https' | 'http',
+    })!;
   }
 
   /** The ingress URL the IDE is actually served on, for host-side readiness. */
   private ingressUrlFor(labId: string, exerciseId: string, userId: string): string {
-    const host = `kubelab-${labId}-${exerciseId}-${userId}.${this.opts.allowedHosts}`;
-    return `${this.scheme}://${host}/`;
+    return `${this.scheme}://${this.ideHostFor(labId, exerciseId, userId)}/`;
   }
 
   async provision(spec: LabSpec): Promise<SessionHandle> {
@@ -160,7 +164,7 @@ export class KubeLabAdapter implements LabProvider {
     // 3. Wait until the IDE actually answers, so the student never lands on a
     //    502 while the ingress propagates. Probe the ingress directly; the
     //    browser-facing URL may differ (see `publicIdeBaseUrl`).
-    const ideUrl = this.ideUrlFor(
+    const ideHost = this.ideHostFor(
       String(lab['id']),
       String(exercise['id']),
       String(user['id']),
@@ -176,7 +180,12 @@ export class KubeLabAdapter implements LabProvider {
       session_id: spec.session_id,
       status: ready ? 'ACTIVE' : 'WARM',
       tier: 'tier_3_vcluster',
-      ide_url: ideUrl,
+      ide_host: ideHost,
+      ide_url: this.ideUrlFor(
+        String(lab['id']),
+        String(exercise['id']),
+        String(user['id']),
+      ),
       provider_ref: String(exerciseSession['id']),
       started_at: startedAt,
       last_activity_at: new Date().toISOString(),
@@ -192,15 +201,14 @@ export class KubeLabAdapter implements LabProvider {
     const exercise = exerciseId ? await this.get('exercises', exerciseId) : null;
     const labId = exercise ? String(exercise['lab'] ?? '') : '';
     const userId = String(row['user'] ?? '');
-    const ideUrl =
-      labId && exerciseId && userId
-        ? this.ideUrlFor(labId, exerciseId, userId)
-        : undefined;
+    const hasHost = Boolean(labId && exerciseId && userId);
+    const ideHost = hasHost ? this.ideHostFor(labId, exerciseId, userId) : undefined;
     return {
       session_id: sessionId,
       status: row['agentRunning'] === true ? 'ACTIVE' : 'WARM',
       tier: 'tier_3_vcluster',
-      ide_url: ideUrl,
+      ide_host: ideHost,
+      ide_url: hasHost ? this.ideUrlFor(labId, exerciseId, userId) : undefined,
       provider_ref: sessionId,
       started_at: toIso(row['startTime']) ?? new Date().toISOString(),
       last_activity_at: toIso(row['updated']) ?? new Date().toISOString(),

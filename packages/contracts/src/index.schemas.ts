@@ -491,6 +491,16 @@ export const SessionHandle = z.object({
   session_id: z.string().min(1),
   status: SessionStatus,
   tier: RuntimeTier,
+  /**
+   * The session's stable ingress host (no scheme, no path). This is the only
+   * durable IDE locator: the browser-facing URL is derived from it at read
+   * time so a deployment's public base URL never has to be persisted.
+   */
+  ide_host: z.string().optional(),
+  /**
+   * Browser-facing IDE URL, derived from `ide_host` and the deployment's
+   * public base. Convenience for callers that want a URL directly; not durable.
+   */
   ide_url: z.string().url().optional(),
   provider_ref: z.string().optional(),
   started_at: z.string().datetime(),
@@ -723,7 +733,12 @@ export const ProjectWorkspace = z.object({
   templateSlug: z.string().min(1),
   runtimeTier: RuntimeTier,
   status: WorkspaceStatus,
-  /** IDE URL while running; null while stopped. */
+  /**
+   * Stable ingress host for the workspace's IDE (no scheme, no path). The only
+   * durable IDE locator; the browser-facing URL is derived from it at read time.
+   */
+  ideHost: z.string().nullable().default(null),
+  /** Browser-facing IDE URL, derived from `ideHost`; null while stopped. */
   ideUrl: z.string().nullable().default(null),
   /**
    * Public URL the workspace's service is exposed on after a "Deploy" (E5),
@@ -850,3 +865,66 @@ export const LeaderboardRow = z.object({
   isSelf: z.boolean().default(false),
 });
 export type LeaderboardRow = z.infer<typeof LeaderboardRow>;
+
+// ---------------------------------------------------------------- Clarity (§2.10)
+
+/** The four Clarity skills; each is practised and banded independently. */
+export const ClaritySkill = z.enum(['reading', 'writing', 'listening', 'speaking']);
+export type ClaritySkill = z.infer<typeof ClaritySkill>;
+
+/** The six CEFR bands a Clarity score maps to (A1 basic .. C2 proficient). */
+export const CefrBand = z.enum(['A1', 'A2', 'B1', 'B2', 'C1', 'C2']);
+export type CefrBand = z.infer<typeof CefrBand>;
+
+/** One practice task in the Clarity bank. */
+export const ClarityTask = z.object({
+  id: z.string().min(1),
+  skill: ClaritySkill,
+  title: z.string().min(1),
+  prompt: z.string().min(1),
+  /** reading/listening only: the passage the response is about. */
+  passage: z.string().optional(),
+  expectedTerms: z.array(z.string()).default([]),
+});
+export type ClarityTask = z.infer<typeof ClarityTask>;
+
+/** One scored Clarity attempt, as the web client renders it. */
+export const ClarityAttempt = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  taskTitle: z.string(),
+  skill: ClaritySkill,
+  response: z.string(),
+  score: z.number().int().min(0).max(100),
+  band: CefrBand,
+  grammar: z.number().int().min(0).max(100),
+  vocabulary: z.number().int().min(0).max(100),
+  content: z.number().int().min(0).max(100),
+  fluency: z.number().int().min(0).max(100),
+  createdAt: z.string().datetime(),
+});
+export type ClarityAttempt = z.infer<typeof ClarityAttempt>;
+
+/** A student's derived level in one skill. */
+export const ClaritySkillLevel = z.object({
+  skill: ClaritySkill,
+  /** Best band reached, or null before any attempt. */
+  band: CefrBand.nullable(),
+  bestScore: z.number().int().min(0).max(100).nullable(),
+  attempts: z.number().int().nonnegative(),
+  /** Band of the most recent attempt, so progress is visible. */
+  latestBand: CefrBand.nullable(),
+});
+export type ClaritySkillLevel = z.infer<typeof ClaritySkillLevel>;
+
+/** One student's row in the faculty Clarity roster. */
+export const ClarityRosterRow = z.object({
+  userId: z.string().min(1),
+  fullName: z.string(),
+  email: z.string(),
+  overallBand: CefrBand.nullable(),
+  bestBySkill: z.record(z.string(), z.number().int().min(0).max(100).nullable()),
+  attempts: z.number().int().nonnegative(),
+  lastActivityAt: z.string().datetime().nullable(),
+});
+export type ClarityRosterRow = z.infer<typeof ClarityRosterRow>;

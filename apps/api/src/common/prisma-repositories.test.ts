@@ -132,9 +132,9 @@ test(
         ttlSeconds: 1800,
       });
       assert.equal(await sessions.countActiveByTenant(tenantId), 1);
-      const updated = await sessions.update(s.id, { status: 'ACTIVE', ideUrl: 'https://ide' });
+      const updated = await sessions.update(s.id, { status: 'ACTIVE', ideHost: 'ide.example.com' });
       assert.equal(updated.status, 'ACTIVE');
-      assert.equal(updated.ideUrl, 'https://ide');
+      assert.equal(updated.ideHost, 'ide.example.com');
       assert.equal((await sessions.findById(s.id))?.status, 'ACTIVE');
 
       // --- warm pool inventory: the operator's claim/reap surface
@@ -239,7 +239,7 @@ test(
         templateSlug: 'spring-boot',
         runtimeTier: 'tier_2_container',
         status: 'provisioning',
-        ideUrl: null,
+        ideHost: null,
         storageRef: null,
       });
       const stopped = await workspaces.update(workspace.id, {

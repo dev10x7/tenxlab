@@ -12,6 +12,7 @@ export const CAPABILITIES = [
   'assessment:write',
   'project:write',
   'proctoring:read',
+  'clarity:read',
   'test:edit',
 ] as const;
 
@@ -24,6 +25,7 @@ const BY_ROLE: Record<string, Capability[]> = {
     'assessment:write',
     'project:write',
     'proctoring:read',
+    'clarity:read',
     'test:edit',
   ],
   admin: [
@@ -31,6 +33,7 @@ const BY_ROLE: Record<string, Capability[]> = {
     'assessment:write',
     'project:write',
     'proctoring:read',
+    'clarity:read',
     'test:edit',
   ],
 };

@@ -60,6 +60,8 @@ import type {
   DepartmentRepository,
   InterviewAttemptRecord,
   InterviewAttemptRepository,
+  ClarityAttemptRecord,
+  ClarityAttemptRepository,
   MentorMessageRecord,
   MentorMessageRepository,
   SkillPassportRecord,
@@ -461,7 +463,7 @@ export class PrismaLabSessionRepository implements LabSessionRepository {
         exerciseSlug: input.exerciseSlug,
         tier: input.tier,
         status: input.status,
-        ideUrl: input.ideUrl ?? null,
+        ideHost: input.ideHost ?? null,
         kubelabRef: input.kubelabRef ?? null,
         startedAt: input.startedAt,
         lastActivityAt: input.lastActivityAt,
@@ -497,7 +499,7 @@ export class PrismaLabSessionRepository implements LabSessionRepository {
       where: { id },
       data: {
         status: patch.status,
-        ideUrl: patch.ideUrl === undefined ? undefined : patch.ideUrl,
+        ideHost: patch.ideHost === undefined ? undefined : patch.ideHost,
         kubelabRef: patch.kubelabRef === undefined ? undefined : patch.kubelabRef,
         lastActivityAt: patch.lastActivityAt,
         ttlSeconds: patch.ttlSeconds,
@@ -1017,6 +1019,30 @@ export class PrismaInterviewAttemptRepository implements InterviewAttemptReposit
   }
 }
 
+export class PrismaClarityAttemptRepository implements ClarityAttemptRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ClarityAttemptRecord, 'id' | 'createdAt'>,
+  ): Promise<ClarityAttemptRecord> {
+    const row = await this.db.clarityAttempt.create({ data: input });
+    return toClarityAttempt(row);
+  }
+  async listByUser(userId: string): Promise<ClarityAttemptRecord[]> {
+    const rows = await this.db.clarityAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toClarityAttempt);
+  }
+  async listByTenant(tenantId: string): Promise<ClarityAttemptRecord[]> {
+    const rows = await this.db.clarityAttempt.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toClarityAttempt);
+  }
+}
+
 export class PrismaMentorMessageRepository implements MentorMessageRepository {
   constructor(private readonly db: PrismaClient) {}
   async create(
@@ -1308,6 +1334,9 @@ type SkillPassportRow = Awaited<
 type InterviewAttemptRow = Awaited<
   ReturnType<PrismaClient['interviewAttempt']['findUniqueOrThrow']>
 >;
+type ClarityAttemptRow = Awaited<
+  ReturnType<PrismaClient['clarityAttempt']['findUniqueOrThrow']>
+>;
 type MentorMessageRow = Awaited<
   ReturnType<PrismaClient['mentorMessage']['findUniqueOrThrow']>
 >;
@@ -1375,7 +1404,7 @@ function toLabSession(s: LabSessionRow): LabSessionRecord {
     exerciseSlug: s.exerciseSlug,
     tier: s.tier,
     status: s.status,
-    ideUrl: s.ideUrl ?? null,
+    ideHost: s.ideHost ?? null,
     kubelabRef: s.kubelabRef ?? null,
     startedAt: s.startedAt,
     lastActivityAt: s.lastActivityAt,
@@ -1498,7 +1527,7 @@ function toProjectWorkspace(w: ProjectWorkspaceRow): ProjectWorkspaceRecord {
     templateSlug: w.templateSlug,
     runtimeTier: w.runtimeTier,
     status: w.status,
-    ideUrl: w.ideUrl ?? null,
+    ideHost: w.ideHost ?? null,
     deployUrl: w.deployUrl ?? null,
     deployPort: w.deployPort ?? null,
     storageRef: w.storageRef ?? null,
@@ -1635,6 +1664,25 @@ function toInterviewAttempt(a: InterviewAttemptRow): InterviewAttemptRecord {
     fillerWords: a.fillerWords,
     technicalAccuracy: a.technicalAccuracy,
     createdAt: a.createdAt,
+  };
+}
+
+function toClarityAttempt(c: ClarityAttemptRow): ClarityAttemptRecord {
+  return {
+    id: c.id,
+    tenantId: c.tenantId,
+    userId: c.userId,
+    taskId: c.taskId,
+    taskTitle: c.taskTitle,
+    skill: c.skill,
+    response: c.response,
+    score: c.score,
+    band: c.band,
+    grammar: c.grammar,
+    vocabulary: c.vocabulary,
+    content: c.content,
+    fluency: c.fluency,
+    createdAt: c.createdAt,
   };
 }
 

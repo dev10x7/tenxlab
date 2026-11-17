@@ -1,9 +1,10 @@
 import type { LabSpec, RuntimeTier, SessionHandle } from '@tenxlab/contracts';
-import type {
-  LabProvider,
-  ServiceExposer,
-  Suspendable,
-  WorkspaceArchiver,
+import {
+  composeIdeUrl,
+  type LabProvider,
+  type ServiceExposer,
+  type Suspendable,
+  type WorkspaceArchiver,
 } from '@tenxlab/lab-provider';
 import { routeTier, checkStorageQuota, forkStorageGb } from '@tenxlab/runtime-policy';
 import type {
@@ -141,6 +142,14 @@ export interface ForkDeps {
   archiver?: WorkspaceArchiver | null;
   /** Default runtime tier for a fork when the project declares none. */
   defaultTier?: RuntimeTier;
+  /**
+   * Public base that fronts per-session IDE ingress hosts. The browser-facing
+   * `ideUrl` is composed from a workspace's stored host plus this base on every
+   * read, so changing it applies to existing workspaces too.
+   */
+  idePublicBaseUrl?: string;
+  /** Scheme for IDE URLs when no public base is configured. */
+  ideScheme?: 'https' | 'http';
 }
 
 /**
@@ -217,7 +226,7 @@ export class ProjectService {
         const resumable = workspace.status === 'stopped';
         const resumed = await this.deps.workspaces.update(workspace.id, {
           status: 'provisioning',
-          ideUrl: null,
+          ideHost: null,
           lastActivityAt: new Date(),
         });
         // A suspendable provider (ADR-20) kept the volume and only scaled the
@@ -251,7 +260,7 @@ export class ProjectService {
         workspaceId: existing.workspaceId,
         status: workspace?.status ?? 'stopped',
         tier: (workspace?.runtimeTier as RuntimeTier | undefined) ?? tier,
-        ideUrl: workspace?.ideUrl ?? null,
+        ideUrl: workspace ? this.ideUrlFor(workspace) : null,
       };
     }
 
@@ -268,7 +277,7 @@ export class ProjectService {
       templateSlug: await this.resolveTemplateSlug(component),
       runtimeTier: tier,
       status: 'provisioning',
-      ideUrl: null,
+      ideHost: null,
       storageRef: null,
     });
 
@@ -461,7 +470,7 @@ export class ProjectService {
     }
     const stopped = await this.deps.workspaces.update(workspace.id, {
       status: 'stopped',
-      ideUrl: null,
+      ideHost: null,
       // A stop tears the compute down, so any exposed service is gone with it.
       deployUrl: null,
       deployPort: null,
@@ -641,6 +650,18 @@ export class ProjectService {
     );
   }
 
+  /**
+   * The browser-facing IDE URL for a workspace, composed from its stored ingress
+   * host plus the *current* public base. Derived on every read so a base-URL
+   * change applies to existing workspaces rather than only future ones.
+   */
+  ideUrlFor(workspace: ProjectWorkspaceRecord): string | null {
+    return composeIdeUrl(workspace.ideHost, {
+      publicIdeBaseUrl: this.deps.idePublicBaseUrl,
+      ideScheme: this.deps.ideScheme,
+    });
+  }
+
   /** A fork plus its workspace, for the caller polling fork status. */
   async getForkStatus(
     forkId: string,
@@ -690,13 +711,13 @@ export class ProjectService {
     if (!suspender) return;
     try {
       await suspender.resume(workspace.id);
-      // `stop` nulls `ideUrl`; the resumed workload reuses the same ingress, so
-      // re-read the provider to restore it instead of leaving the card without
-      // an "Open workspace" link until the next re-fork.
+      // `stop` nulls `ideHost`; the resumed workload reuses the same ingress,
+      // so re-read the provider to restore it instead of leaving the card
+      // without an "Open workspace" link until the next re-fork.
       const handle = await this.deps.provider?.status(workspace.id);
       await this.deps.workspaces.update(workspace.id, {
         status: 'running',
-        ideUrl: handle?.ide_url ?? workspace.ideUrl ?? null,
+        ideHost: handle?.ide_host ?? workspace.ideHost ?? null,
         lastActivityAt: new Date(),
       });
     } catch (err) {
@@ -761,7 +782,8 @@ export class ProjectService {
       const handle = await provider.provision(spec);
       await this.deps.workspaces.update(workspace.id, {
         status: this.workspaceStatus(handle),
-        ideUrl: handle.ide_url ?? null,
+        // Persist the stable host, never the composed URL (see `ideUrlFor`).
+        ideHost: handle.ide_host ?? null,
         lastActivityAt: new Date(),
       });
     } catch (err) {

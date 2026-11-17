@@ -28,6 +28,7 @@ import {
   InMemoryUserRepository,
   InMemorySkillPassportRepository,
   InMemoryInterviewAttemptRepository,
+  InMemoryClarityAttemptRepository,
   InMemoryMentorMessageRepository,
   InMemoryBankQuestionRepository,
   InMemorySocialPostRepository,
@@ -67,6 +68,7 @@ import {
   PrismaUserRepository,
   PrismaSkillPassportRepository,
   PrismaInterviewAttemptRepository,
+  PrismaClarityAttemptRepository,
   PrismaMentorMessageRepository,
   PrismaBankQuestionRepository,
   PrismaSocialPostRepository,
@@ -110,6 +112,7 @@ export interface DemoState extends Repositories {
   supportIssues: InMemorySupportIssueRepository;
   passports: InMemorySkillPassportRepository;
   interviews: InMemoryInterviewAttemptRepository;
+  clarity: InMemoryClarityAttemptRepository;
   mentorMessages: InMemoryMentorMessageRepository;
   bankQuestions: InMemoryBankQuestionRepository;
   socialPosts: InMemorySocialPostRepository;
@@ -241,6 +244,7 @@ export function createDemoState(): DemoState {
     supportIssues: new InMemorySupportIssueRepository(),
     passports: new InMemorySkillPassportRepository(),
     interviews: new InMemoryInterviewAttemptRepository(),
+    clarity: new InMemoryClarityAttemptRepository(),
     mentorMessages: new InMemoryMentorMessageRepository(),
     bankQuestions: new InMemoryBankQuestionRepository(),
     socialPosts: new InMemorySocialPostRepository(),
@@ -282,6 +286,7 @@ export function createPrismaState(db: PrismaClient): Repositories {
     supportIssues: new PrismaSupportIssueRepository(db),
     passports: new PrismaSkillPassportRepository(db),
     interviews: new PrismaInterviewAttemptRepository(db),
+    clarity: new PrismaClarityAttemptRepository(db),
     mentorMessages: new PrismaMentorMessageRepository(db),
     bankQuestions: new PrismaBankQuestionRepository(db),
     socialPosts: new PrismaSocialPostRepository(db),

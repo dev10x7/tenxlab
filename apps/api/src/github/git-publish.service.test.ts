@@ -79,7 +79,7 @@ async function fixture(
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: overrides.workspaceStatus ?? 'running',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   return { svc, connections, publishes, workspaces, secretBox, pushCalls, workspace };
@@ -192,7 +192,7 @@ test('a failed push is recorded so the student sees why', async () => {
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: 'running',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   await svc.connectComplete('u1', 't1', 'dev-1');

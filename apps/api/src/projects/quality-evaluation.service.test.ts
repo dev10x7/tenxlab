@@ -58,7 +58,7 @@ async function fixture(
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: overrides.status ?? 'running',
-    ideUrl: null,
+    ideHost: null,
     storageRef: 'vol-1',
   });
   return { svc, workspaces, evaluations, workspace, reader, analyzer };

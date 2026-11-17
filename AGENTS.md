@@ -265,11 +265,11 @@ above a **left-panel** menu of sections. The menu is data in
   Mentor, Courses→`/learn`, Catalog→`/catalog`, Classes), `Practice` (Editor,
   Labs, Assessments), `Nimbus` (build→`/nimbus`, Submissions→`/nimbus/submissions`,
   Apps→`/nimbus/apps`), `Insights` (Student Reports→`/reports`, Resumes→`/resumes`,
-  AI Interviewer→`/ai-interviewer`), `Community` (Social→`/social`,
+  AI Interviewer→`/ai-interviewer`, Clarity→`/clarity`), `Community` (Social→`/social`,
   Help→`/help/student`). Every one of these is now a live surface wired to the
   API: `Feed`, `Social`, `Student Reports`, `Resumes`, `AI Mentor`,
-  `AI Interviewer`, `Question Bank`, and `Organizations` all render real data
-  through the same-origin `/api/*` proxy — none is a `SurfacePage` stub.
+  `AI Interviewer`, `Clarity`, `Question Bank`, and `Organizations` all render
+  real data through the same-origin `/api/*` proxy — none is a `SurfacePage` stub.
 - **The dashboard is a three-panel view** (`app/dashboard/page.tsx`): the header
   (shell), a main column of **industry roadmaps** + **competitive rankings**
   (university + batch), and a right rail with the **profile-completion** nudge.
@@ -673,6 +673,33 @@ G.
   boot. It is written by the in-memory demo state *and* the Postgres seed — keep
   both in step, or the contests page is empty against real Postgres.
 
+## Clarity — CEFR-graded English practice (parity §2.10, 2026-11-17)
+
+- **Clarity is a standalone practice surface**, not part of the AI Interviewer.
+  It grades one response across the four skills (**reading, writing, listening,
+  speaking**) and maps the score to a **CEFR band (A1–C2)** with per-dimension
+  sub-scores (grammar / vocabulary / content / fluency) and feedback.
+- **The rubric lives in the AI plane** (`services/ai/app/clarity.py`,
+  `POST /v1/clarity/evaluate`) and is mirrored by a deterministic local scorer in
+  `apps/api/src/clarity/clarity.service.ts` (`localClarityScore`). When the plane
+  is unconfigured or errors, the service falls back to the local scorer rather
+  than failing — keep the two in step (same weights, same CEFR cut points:
+  A1≤24, A2≤39, B1≤54, B2≤69, C1≤84, C2).
+- **The task bank is fixed** (`apps/api/src/clarity/clarity-tasks.ts`): each task
+  carries its skill, a prompt, an optional passage (reading/listening), and
+  `expectedTerms` that drive the content score. A sitting is reproducible because
+  the bank is fixed, not generated.
+- **The API** is `apps/api/src/clarity/`: `ClarityService` over a
+  `ClarityAttemptRepository` port (in-memory + Prisma adapters; table
+  `clarity_attempts`). The service derives each student's **level per skill**
+  (best band + latest band) from their attempt history — the band is never
+  stored twice. The **faculty roster** (`GET /api/clarity/roster`) is gated by
+  the `clarity:read` capability (instructor/admin).
+- **The web surface** is `/clarity` (student practice + level table + history;
+  instructors also see the cohort roster). Listening tasks play their passage
+  aloud via the browser's speech synthesis, so the practice is listening, not
+  reading. Proxy route: `apps/web/src/app/api/clarity/[...path]`.
+
 ## Gotchas
 
 - Clean `dist/` before trusting a test count; stale compiled tests inflate it.
@@ -724,7 +751,19 @@ G.
   `KUBELAB_IDE_PUBLIC_URL` to the public gateway host and run
   `deploy/kubelab/ide-gateway.mjs` (port 12001) so emitted URLs are
   `<gateway>/lab/<ingress-host>/...`; readiness still probes the ingress
-  directly.
+  directly. In the compose stack this lives in `docker-compose.override.yml`
+  (`api.environment.KUBELAB_IDE_PUBLIC_URL`), not the base file. The base file's
+  default (`http://localhost:12001`) is only reachable from inside the sandbox,
+  so the API refuses to boot in production when the public base is loopback —
+  `localhost` would resolve on the student's machine, not the gateway. The
+  override must set the real public host (or the base must be left unset when
+  ingress hosts are directly routable).
+- Only the **ingress host** is persisted (`lab_sessions.ideHost`,
+  `project_workspaces.ideHost`). The browser-facing `ideUrl` is composed from
+  that host plus the *current* `KUBELAB_IDE_PUBLIC_URL` on every read
+  (`composeIdeUrl`, `packages/lab-provider/src/ide-url.ts`), so changing the
+  base applies immediately to existing sessions instead of stranding rows.
+  Never persist a composed URL: it bakes deployment config into the database.
 - Inbound lab webhooks are signed with HMAC-SHA256 over the **raw** body and the
   header is `x-tenxlab-signature-256`; the payload `status` is uppercase
   (`PASSED`/`FAILED`/`ERROR`). Getting either wrong yields 401/422.

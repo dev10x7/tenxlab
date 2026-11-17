@@ -131,6 +131,32 @@ export interface SpeechEvaluator {
   }): Promise<SpeechReport>;
 }
 
+/** A CEFR-graded Clarity score for one practice response (parity §2.10). */
+export interface ClarityReport {
+  skill: string;
+  score: number;
+  /** A1, A2, B1, B2, C1, or C2. */
+  band: string;
+  grammar: number;
+  vocabulary: number;
+  content: number;
+  fluency: number;
+  matchedTerms: string[];
+  feedback: string[];
+}
+
+/** What the Clarity surface needs from the AI plane (fakeable in tests). */
+export interface ClarityEvaluator {
+  evaluateClarity(input: {
+    tenantId: string;
+    studentId: string;
+    taskId: string;
+    skill: string;
+    response: string;
+    expectedTerms: string[];
+  }): Promise<ClarityReport>;
+}
+
 /** One student's similarity result in a cohort scan (parity §4.2). */
 export interface PlagiarismMatch {
   studentId: string;
@@ -169,6 +195,7 @@ export class AiBridgeClient
     CopySuggester,
     MentorAssistant,
     SpeechEvaluator,
+    ClarityEvaluator,
     PlagiarismScanner
 {
   private readonly baseUrl: string;
@@ -328,6 +355,41 @@ export class AiBridgeClient
       vocabulary: clampScore(breakdown.vocabulary),
       fillerWords: clampScore(breakdown.filler_words),
       technicalAccuracy: clampScore(breakdown.technical_accuracy),
+    };
+  }
+
+  /** Score a Clarity response and place it on the CEFR scale (§2.10). */
+  async evaluateClarity(input: {
+    tenantId: string;
+    studentId: string;
+    taskId: string;
+    skill: string;
+    response: string;
+    expectedTerms: string[];
+  }): Promise<ClarityReport> {
+    const json = await this.postJson('/v1/clarity/evaluate', {
+      tenant_id: input.tenantId,
+      student_id: input.studentId,
+      task_id: input.taskId,
+      skill: input.skill,
+      response: input.response,
+      expected_terms: input.expectedTerms,
+    });
+    const breakdown = (json.breakdown ?? {}) as Record<string, unknown>;
+    return {
+      skill: typeof json.skill === 'string' ? json.skill : input.skill,
+      score: clampScore(json.score),
+      band: typeof json.band === 'string' ? json.band : 'A1',
+      grammar: clampScore(breakdown.grammar),
+      vocabulary: clampScore(breakdown.vocabulary),
+      content: clampScore(breakdown.content),
+      fluency: clampScore(breakdown.fluency),
+      matchedTerms: Array.isArray(json.matched_terms)
+        ? json.matched_terms.map((v) => String(v))
+        : [],
+      feedback: Array.isArray(json.feedback)
+        ? json.feedback.map((v) => String(v))
+        : [],
     };
   }
 

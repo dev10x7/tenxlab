@@ -48,6 +48,7 @@ function fixture(
     exposer?: ServiceExposer | null;
     archiver?: WorkspaceArchiver | null;
     tenant?: Partial<TenantRecord> | null;
+    idePublicBaseUrl?: string;
   } = {},
 ) {
   const projects = new InMemoryProjectRepository([{ ...PROJECT, ...overrides.project }]);
@@ -84,6 +85,7 @@ function fixture(
     exposer: overrides.exposer ?? null,
     archiver: overrides.archiver ?? null,
     defaultTier: 'tier_2_container',
+    idePublicBaseUrl: overrides.idePublicBaseUrl,
   });
   return { svc, projects, components, workspaces, forks, memberships, tenants };
 }
@@ -101,6 +103,7 @@ function fakeProvider(handle?: Partial<SessionHandle>): {
         session_id: spec.session_id,
         status: 'ACTIVE',
         tier: spec.runtime_tier,
+        ide_host: 'ide.example.com',
         ide_url: 'https://ide.example.com/ws',
         provider_ref: `ns-${spec.session_id}`,
         started_at: new Date().toISOString(),
@@ -114,6 +117,7 @@ function fakeProvider(handle?: Partial<SessionHandle>): {
         session_id: sessionId,
         status: 'ACTIVE',
         tier: 'tier_2_container',
+        ide_host: 'ide.example.com',
         ide_url: 'https://ide.example.com/ws',
         provider_ref: `ns-${sessionId}`,
         started_at: new Date().toISOString(),
@@ -166,7 +170,9 @@ test('fork provisions through the provider and records the IDE URL', async () =>
   await waitFor(async () => (await workspaces.findById(res.workspaceId))?.status === 'running');
   const workspace = await workspaces.findById(res.workspaceId);
   assert.equal(workspace?.status, 'running');
-  assert.equal(workspace?.ideUrl, 'https://ide.example.com/ws');
+  // Only the stable host is persisted; the URL is composed at read time.
+  assert.equal(workspace?.ideHost, 'ide.example.com');
+  assert.equal(svc.ideUrlFor(workspace!), 'https://ide.example.com/');
   assert.equal(specs.length, 1);
   assert.equal(specs[0]?.exercise_id, 'spring-boot');
   assert.equal(specs[0]?.session_id, res.workspaceId);
@@ -264,7 +270,7 @@ test('a fork-your-own component copies the source workspace template', async () 
     templateSlug: 'python-flask',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: 'vol-src',
   });
   const component = await components.create({
@@ -329,7 +335,7 @@ async function runningWorkspace(
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: 'running',
-    ideUrl: 'https://ide.example.com/ws',
+    ideHost: 'ide.example.com',
     storageRef: null,
   });
   return w;
@@ -355,7 +361,7 @@ test('deploy rejects a workspace that is not running', async () => {
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   const res = await fx.svc.deploy('u1', w.id, 5000);
@@ -455,7 +461,7 @@ test('download rejects a workspace that is not running', async () => {
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   const res = await fx.svc.download('u1', w.id);
@@ -567,6 +573,7 @@ function suspendableProvider() {
         session_id: spec.session_id,
         status: 'ACTIVE',
         tier: spec.runtime_tier,
+        ide_host: 'ide.example.com',
         ide_url: 'https://ide.example.com/ws',
         provider_ref: `ns-${spec.session_id}`,
         started_at: new Date().toISOString(),
@@ -579,6 +586,7 @@ function suspendableProvider() {
         session_id: sessionId,
         status: 'ACTIVE',
         tier: 'tier_2_container',
+        ide_host: 'ide.example.com',
         ide_url: 'https://ide.example.com/ws',
         provider_ref: `ns-${sessionId}`,
         started_at: new Date().toISOString(),
@@ -631,11 +639,11 @@ test('re-forking a stopped suspendable workspace resumes it without re-provision
   await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
   assert.deepEqual(calls.resume, [first.workspaceId]);
   assert.deepEqual(calls.terminate, [], 'resume must not re-provision from scratch');
-  // `stop` clears ideUrl; the resume restores it so the card keeps its
+  // `stop` clears ideHost; the resume restores it so the card keeps its
   // "Open workspace" link instead of staying dead until the next re-fork.
   assert.equal(
-    (await fx.workspaces.findById(first.workspaceId))?.ideUrl,
-    'https://ide.example.com/ws',
+    (await fx.workspaces.findById(first.workspaceId))?.ideHost,
+    'ide.example.com',
   );
 });
 
@@ -698,7 +706,7 @@ test('a new fork is rejected once the tenant storage ceiling is reached', async 
       templateSlug: 'spring-boot',
       runtimeTier: 'tier_2_container',
       status: 'stopped',
-      ideUrl: null,
+      ideHost: null,
       storageRef: `vol-${id}`,
       deployUrl: null,
       deployPort: null,
@@ -732,7 +740,7 @@ test('an unlimited tenant is never storage-gated', async () => {
       templateSlug: 'spring-boot',
       runtimeTier: 'tier_2_container',
       status: 'stopped',
-      ideUrl: null,
+      ideHost: null,
       storageRef: `vol-${i}`,
       deployUrl: null,
       deployPort: null,

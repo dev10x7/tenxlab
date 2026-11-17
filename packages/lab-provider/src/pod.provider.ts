@@ -1,4 +1,5 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
+import { composeIdeUrl } from './ide-url';
 import {
   LabProviderError,
   type ArchiveWorkspaceFilesInput,
@@ -160,11 +161,17 @@ export class PodProvider
     this.archivePollMs = opts.archivePollMs ?? ARCHIVE_POLL_MS;
   }
 
+  /** The stable ingress host for a session (raw id or provider ref). */
+  ideHostFor(sessionId: string): string {
+    return this.hostFor(sessionId);
+  }
+
   /** The browser-facing IDE URL for a session (raw id or provider ref). */
   ideUrlFor(sessionId: string): string {
-    const host = this.hostFor(sessionId);
-    if (this.publicIdeBaseUrl) return `${this.publicIdeBaseUrl}/lab/${host}/`;
-    return `${this.scheme}://${host}/`;
+    return composeIdeUrl(this.hostFor(sessionId), {
+      publicIdeBaseUrl: this.publicIdeBaseUrl,
+      ideScheme: this.scheme as 'https' | 'http',
+    })!;
   }
 
   async provision(spec: LabSpec): Promise<SessionHandle> {
@@ -191,15 +198,16 @@ export class PodProvider
     await this.cluster.apply(serviceManifest(ns));
     await this.cluster.apply(ingressManifest(ns, this.hostFor(spec.session_id)));
 
-    const ideUrl = this.ideUrlFor(spec.session_id);
-    const ingressUrl = `${this.scheme}://${this.hostFor(spec.session_id)}/`;
+    const ideHost = this.hostFor(spec.session_id);
+    const ingressUrl = `${this.scheme}://${ideHost}/`;
     const ready = await this.awaitIde(ingressUrl);
 
     return {
       session_id: spec.session_id,
       status: ready ? 'ACTIVE' : 'WARM',
       tier: 'tier_2_container',
-      ide_url: ideUrl,
+      ide_host: ideHost,
+      ide_url: this.ideUrlFor(spec.session_id),
       provider_ref: ns,
       started_at: startedAt,
       last_activity_at: new Date().toISOString(),
@@ -228,6 +236,7 @@ export class PodProvider
       session_id: sessionId,
       status: ready ? 'ACTIVE' : 'WARM',
       tier: 'tier_2_container',
+      ide_host: this.hostFor(sessionId),
       ide_url: this.ideUrlFor(sessionId),
       provider_ref: ns,
       started_at:

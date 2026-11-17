@@ -42,6 +42,7 @@ import { ContestService } from '../contests/contest.service';
 import { InMemoryLeaderboard, type LeaderboardPort } from '../contests/leaderboard';
 import { RedisLeaderboard } from '../contests/redis-leaderboard';
 import { InterviewerService } from '../hiring/interviewer.service';
+import { ClarityService } from '../clarity/clarity.service';
 import { ReportsService } from '../insights/reports.service';
 import { MentorService } from '../mentor/mentor.service';
 import { FeedService } from '../social/feed.service';
@@ -76,6 +77,7 @@ import {
   PassportController,
   ContestController,
   InterviewerController,
+  ClarityController,
   MentorController,
   FeedController,
   SocialController,
@@ -83,9 +85,9 @@ import {
   QuestionBankController,
   OrganizationsController,
 } from './controllers';
-import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, INTEGRITY, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, INTEGRITY, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE, PASSPORT, REPORTS, MENTOR, INTERVIEWER, CLARITY, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD, INTEGRITY };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT, PASSPORT, REPORTS, MENTOR, INTERVIEWER, CLARITY, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD, INTEGRITY };
 
 const DEMO_STATE = createDemoState();
 
@@ -132,6 +134,7 @@ const STORE_PROVIDER = {
     PassportController,
     ContestController,
     InterviewerController,
+    ClarityController,
     MentorController,
     FeedController,
     SocialController,
@@ -282,6 +285,16 @@ const STORE_PROVIDER = {
         }),
     },
     {
+      provide: CLARITY,
+      inject: [STORE, AI_BRIDGE],
+      useFactory: (store: Repositories, bridge: AiBridgeClient | null) =>
+        new ClarityService({
+          attempts: store.clarity,
+          users: store.users,
+          evaluator: bridge,
+        }),
+    },
+    {
       provide: MENTOR,
       inject: [STORE, AI_BRIDGE],
       useFactory: (store: Repositories, bridge: AiBridgeClient | null) =>
@@ -400,6 +413,8 @@ const STORE_PROVIDER = {
           sessions: store.sessions,
           provider: env.KUBELAB_ENABLED ? provider : null,
           usage,
+          idePublicBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+          ideScheme: env.KUBELAB_IDE_SCHEME,
         }),
     },
     {
@@ -504,6 +519,8 @@ const STORE_PROVIDER = {
           // Download (Nov'25 §1.5) reuses it again when it can archive a volume.
           archiver: provider as WorkspaceArchiver | null,
           defaultTier: env.PROJECTS_TIER,
+          idePublicBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+          ideScheme: env.KUBELAB_IDE_SCHEME,
         }),
     },
     {

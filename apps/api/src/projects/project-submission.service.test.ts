@@ -61,7 +61,7 @@ async function fixture(
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: overrides.workspaceStatus ?? 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: 'vol-1',
   });
   await forks.create({
@@ -125,7 +125,7 @@ test('submit rejects a workspace that is not the student own fork', async () => 
     templateSlug: 'spring-boot',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   const res = await svc.submit(base(other.id));

@@ -156,7 +156,7 @@ test('workspace create defaults activity timestamps and is stoppable', async () 
     templateSlug: 'react',
     runtimeTier: 'tier_2_container',
     status: 'provisioning',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   assert.ok(w.createdAt instanceof Date);
@@ -164,7 +164,7 @@ test('workspace create defaults activity timestamps and is stoppable', async () 
 
   const stopped = await workspaces.update(w.id, {
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
   });
   assert.equal(stopped.status, 'stopped');
   assert.equal(stopped.storageRef, null, 'storage persists across a stop');
@@ -178,7 +178,7 @@ test('workspace listing is scoped by tenant and user', async () => {
     templateSlug: 'react',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   await workspaces.create({
@@ -187,7 +187,7 @@ test('workspace listing is scoped by tenant and user', async () => {
     templateSlug: 'react',
     runtimeTier: 'tier_2_container',
     status: 'stopped',
-    ideUrl: null,
+    ideHost: null,
     storageRef: null,
   });
   assert.equal((await workspaces.listByUser('t1', 'u1')).length, 1);

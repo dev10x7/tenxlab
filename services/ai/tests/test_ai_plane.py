@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.copy import suggest_copy
+from app.clarity import cefr_band, evaluate_clarity
 from app.main import app
 from app.plagiarism import compare_against_cohort, normalize, similarity
 from app.quality import score_quality
@@ -377,3 +378,80 @@ def test_mentor_endpoint_returns_a_study_plan():
     assert body["topic"] == "Interview preparation"
     assert body["answer"]
     assert len(body["next_steps"]) >= 3
+
+
+# ------------------------------------------------------------------ clarity
+
+
+def test_cefr_band_boundaries():
+    assert cefr_band(0) == "A1"
+    assert cefr_band(24) == "A1"
+    assert cefr_band(25) == "A2"
+    assert cefr_band(70) == "C1"
+    assert cefr_band(100) == "C2"
+
+
+def test_clarity_rewards_content_coverage():
+    strong = evaluate_clarity(
+        "writing",
+        "Kubernetes is a container orchestrator. It schedules pods onto nodes "
+        "and reconciles the desired state.",
+        expected_terms=["kubernetes", "container", "pod", "node"],
+    )
+    weak = evaluate_clarity(
+        "writing",
+        "I do not know.",
+        expected_terms=["kubernetes", "container", "pod", "node"],
+    )
+    assert strong.content == 100
+    assert strong.score > weak.score
+    assert strong.band >= weak.band
+
+
+def test_clarity_penalises_filler_words_when_speaking():
+    clean = evaluate_clarity("speaking", "Kubernetes schedules pods onto nodes.")
+    messy = evaluate_clarity(
+        "speaking",
+        "Um, so, like, basically kubernetes, you know, schedules, um, pods.",
+    )
+    assert messy.fluency < clean.fluency
+
+
+def test_clarity_unknown_skill_falls_back_to_writing():
+    report = evaluate_clarity("interpretive-dance", "This is a sentence.")
+    assert report.skill == "writing"
+
+
+def test_clarity_endpoint_returns_band_and_feedback():
+    resp = client.post(
+        "/v1/clarity/evaluate",
+        json={
+            "tenant_id": "t1",
+            "student_id": "s1",
+            "task_id": "reading-k8s-1",
+            "skill": "reading",
+            "response": "A pod wraps one or more containers and runs on a node.",
+            "expected_terms": ["pod", "container", "node"],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["skill"] == "reading"
+    assert 0 <= body["score"] <= 100
+    assert body["band"] in {"A1", "A2", "B1", "B2", "C1", "C2"}
+    assert set(body["breakdown"]) == {"grammar", "vocabulary", "content", "fluency"}
+    assert body["feedback"]
+
+
+def test_clarity_endpoint_rejects_unknown_skill():
+    resp = client.post(
+        "/v1/clarity/evaluate",
+        json={
+            "tenant_id": "t1",
+            "student_id": "s1",
+            "task_id": "x",
+            "skill": "telepathy",
+            "response": "hi",
+        },
+    )
+    assert resp.status_code == 422

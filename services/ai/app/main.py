@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .copy import suggest_copy
+from .clarity import SKILLS as CLARITY_SKILLS, evaluate_clarity
 from .mentor import mentor_answer
 from .plagiarism import compare_against_cohort
 from .quality import score_quality
@@ -71,6 +72,18 @@ class SpeechRequest(BaseModel):
     student_id: str
     prompt_id: str
     transcript: str
+    expected_terms: list[str] = Field(default_factory=list)
+
+
+class ClarityRequest(BaseModel):
+    """One Clarity practice response to grade on the CEFR scale (§2.10)."""
+
+    tenant_id: str
+    student_id: str
+    task_id: str
+    # reading | writing | listening | speaking
+    skill: str
+    response: str
     expected_terms: list[str] = Field(default_factory=list)
 
 
@@ -208,6 +221,41 @@ async def speech_evaluate(req: SpeechRequest) -> dict:
             "technical_accuracy": report.technical_accuracy,
         },
         "matched_terms": report.matched_terms,
+    }
+
+
+@app.post("/v1/clarity/evaluate")
+async def clarity_evaluate(req: ClarityRequest) -> dict:
+    if req.skill not in CLARITY_SKILLS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"skill must be one of {sorted(CLARITY_SKILLS)}",
+        )
+    report = evaluate_clarity(req.skill, req.response, req.expected_terms)
+    await _emit(
+        {
+            "event": "clarity.evaluated",
+            "event_id": str(uuid.uuid4()),
+            "tenant_id": req.tenant_id,
+            "student_id": req.student_id,
+            "task_id": req.task_id,
+            "skill": report.skill,
+            "score": report.score,
+            "band": report.band,
+        }
+    )
+    return {
+        "skill": report.skill,
+        "score": report.score,
+        "band": report.band,
+        "breakdown": {
+            "grammar": report.grammar,
+            "vocabulary": report.vocabulary,
+            "content": report.content,
+            "fluency": report.fluency,
+        },
+        "matched_terms": report.matched_terms,
+        "feedback": report.feedback,
     }
 
 

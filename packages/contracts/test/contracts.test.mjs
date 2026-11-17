@@ -9,6 +9,8 @@ import {
   ProjectComponent,
   ProjectWorkspace,
   ProjectSubmissionInput,
+  ClarityAttempt,
+  ClaritySkillLevel,
   hmacSha256Hex,
   verifyHmacSha256,
 } from '../dist/index.js';
@@ -183,7 +185,7 @@ test('ProjectComponent accepts a catalog template or an existing workspace', () 
   assert.equal(fromWorkspace.templateSlug, null);
 });
 
-test('ProjectWorkspace defaults ideUrl and storageRef to null when stopped', () => {
+test('ProjectWorkspace defaults ideHost and storageRef to null when stopped', () => {
   const parsed = ProjectWorkspace.parse({
     id: 'w1',
     tenantId: 't1',
@@ -194,7 +196,7 @@ test('ProjectWorkspace defaults ideUrl and storageRef to null when stopped', () 
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivityAt: '2026-01-01T00:00:00.000Z',
   });
-  assert.equal(parsed.ideUrl, null);
+  assert.equal(parsed.ideHost, null);
   assert.equal(parsed.storageRef, null);
 });
 
@@ -217,3 +219,67 @@ test('ProjectSubmissionInput rejects a non-URL github link', () => {
   assert.equal(bad.success, false);
 });
 
+
+test('ClarityAttempt accepts a banded score', () => {
+  const parsed = ClarityAttempt.parse({
+    id: 'c1',
+    taskId: 'reading-k8s-basics',
+    taskTitle: 'Kubernetes basics',
+    skill: 'reading',
+    response: 'A pod wraps containers.',
+    score: 72,
+    band: 'C1',
+    grammar: 90,
+    vocabulary: 80,
+    content: 60,
+    fluency: 80,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(parsed.band, 'C1');
+});
+
+test('ClarityAttempt rejects an out-of-range band and score', () => {
+  const badBand = ClarityAttempt.safeParse({
+    id: 'c1',
+    taskId: 't',
+    taskTitle: 't',
+    skill: 'reading',
+    response: 'x',
+    score: 50,
+    band: 'Z9',
+    grammar: 0,
+    vocabulary: 0,
+    content: 0,
+    fluency: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(badBand.success, false);
+
+  const badScore = ClarityAttempt.safeParse({
+    id: 'c1',
+    taskId: 't',
+    taskTitle: 't',
+    skill: 'reading',
+    response: 'x',
+    score: 150,
+    band: 'A1',
+    grammar: 0,
+    vocabulary: 0,
+    content: 0,
+    fluency: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(badScore.success, false);
+});
+
+test('ClaritySkillLevel allows a null band before any attempt', () => {
+  const parsed = ClaritySkillLevel.parse({
+    skill: 'writing',
+    band: null,
+    bestScore: null,
+    attempts: 0,
+    latestBand: null,
+  });
+  assert.equal(parsed.band, null);
+  assert.equal(parsed.attempts, 0);
+});

@@ -51,7 +51,15 @@ const EnvSchema = z.object({
   // remote browser can reach a lab whose node IP it cannot route to. When set,
   // IDE URLs are emitted as <base>/lab/<ingress-host>/. Leave unset when the
   // ingress hosts are already browser-reachable.
-  KUBELAB_IDE_PUBLIC_URL: z.string().optional(),
+  //
+  // A loopback base can never work: the URL is handed to the student's browser,
+  // where `localhost` is the student's own machine, not the gateway. It is
+  // rejected in production and warned about elsewhere (see `loadEnv`). Empty is
+  // treated as unset so an unconfigured compose var does not fail validation.
+  KUBELAB_IDE_PUBLIC_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
   // Base URL KubeLab agent pods use to fetch exercise bootstrap/check scripts.
   // Must be reachable from inside the cluster, which is not the same as the
   // browser-facing API URL on minikube.
@@ -142,6 +150,35 @@ const EnvSchema = z.object({
 
 export type Env = z.infer<typeof EnvSchema>;
 
+/** True for hostnames a student's browser resolves to itself, not the gateway. */
+export function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname.endsWith('.localhost') ||
+    /^127\./.test(hostname)
+  );
+}
+
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  return EnvSchema.parse(source);
+  const env = EnvSchema.parse(source);
+
+  // A loopback public IDE base is silently broken for every remote student: the
+  // URL is composed into the browser-facing `ideUrl`, where `localhost` means
+  // the student's machine. Fail loudly in production; warn in development so a
+  // same-host sandbox can still run.
+  if (env.KUBELAB_IDE_PUBLIC_URL) {
+    const host = new URL(env.KUBELAB_IDE_PUBLIC_URL).hostname;
+    if (isLoopbackHost(host)) {
+      const message =
+        `KUBELAB_IDE_PUBLIC_URL=${env.KUBELAB_IDE_PUBLIC_URL} is a loopback address; ` +
+        'lab IDE URLs will be unreachable from a student browser. Set it to the ' +
+        'public gateway host, or unset it when ingress hosts are directly routable.';
+      if (env.NODE_ENV === 'production') throw new Error(message);
+      // eslint-disable-next-line no-console
+      console.warn(`[env] ${message}`);
+    }
+  }
+
+  return env;
 }

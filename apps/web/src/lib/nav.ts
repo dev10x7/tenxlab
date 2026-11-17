@@ -184,6 +184,13 @@ const AI_INTERVIEWER: NavItem = {
   blurb: 'Mock interviews with automated soft-skills scoring.',
 };
 
+const CLARITY: NavItem = {
+  href: '/clarity',
+  label: 'Clarity',
+  icon: '⌁',
+  blurb: 'CEFR-graded English practice: reading, writing, listening, speaking.',
+};
+
 const BATCHES: NavItem = {
   href: '/batches',
   label: 'Batches',
@@ -253,7 +260,7 @@ const STUDENT: NavSection[] = [
   },
   {
     title: 'Insights',
-    items: [REPORTS, RESUMES, AI_INTERVIEWER],
+    items: [REPORTS, RESUMES, AI_INTERVIEWER, CLARITY],
   },
   {
     title: 'Community',
@@ -268,7 +275,7 @@ const INSTRUCTOR: NavSection[] = [
   },
   {
     title: 'Teaching',
-    items: [BATCHES, GRADING, PROCTORING, CONTESTS, CLASSES],
+    items: [BATCHES, GRADING, PROCTORING, CONTESTS, CLARITY, CLASSES],
   },
   {
     title: 'Authoring',

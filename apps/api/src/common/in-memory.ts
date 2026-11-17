@@ -62,6 +62,8 @@ import type {
   InterviewAttemptRepository,
   MentorMessageRecord,
   MentorMessageRepository,
+  ClarityAttemptRecord,
+  ClarityAttemptRepository,
   SkillPassportRecord,
   SkillPassportRepository,
   SocialFollowRecord,
@@ -1165,5 +1167,31 @@ export class InMemoryContestEntryRepository implements ContestEntryRepository {
   }
   async listByUser(userId: string) {
     return this.rows.filter((r) => r.userId === userId);
+  }
+}
+
+export class InMemoryClarityAttemptRepository implements ClarityAttemptRepository {
+  constructor(private readonly rows: ClarityAttemptRecord[] = []) {}
+  async create(input: Omit<ClarityAttemptRecord, 'id' | 'createdAt'>) {
+    const row: ClarityAttemptRecord = {
+      id: randomUUID(),
+      createdAt: new Date(),
+      ...input,
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listByUser(userId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.userId === userId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows.filter((r) => r.tenantId === tenantId);
   }
 }

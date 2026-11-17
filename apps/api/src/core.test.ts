@@ -270,6 +270,7 @@ function labFixture(maxConcurrentLabs = 10) {
           session_id: spec.session_id,
           status: 'ACTIVE' as const,
           tier: 'tier_3_vcluster' as const,
+          ide_host: 'ide.example.com',
           ide_url: 'https://ide.example.com/session',
           provider_ref: 'fake-1',
           started_at: new Date().toISOString(),
@@ -350,6 +351,7 @@ test('lab launch provisions through the provider and records the IDE URL', async
         session_id: String(spec['session_id']),
         status: 'ACTIVE' as const,
         tier: 'tier_3_vcluster' as const,
+        ide_host: 'ide.example.com',
         ide_url: 'https://ide.example.com/session',
         provider_ref: 'kl-1',
         started_at: new Date().toISOString(),
@@ -395,7 +397,9 @@ test('lab launch provisions through the provider and records the IDE URL', async
   await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'ACTIVE');
   const row = await sessions.findById(res.sessionId);
   assert.equal(row?.status, 'ACTIVE');
-  assert.equal(row?.ideUrl, 'https://ide.example.com/session');
+  // Only the stable host is persisted; the URL is composed at read time.
+  assert.equal(row?.ideHost, 'ide.example.com');
+  assert.equal(svc.ideUrl(row!), 'https://ide.example.com/');
   assert.equal(row?.kubelabRef, 'kl-1');
   assert.equal(provisioned.length, 1);
   assert.equal(provisioned[0]?.['exercise_id'], 'create-simple-pod');
@@ -463,7 +467,8 @@ test('a tier-2 lesson routes to the pod provider and records its IDE URL', async
   await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'ACTIVE');
   const row = await sessions.findById(res.sessionId);
   assert.equal(row?.status, 'ACTIVE');
-  assert.match(row?.ideUrl ?? '', /^https:\/\/tenxlab-t2-.*\.192\.168\.49\.2\.nip\.io\/$/);
+  assert.match(row?.ideHost ?? '', /^tenxlab-t2-.*\.192\.168\.49\.2\.nip\.io$/);
+  assert.match(svc.ideUrl(row!) ?? '', /^https:\/\/tenxlab-t2-.*\.192\.168\.49\.2\.nip\.io\/$/);
   assert.equal(row?.kubelabRef, `tenxlab-t2-${res.sessionId}`);
   // The pod provider created the session's namespace and pod.
   assert.deepEqual(

@@ -526,8 +526,9 @@ two views) but must be added to the backlog to reach parity. See Phase E6.
 Scope surfaced by the newest release videos that our backlog never captured.
 These are the items to reconcile before declaring Nimbus parity. **All
 parity-blocking items now ship (E6),** including the consolidated landing view
-and one-click publish; what remains here is the visual AI Mentor / Clarity
-(Phase F).
+and one-click publish; the CEFR-graded **Clarity** practice surface now ships
+too (§2.10), leaving the visual AI Mentor (diagram/image generation) as the one
+open Phase F item.
 
 | Capability | Status | Gap / note |
 |---|---|---|
@@ -541,7 +542,7 @@ and one-click publish; what remains here is the visual AI Mentor / Clarity
 | Dashboard university rank + batch rank | **Done** | `DashboardService` ranks the student within the university cohort and their batch (competition ranking) and the dashboard shows both tiles |
 | Profile-completion tile (recruiter visibility) | **Done** | 7-item checklist on the dashboard drives the recruiter-visibility nudge |
 | Exam passcode before starting a test | **Done** | `POST /api/assessments/:id/attempts` takes an optional `passcode`; a protected sitting is refused (403) without the right code, resumed attempts never re-check |
-| Clarity — CEFR-graded English practice (4 skills) | **Partial** | AI-plane `speech.py` scores speech; no CEFR rubric, no listening/reading/writing practice, no faculty dashboard |
+| Clarity — CEFR-graded English practice (4 skills) | **Done** | Ships as `/clarity` (§2.10): the AI plane's `clarity.py` grades a response across reading / writing / listening / speaking and maps it to a **CEFR band (A1–C2)**, with per-dimension sub-scores (grammar / vocabulary / content / fluency) and feedback. A fixed task bank carries passages (listening tasks play aloud via the browser) and expected terms that drive the content score. `ClarityService` derives each student's **level per skill** from their attempt history (best band + latest band) and a **faculty roster** (`clarity:read`) lists every student's overall band and per-skill best. Offline, a deterministic local scorer mirrors the plane's rubric so the surface never hard-fails |
 
 ### 2.11 Support-centre reconciliation (support.bytexl.app, fetched 2026-11-11)
 

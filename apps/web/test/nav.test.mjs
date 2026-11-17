@@ -210,3 +210,22 @@ test('nimbus is a live student and instructor surface (no phase badge)', () => {
   assert.ok(instructor, 'instructor nav has /nimbus');
   assert.equal(instructor.phase, undefined, '/nimbus is wired to the API');
 });
+
+test('clarity is a live student and instructor surface (no phase badge)', () => {
+  const student = navItems('student').find((i) => i.href === '/clarity');
+  assert.ok(student, 'student nav has /clarity');
+  assert.equal(student.phase, undefined, '/clarity is wired to the API');
+
+  const instructor = navItems('instructor').find((i) => i.href === '/clarity');
+  assert.ok(instructor, 'instructor nav has /clarity');
+  assert.equal(instructor.phase, undefined, '/clarity is wired to the API');
+});
+
+test('the Insights section leads with reports, resumes, interviewer, then clarity', () => {
+  const insights = navSections('student').find((s) => s.title === 'Insights');
+  assert.ok(insights, 'student nav has an Insights section');
+  assert.deepEqual(
+    insights.items.map((i) => i.href),
+    ['/reports', '/resumes', '/ai-interviewer', '/clarity'],
+  );
+});

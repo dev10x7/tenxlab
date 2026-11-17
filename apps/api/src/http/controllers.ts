@@ -52,6 +52,7 @@ import { ProjectSubmissionService } from '../projects/project-submission.service
 import { PassportService } from '../hiring/passport.service';
 import { ContestService } from '../contests/contest.service';
 import { InterviewerService } from '../hiring/interviewer.service';
+import { ClarityService } from '../clarity/clarity.service';
 import { ReportsService } from '../insights/reports.service';
 import { MentorService } from '../mentor/mentor.service';
 import { FeedService } from '../social/feed.service';
@@ -98,6 +99,7 @@ import {
   ORGS,
   CONTEST,
   INTEGRITY,
+  CLARITY,
 } from './tokens';
 
 @Controller()
@@ -428,7 +430,7 @@ export class LabController {
       sessionId: row.id,
       status: row.status,
       tier: row.tier,
-      ideUrl: row.ideUrl ?? null,
+      ideUrl: this.launch.ideUrl(row),
     };
   }
 
@@ -1128,7 +1130,7 @@ export class ProjectsController {
       workspaceId: status.fork.workspaceId,
       status: status.workspace?.status ?? 'stopped',
       tier: status.workspace?.runtimeTier ?? null,
-      ideUrl: status.workspace?.ideUrl ?? null,
+      ideUrl: status.workspace ? this.projects.ideUrlFor(status.workspace) : null,
       deployUrl: status.workspace?.deployUrl ?? null,
       deployPort: status.workspace?.deployPort ?? null,
       qualityScore: status.workspace?.qualityScore ?? null,
@@ -2002,6 +2004,80 @@ export class InterviewerController {
       throw new BadRequestException(message);
     }
     return result.attempt;
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+}
+
+/**
+ * Clarity — CEFR-graded English practice (parity §2.10). A student practises
+ * reading, writing, listening, or speaking; the response is graded and mapped to
+ * a CEFR band. Faculty read the cohort roster behind `clarity:read`.
+ */
+@Controller('api/clarity')
+export class ClarityController {
+  constructor(
+    @Inject(CLARITY) private readonly clarity: ClarityService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The task bank, optionally filtered by `?skill=`. */
+  @Get('tasks')
+  tasks(@Query('skill') skill: string | undefined, @Req() req: Request) {
+    this.requireSession(req);
+    return this.clarity.tasks(skill);
+  }
+
+  /** The caller's own attempts, newest first. */
+  @Get('me')
+  async history(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.clarity.history(session.userId);
+  }
+
+  /** The caller's CEFR level per skill, derived from their history. */
+  @Get('me/levels')
+  async levels(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.clarity.levels(session.userId);
+  }
+
+  /** Submit a response for CEFR scoring. */
+  @Post()
+  @HttpCode(201)
+  async submit(
+    @Body() body: { taskId?: string; response?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    if (!body?.taskId) throw new BadRequestException('taskId is required');
+    const result = await this.clarity.submit(
+      session.userId,
+      session.tenantId,
+      body.taskId,
+      body.response ?? '',
+    );
+    if (!result.ok) {
+      const message =
+        result.reason === 'unknown_task'
+          ? 'Unknown Clarity task'
+          : result.reason === 'empty'
+            ? 'A response is required'
+            : 'Your response is too long';
+      throw new BadRequestException(message);
+    }
+    return result.attempt;
+  }
+
+  /** The faculty roster: every student's band per skill. */
+  @Get('roster')
+  async roster(@Req() req: Request) {
+    const session = requireCapability(this.sessions, req, 'clarity:read');
+    return this.clarity.roster(session.tenantId);
   }
 
   private requireSession(req: Request): SessionPayload {

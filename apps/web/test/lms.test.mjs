@@ -40,6 +40,8 @@ import {
   durationLabel,
   withQuery,
   similarityLabel,
+  claritySkillLabel,
+  cefrBandLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -469,4 +471,19 @@ test('similarityLabel renders a ratio as a clamped percentage', () => {
   assert.equal(similarityLabel(1), '100%');
   assert.equal(similarityLabel(1.5), '100%');
   assert.equal(similarityLabel(-0.2), '0%');
+});
+
+test('claritySkillLabel title-cases every skill', () => {
+  assert.equal(claritySkillLabel('reading'), 'Reading');
+  assert.equal(claritySkillLabel('writing'), 'Writing');
+  assert.equal(claritySkillLabel('listening'), 'Listening');
+  assert.equal(claritySkillLabel('speaking'), 'Speaking');
+  assert.equal(claritySkillLabel('telepathy'), 'Skill');
+});
+
+test('cefrBandLabel pairs each band with its Council of Europe tier', () => {
+  assert.equal(cefrBandLabel('A1'), 'A1 — Beginner');
+  assert.equal(cefrBandLabel('B2'), 'B2 — Upper intermediate');
+  assert.equal(cefrBandLabel('C2'), 'C2 — Proficient');
+  assert.equal(cefrBandLabel(null), 'Not yet assessed');
 });

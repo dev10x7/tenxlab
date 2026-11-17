@@ -45,3 +45,4 @@ export const QUESTION_BANK = 'TENXLAB_QUESTION_BANK';
 export const ORGS = 'TENXLAB_ORGS';
 export const CONTEST = 'TENXLAB_CONTEST';
 export const LEADERBOARD = 'TENXLAB_LEADERBOARD';
+export const CLARITY = 'TENXLAB_CLARITY';

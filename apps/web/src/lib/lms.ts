@@ -533,3 +533,32 @@ export function similarityLabel(ratio: number): string {
   const pct = Math.min(Math.max(Math.round(ratio * 100), 0), 100);
   return `${pct}%`;
 }
+
+/** The Clarity skill as a title-cased label, e.g. "listening" -> "Listening". */
+export function claritySkillLabel(skill: string): string {
+  const labels: Record<string, string> = {
+    reading: 'Reading',
+    writing: 'Writing',
+    listening: 'Listening',
+    speaking: 'Speaking',
+  };
+  return labels[skill] ?? 'Skill';
+}
+
+/**
+ * A CEFR band with its tier name, e.g. "B2" -> "B2 — Upper intermediate". The
+ * tier wording is the Council of Europe's, so a student sees what a band means.
+ */
+export function cefrBandLabel(band: string | null): string {
+  if (!band) return 'Not yet assessed';
+  const tiers: Record<string, string> = {
+    A1: 'Beginner',
+    A2: 'Elementary',
+    B1: 'Intermediate',
+    B2: 'Upper intermediate',
+    C1: 'Advanced',
+    C2: 'Proficient',
+  };
+  const tier = tiers[band];
+  return tier ? `${band} — ${tier}` : band;
+}

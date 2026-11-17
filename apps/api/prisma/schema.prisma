@@ -245,7 +245,7 @@ model LabSession {
   exerciseSlug   String
   tier           String
   status         String   @default("WARM") // WARM | ACTIVE | IDLE | TERMINATED
-  ideUrl         String?
+  ideHost        String?
   kubelabRef     String?
   startedAt      DateTime @default(now())
   lastActivityAt DateTime @default(now())
@@ -457,7 +457,7 @@ model ProjectWorkspace {
   templateSlug   String
   runtimeTier    String   @default("tier_2_container")
   status         String   @default("stopped") // provisioning | running | stopped | failed | archived
-  ideUrl         String?
+  ideHost        String?
   deployUrl      String? // public URL the service is exposed on after a Deploy (E5)
   deployPort     Int? // container port the deploy exposes
   storageRef     String?
@@ -629,6 +629,30 @@ model InterviewAttempt {
   @@index([userId, createdAt])
   @@index([tenantId])
   @@map("interview_attempts")
+}
+
+// ---------------------------------------------------------------- Phase F: Clarity
+
+/// One scored Clarity practice attempt (CEFR-graded English practice, §2.10).
+model ClarityAttempt {
+  id         String   @id @default(uuid())
+  tenantId   String
+  userId     String
+  taskId     String
+  taskTitle  String
+  skill      String // reading | writing | listening | speaking
+  response   String
+  score      Int
+  band       String // A1 | A2 | B1 | B2 | C1 | C2
+  grammar    Int
+  vocabulary Int
+  content    Int
+  fluency    Int
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([tenantId])
+  @@map("clarity_attempts")
 }
 
 // ---------------------------------------------------------------- P3: AI Mentor

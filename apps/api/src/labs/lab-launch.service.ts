@@ -1,5 +1,5 @@
 import type { RuntimeTier } from '@tenxlab/contracts';
-import type { LabProvider } from '@tenxlab/lab-provider';
+import { composeIdeUrl, type LabProvider } from '@tenxlab/lab-provider';
 import { routeTier } from '@tenxlab/runtime-policy';
 import type {
   LabSessionRepository,
@@ -46,6 +46,14 @@ export interface LaunchDeps {
   idleTtlSeconds?: number;
   /** Budget/quota gate. When present, launch enforces the monthly budget too. */
   usage?: UsageService;
+  /**
+   * Public base that fronts per-session IDE ingress hosts. The browser-facing
+   * `ideUrl` is composed from a session's stored host plus this base on every
+   * read, so changing it takes effect immediately instead of stranding rows.
+   */
+  idePublicBaseUrl?: string;
+  /** Scheme for IDE URLs when no public base is configured. */
+  ideScheme?: 'https' | 'http';
 }
 
 /**
@@ -135,12 +143,24 @@ export class LabLaunchService {
       sessionId: session.id,
       status: session.status,
       tier,
-      ideUrl: session.ideUrl ?? null,
+      ideUrl: this.ideUrl(session),
     };
   }
 
   async getSession(sessionId: string): Promise<LabSessionRecord | null> {
     return this.deps.sessions.findById(sessionId);
+  }
+
+  /**
+   * The browser-facing IDE URL for a session, composed from its stored ingress
+   * host plus the *current* public base. Derived on every read so a base-URL
+   * change applies to existing sessions rather than only future ones.
+   */
+  ideUrl(session: LabSessionRecord): string | null {
+    return composeIdeUrl(session.ideHost, {
+      publicIdeBaseUrl: this.deps.idePublicBaseUrl,
+      ideScheme: this.deps.ideScheme,
+    });
   }
 
   private async provision(session: LabSessionRecord, tier: RuntimeTier): Promise<void> {
@@ -158,7 +178,8 @@ export class LabLaunchService {
       });
       await this.deps.sessions.update(session.id, {
         status: handle.status,
-        ideUrl: handle.ide_url ?? null,
+        // Persist the stable host, never the composed URL (see `ideUrl`).
+        ideHost: handle.ide_host ?? null,
         kubelabRef: handle.provider_ref ?? null,
         lastActivityAt: new Date(),
       });

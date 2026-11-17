@@ -1,7 +1,13 @@
-# Local-only override: the sandbox's public host (work-1) forwards to port
-# 12000, but the base compose publishes web on 3000. This remaps the published
-# port so the public URL reaches the app. Not for production.
+# Local-only override: the sandbox exposes two public hosts, work-1 -> 12000
+# (web) and work-2 -> 12001 (IDE gateway). The base compose publishes web on
+# 3000 and advertises the IDE gateway as http://localhost:12001, neither of
+# which a remote browser can reach, so remap the web port and point the API's
+# advertised IDE base at the public gateway host. Not for production.
 services:
   web:
     ports:
       - '12000:3000'
+
+  api:
+    environment:
+      KUBELAB_IDE_PUBLIC_URL: ${KUBELAB_IDE_PUBLIC_URL:-https://work-2-kxblqdimavzxovqz.prod-runtime.all-hands.dev}

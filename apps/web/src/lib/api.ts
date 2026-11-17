@@ -732,6 +732,55 @@ export interface InterviewAttempt {
   createdAt: string;
 }
 
+// ------------------------------------------------------------- Clarity (§2.10)
+
+/** One practice task in the Clarity bank. */
+export interface ClarityTask {
+  id: string;
+  skill: 'reading' | 'writing' | 'listening' | 'speaking';
+  title: string;
+  prompt: string;
+  /** reading/listening only: the passage the response is about. */
+  passage?: string;
+  expectedTerms: string[];
+}
+
+/** One scored Clarity attempt, as the web client renders it. */
+export interface ClarityAttempt {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  skill: 'reading' | 'writing' | 'listening' | 'speaking';
+  response: string;
+  score: number;
+  band: string;
+  grammar: number;
+  vocabulary: number;
+  content: number;
+  fluency: number;
+  createdAt: string;
+}
+
+/** A student's derived level in one skill. */
+export interface ClaritySkillLevel {
+  skill: 'reading' | 'writing' | 'listening' | 'speaking';
+  band: string | null;
+  bestScore: number | null;
+  attempts: number;
+  latestBand: string | null;
+}
+
+/** One student's row in the faculty Clarity roster. */
+export interface ClarityRosterRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  overallBand: string | null;
+  bestBySkill: Record<string, number | null>;
+  attempts: number;
+  lastActivityAt: string | null;
+}
+
 // ------------------------------------------------------------ P3: AI Mentor
 
 /** One turn in the AI Mentor conversation. */
@@ -1271,6 +1320,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ promptId, transcript }),
     }),
+  /** Clarity: the task bank, optionally filtered by skill. */
+  clarityTasks: (skill?: string) =>
+    request<ClarityTask[]>(
+      `/api/clarity/tasks${skill ? `?skill=${encodeURIComponent(skill)}` : ''}`,
+    ),
+  /** Clarity: the caller's attempts, newest first. */
+  clarityHistory: () => request<ClarityAttempt[]>('/api/clarity/me'),
+  /** Clarity: the caller's CEFR level per skill. */
+  clarityLevels: () => request<ClaritySkillLevel[]>('/api/clarity/me/levels'),
+  /** Clarity: submit a response for CEFR scoring. */
+  submitClarity: (taskId: string, response: string) =>
+    request<ClarityAttempt>('/api/clarity', {
+      method: 'POST',
+      body: JSON.stringify({ taskId, response }),
+    }),
+  /** Clarity: the faculty roster (requires `clarity:read`). */
+  clarityRoster: () => request<ClarityRosterRow[]>('/api/clarity/roster'),
   /** AI Mentor: the caller's conversation. */
   mentorHistory: () => request<MentorTurn[]>('/api/mentor/messages'),
   /** AI Mentor: ask a question; the answer is appended to the conversation. */
