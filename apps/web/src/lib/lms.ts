@@ -229,6 +229,110 @@ export function submissionStatusLabel(submission: {
   return 'Submitted';
 }
 
+/** A fork's row in the Nimbus landing's "Your workspaces" list. */
+export interface NimbusWorkspaceRow {
+  projectId: string;
+  projectTitle: string;
+  componentTitle: string;
+  technology: string;
+  forkId: string;
+  /** The workspace the quick actions act on (stop/deploy/download/delete). */
+  workspaceId: string;
+  status: string;
+  ideUrl: string | null;
+  deployUrl: string | null;
+}
+
+/** A project the student can still fork, with how many components they have left. */
+export interface NimbusOpenProject {
+  projectId: string;
+  title: string;
+  deadline: string | null;
+  totalComponents: number;
+  forkedComponents: number;
+}
+
+/** The consolidated Nimbus landing view (Nov'25 §1.5). */
+export interface NimbusLanding {
+  workspaces: NimbusWorkspaceRow[];
+  openProjects: NimbusOpenProject[];
+  /** Counts for the summary strip, computed once so the page stays declarative. */
+  counts: {
+    workspaces: number;
+    running: number;
+    liveApps: number;
+    openProjects: number;
+    submissions: number;
+  };
+}
+
+/**
+ * Fold the raw projects + fork statuses + submissions the API returns into the
+ * one landing view ByteXL shows: every workspace (with the quick actions its
+ * status allows), the projects still open to fork, and the headline counts.
+ *
+ * Kept pure so the shape is unit-testable without a DOM (the page is a thin
+ * renderer over this).
+ */
+export function nimbusLanding(input: {
+  projects: Array<{
+    project: { id: string; title: string; deadline: string | null };
+    components: Array<{
+      title: string;
+      technology: string;
+      fork: { id: string } | null;
+    }>;
+  }>;
+  statuses: Record<
+    string,
+    { workspaceId: string; status: string; ideUrl: string | null; deployUrl: string | null }
+  >;
+  submissionCount: number;
+}): NimbusLanding {
+  const workspaces: NimbusWorkspaceRow[] = [];
+  const openProjects: NimbusOpenProject[] = [];
+
+  for (const view of input.projects) {
+    const forked = view.components.filter((c) => c.fork);
+    for (const component of forked) {
+      const fork = component.fork!;
+      const status = input.statuses[fork.id];
+      workspaces.push({
+        projectId: view.project.id,
+        projectTitle: view.project.title,
+        componentTitle: component.title,
+        technology: component.technology,
+        forkId: fork.id,
+        workspaceId: status?.workspaceId ?? '',
+        status: status?.status ?? 'provisioning',
+        ideUrl: status?.ideUrl ?? null,
+        deployUrl: status?.deployUrl ?? null,
+      });
+    }
+    if (forked.length < view.components.length) {
+      openProjects.push({
+        projectId: view.project.id,
+        title: view.project.title,
+        deadline: view.project.deadline,
+        totalComponents: view.components.length,
+        forkedComponents: forked.length,
+      });
+    }
+  }
+
+  return {
+    workspaces,
+    openProjects,
+    counts: {
+      workspaces: workspaces.length,
+      running: workspaces.filter((w) => w.status === 'running').length,
+      liveApps: workspaces.filter((w) => w.deployUrl).length,
+      openProjects: openProjects.length,
+      submissions: input.submissionCount,
+    },
+  };
+}
+
 /**
  * Whether a project's deadline has passed relative to `now`, which closes it
  * for submission. A project with no deadline is never closed by the clock.

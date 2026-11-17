@@ -28,6 +28,7 @@ import {
   attendanceStatusLabel,
   attendanceStatusClass,
   attendancePercentLabel,
+  nimbusLanding,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -294,4 +295,83 @@ test('attendancePercentLabel flags a shortfall below the 75% threshold', () => {
 test('attendancePercentLabel clamps out-of-range input', () => {
   assert.equal(attendancePercentLabel(140), '100%');
   assert.equal(attendancePercentLabel(-5), '0% — below 75%');
+});
+
+test('nimbusLanding folds projects, statuses, and submissions into one view', () => {
+  const landing = nimbusLanding({
+    projects: [
+      {
+        project: { id: 'p1', title: 'Task API', deadline: null },
+        components: [
+          { title: 'API', technology: 'spring-boot', fork: { id: 'f1' } },
+          { title: 'Web', technology: 'react', fork: null },
+        ],
+      },
+      {
+        project: { id: 'p2', title: 'Data Lab', deadline: null },
+        components: [{ title: 'DB', technology: 'postgres', fork: null }],
+      },
+    ],
+    statuses: {
+      f1: {
+        workspaceId: 'w1',
+        status: 'running',
+        ideUrl: 'https://ide',
+        deployUrl: 'https://app',
+      },
+    },
+    submissionCount: 3,
+  });
+
+  assert.equal(landing.workspaces.length, 1);
+  assert.equal(landing.workspaces[0].forkId, 'f1');
+  assert.equal(landing.workspaces[0].workspaceId, 'w1');
+  assert.equal(landing.workspaces[0].deployUrl, 'https://app');
+  assert.deepEqual(landing.counts, {
+    workspaces: 1,
+    running: 1,
+    liveApps: 1,
+    openProjects: 2,
+    submissions: 3,
+  });
+});
+
+test('nimbusLanding lists only projects with an unforked component', () => {
+  const landing = nimbusLanding({
+    projects: [
+      {
+        project: { id: 'p1', title: 'Done', deadline: null },
+        components: [{ title: 'API', technology: 'java', fork: { id: 'f1' } }],
+      },
+    ],
+    statuses: { f1: { workspaceId: 'w1', status: 'stopped', ideUrl: null, deployUrl: null } },
+    submissionCount: 0,
+  });
+
+  assert.equal(landing.openProjects.length, 0);
+  assert.equal(landing.counts.openProjects, 0);
+  assert.equal(landing.counts.running, 0);
+});
+
+test('nimbusLanding treats a missing status as still provisioning', () => {
+  const landing = nimbusLanding({
+    projects: [
+      {
+        project: { id: 'p1', title: 'Task API', deadline: null },
+        components: [{ title: 'API', technology: 'java', fork: { id: 'f1' } }],
+      },
+    ],
+    statuses: {},
+    submissionCount: 0,
+  });
+
+  assert.equal(landing.workspaces[0].status, 'provisioning');
+  assert.equal(landing.workspaces[0].ideUrl, null);
+});
+
+test('nimbusLanding with no projects is empty', () => {
+  const landing = nimbusLanding({ projects: [], statuses: {}, submissionCount: 0 });
+  assert.deepEqual(landing.workspaces, []);
+  assert.deepEqual(landing.openProjects, []);
+  assert.equal(landing.counts.workspaces, 0);
 });

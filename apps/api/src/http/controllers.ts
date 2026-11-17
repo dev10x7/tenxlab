@@ -44,6 +44,7 @@ import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService, isProctorEventType, buildSebConfig } from '../proctoring/proctoring.service';
 import { ProjectService } from '../projects/project.service';
+import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import {
   QualityEvaluationService,
@@ -68,6 +69,7 @@ import {
   LAUNCH,
   PROCTOR,
   PROJECT,
+  PROJECT_COPY,
   PROJECT_SUBMISSION,
   QUALITY,
   SESSION,
@@ -1017,10 +1019,39 @@ export class ProctoringController {
 export class ProjectsController {
   constructor(
     @Inject(PROJECT) private readonly projects: ProjectService,
+    @Inject(PROJECT_COPY) private readonly copy: ProjectCopyService,
     @Inject(PROJECT_SUBMISSION) private readonly submissions: ProjectSubmissionService,
     @Inject(QUALITY) private readonly quality: QualityEvaluationService,
     @Inject(SESSION) private readonly sessions: SessionService,
   ) {}
+
+  /**
+   * Suggest a project title/description from the facts the author already has
+   * (§2.11, ByteXL's "clear and catchy name"). Deterministic and offline
+   * (ADR-13); when the AI plane is unconfigured the caller keeps its own text.
+   * Open to any signed-in user: an instructor drafts a project name, a student
+   * drafts a submission title.
+   */
+  @Post('suggest-copy')
+  async suggestCopy(
+    @Body()
+    body: { hint?: string; stacks?: string[]; componentTitles?: string[] },
+    @Req() req: Request,
+  ) {
+    this.requireSession(req);
+    const result = await this.copy.suggest({
+      hint: body?.hint,
+      stacks: body?.stacks,
+      componentTitles: body?.componentTitles,
+    });
+    if (!result.ok) {
+      throw new HttpException(
+        'Copy suggestions are not available in this deployment',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    return result.suggestion;
+  }
 
   /** The template catalog, for the instructor authoring form. */
   @Get('templates')

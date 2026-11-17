@@ -5,6 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.copy import suggest_copy
 from app.main import app
 from app.plagiarism import compare_against_cohort, normalize, similarity
 from app.quality import score_quality
@@ -242,7 +243,62 @@ def test_tutor_endpoint_rejects_unknown_mode():
     assert resp.status_code == 422
 
 
+# ------------------------------------------------------------------ copy
+
+
+def test_suggest_copy_names_the_stack_in_the_title():
+    s = suggest_copy(stacks=["spring-boot", "mongodb"], component_titles=["Task API"])
+    assert "Spring Boot" in s.title
+    assert "Task API" in s.title
+    assert s.based_on
+
+
+def test_suggest_copy_uses_the_hint_as_the_subject():
+    s = suggest_copy(hint="inventory tracker", stacks=["react"])
+    assert s.title.startswith("Inventory Tracker")
+    assert "React" in s.description
+
+
+def test_suggest_copy_lists_every_stack():
+    s = suggest_copy(stacks=["spring-boot", "mongodb", "react"])
+    for label in ("Spring Boot", "MongoDB", "React"):
+        assert label in s.description
+
+
+def test_suggest_copy_without_facts_still_returns_copy():
+    s = suggest_copy()
+    assert s.title
+    assert s.description
+    assert s.based_on == []
+
+
+def test_suggest_copy_deduplicates_stacks():
+    s = suggest_copy(stacks=["python", "python-flask"])
+    # Two different labels, but a repeated raw slug must not double up.
+    s2 = suggest_copy(stacks=["react", "react"])
+    assert s2.description.count("React") == 1
+
+
+def test_copy_endpoint_returns_a_suggestion():
+    resp = client.post(
+        "/v1/copy/suggest",
+        json={"hint": "task api", "stacks": ["python-flask"], "component_titles": ["API"]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "Flask" in body["title"]
+    assert body["description"]
+    assert isinstance(body["based_on"], list)
+
+
+def test_copy_endpoint_accepts_an_empty_body():
+    resp = client.post("/v1/copy/suggest", json={})
+    assert resp.status_code == 200
+    assert resp.json()["title"]
+
+
 # ------------------------------------------------------------------ webhooks
+
 
 def test_hmac_sign_and_verify_roundtrip():
     body = json.dumps({"hello": "world"})

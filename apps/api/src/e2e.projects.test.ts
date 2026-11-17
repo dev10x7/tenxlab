@@ -368,3 +368,23 @@ test('a student cannot delete another user\'s workspace', async () => {
   });
   assert.equal(foreign.status, 404);
 });
+
+test('suggest-copy is open to any signed-in user and degrades when the AI plane is off', async () => {
+  const student = await signIn('student@tenxlab.local');
+
+  // The e2e app boots with AI_PLANE_URL unset, so the suggester is null and the
+  // route answers 503 — crucially not 403, so the student submission form can
+  // call it (the instructor authoring form uses the same endpoint).
+  const anon = await call('/api/projects/suggest-copy', {
+    method: 'POST',
+    body: JSON.stringify({ hint: 'task api' }),
+  });
+  assert.equal(anon.status, 401, 'signed-out callers are rejected');
+
+  const res = await call('/api/projects/suggest-copy', {
+    method: 'POST',
+    cookie: student,
+    body: JSON.stringify({ hint: 'task api', stacks: ['spring-boot'] }),
+  });
+  assert.equal(res.status, 503);
+});

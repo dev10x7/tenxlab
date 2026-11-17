@@ -16,9 +16,13 @@ import {
 } from '@/lib/api';
 import {
   formatUsd,
+  nimbusLanding,
   projectDeadlineLabel,
   submissionStatusLabel,
   templateCategoryLabel,
+  workspaceStatusLabel,
+  type NimbusLanding,
+  type NimbusWorkspaceRow,
 } from '@/lib/lms';
 import { ProjectComponentCard } from '@/components/ProjectComponentCard';
 
@@ -65,7 +69,8 @@ function StudentProjects() {
     const views = p as StudentProjectView[];
     setProjects(views);
     setSubmissions(s.map((v) => v.submission));
-    // One status read per fork powers the landing strip's "live projects" count.
+    // One status read per fork powers the landing's workspace quick actions and
+    // its "live apps" count.
     const forkIds = views.flatMap((view) =>
       view.components.filter((c) => c.fork).map((c) => c.fork!.id),
     );
@@ -83,13 +88,34 @@ function StudentProjects() {
 
   if (loading) return <p className="muted">Loading projects…</p>;
 
-  // The Nimbus landing strip (Nov'25 §1.5): a student's workspaces, live apps,
-  // and the projects still open to fork, all on one view.
-  const workspaceCount = projects.reduce(
-    (n, view) => n + view.components.filter((c) => c.fork).length,
-    0,
-  );
-  const liveAppCount = Object.values(statuses).filter((s) => s.deployUrl).length;
+  // The Nimbus landing (Nov'25 §1.5): one consolidated view of every workspace,
+  // its quick actions, the projects still open to fork, and the headline counts.
+  const landing = nimbusLanding({
+    projects: projects.map((view) => ({
+      project: {
+        id: view.project.id,
+        title: view.project.title,
+        deadline: view.project.deadline,
+      },
+      components: view.components.map((c) => ({
+        title: c.title,
+        technology: c.technology,
+        fork: c.fork ? { id: c.fork.id } : null,
+      })),
+    })),
+    statuses: Object.fromEntries(
+      Object.entries(statuses).map(([id, st]) => [
+        id,
+        {
+          workspaceId: st.workspaceId,
+          status: st.status,
+          ideUrl: st.ideUrl,
+          deployUrl: st.deployUrl,
+        },
+      ]),
+    ),
+    submissionCount: submissions.length,
+  });
 
   return (
     <div>
@@ -100,32 +126,23 @@ function StudentProjects() {
         for your trainer to evaluate.
       </p>
 
-      <div className="grid" style={{ marginTop: 16 }}>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Your workspaces</h3>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            {workspaceCount} forked workspace{workspaceCount === 1 ? '' : 's'} ·{' '}
-            <Link href="/nimbus/apps">Nimbus Apps →</Link>
-          </p>
-        </div>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Live projects</h3>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            {liveAppCount} published app{liveAppCount === 1 ? '' : 's'} with a
-            demo URL
-          </p>
-        </div>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Open projects</h3>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            {projects.length} project{projects.length === 1 ? '' : 's'} available
-            to fork
-          </p>
-        </div>
-      </div>
-
+      <NimbusSummary landing={landing} />
       {error ? <p className="error">{error}</p> : null}
 
+      <h2 style={{ marginTop: 24 }}>Your workspaces</h2>
+      {landing.workspaces.length === 0 ? (
+        <p className="muted">
+          No workspaces yet. Fork a component from a project below to start.
+        </p>
+      ) : (
+        <div className="grid">
+          {landing.workspaces.map((row) => (
+            <WorkspaceCard key={row.forkId} row={row} onChanged={load} />
+          ))}
+        </div>
+      )}
+
+      <h2 style={{ marginTop: 32 }}>Projects to fork</h2>
       {projects.length === 0 ? (
         <p className="muted" style={{ marginTop: 16 }}>
           No projects are open right now. Check back when your instructor
@@ -192,6 +209,198 @@ function StudentProjects() {
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+/** The landing's summary strip: the counts a student cares about at a glance. */
+function NimbusSummary({ landing }: { landing: NimbusLanding }) {
+  const { counts } = landing;
+  const tiles: Array<[string, string, string]> = [
+    ['Your workspaces', `${counts.workspaces}`, `${counts.running} running now`],
+    [
+      'Live apps',
+      `${counts.liveApps}`,
+      'published on a public URL',
+    ],
+    [
+      'Projects to fork',
+      `${counts.openProjects}`,
+      'with a component left to start',
+    ],
+    ['Submissions', `${counts.submissions}`, 'sent for evaluation'],
+  ];
+  return (
+    <div className="grid" style={{ marginTop: 16 }}>
+      {tiles.map(([label, value, sub]) => (
+        <div className="card" key={label}>
+          <h3 style={{ marginTop: 0 }}>{label}</h3>
+          <p style={{ margin: '4px 0', fontSize: 28, fontWeight: 600 }}>{value}</p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {sub}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One workspace on the landing, with the quick actions its status allows:
+ * open in the IDE, one-click publish, download, stop, and delete. This is the
+ * consolidated surface ByteXL shows instead of making the student hunt through
+ * each project (Nov'25 §1.5).
+ */
+function WorkspaceCard({
+  row,
+  onChanged,
+}: {
+  row: NimbusWorkspaceRow;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [port, setPort] = useState('3000');
+  const [liveUrl, setLiveUrl] = useState(row.deployUrl);
+
+  async function stop() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.stopWorkspace(row.workspaceId);
+      onChanged();
+    } catch {
+      setError('Could not stop the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publish() {
+    const value = Number(port);
+    if (!Number.isInteger(value) || value <= 0 || value > 65535) {
+      setError('Enter the port your app listens on (1–65535).');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.deployWorkspace(row.workspaceId, value);
+      setLiveUrl(result.deployUrl);
+      onChanged();
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Resume the workspace before publishing.'
+          : 'Could not publish the app. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unpublish() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.undeployWorkspace(row.workspaceId);
+      setLiveUrl(null);
+      onChanged();
+    } catch {
+      setError('Could not withdraw the app. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function destroy() {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        'Delete this workspace? Its files will be lost and the component becomes forkable again.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteWorkspace(row.workspaceId);
+      onChanged();
+    } catch {
+      setError('Could not delete the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const running = row.status === 'running';
+  const downloadable = row.status === 'running' || row.status === 'stopped';
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>{row.componentTitle}</h3>
+        <span className="pill">{workspaceStatusLabel(row.status)}</span>
+      </div>
+      <p className="muted" style={{ marginBottom: 8 }}>
+        {row.projectTitle} · {row.technology}
+      </p>
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {running && row.ideUrl ? (
+          <Link className="btn" href={`/nimbus/workspace/${row.forkId}`}>
+            Open workspace
+          </Link>
+        ) : null}
+        {liveUrl ? (
+          <a className="btn" href={liveUrl} target="_blank" rel="noreferrer">
+            Open live app
+          </a>
+        ) : null}
+        {downloadable ? (
+          <a
+            className="btn secondary"
+            href={`/api/projects/workspaces/${encodeURIComponent(row.workspaceId)}/download`}
+          >
+            Download
+          </a>
+        ) : null}
+        {running ? (
+          <button className="btn secondary" onClick={stop} disabled={busy}>
+            Stop
+          </button>
+        ) : null}
+        {running && !liveUrl ? (
+          <button className="btn" onClick={publish} disabled={busy}>
+            Publish app
+          </button>
+        ) : null}
+        {liveUrl ? (
+          <button className="btn secondary" onClick={unpublish} disabled={busy}>
+            Unpublish
+          </button>
+        ) : null}
+        <button className="btn danger" onClick={destroy} disabled={busy}>
+          Delete
+        </button>
+      </div>
+
+      {running && !liveUrl ? (
+        <div className="row" style={{ gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
+          <div style={{ maxWidth: 140 }}>
+            <label htmlFor={`landing-port-${row.forkId}`}>App port</label>
+            <input
+              id={`landing-port-${row.forkId}`}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              inputMode="numeric"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <p className="error">{error}</p> : null}
     </div>
   );
 }
@@ -338,7 +547,37 @@ function CreateProjectCard({
   const [deadline, setDeadline] = useState('');
   const [templateSlug, setTemplateSlug] = useState(templates[0]?.slug ?? '');
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
+  /**
+   * AI-suggest a title and description from the template the author picked and
+   * whatever they have already typed (§2.11). The suggester only words the
+   * facts already present; the author can still edit the result.
+   */
+  async function suggestCopy() {
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const chosen = templates.find((t) => t.slug === templateSlug) ?? templates[0];
+      const suggestion = await api.suggestProjectCopy({
+        hint: title.trim() || description.trim(),
+        stacks: chosen ? [chosen.stack] : [],
+        componentTitles: chosen ? [chosen.title] : [],
+      });
+      if (suggestion.title) setTitle(suggestion.title);
+      if (suggestion.description) setDescription(suggestion.description);
+    } catch (err) {
+      setSuggestError(
+        err instanceof ApiError && err.status === 503
+          ? 'AI suggestions are not available on this deployment.'
+          : 'Could not generate a suggestion. Please try again.',
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -390,6 +629,18 @@ function CreateProjectCard({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What should students build?"
         />
+        <div className="row" style={{ gap: 8, marginTop: 4, alignItems: 'center' }}>
+          <button
+            className="btn secondary"
+            type="button"
+            onClick={suggestCopy}
+            disabled={suggesting}
+          >
+            {suggesting ? 'Suggesting…' : 'Suggest title & description with AI'}
+          </button>
+          <span className="muted">Drafts a name and blurb from the template you chose.</span>
+        </div>
+        {suggestError ? <p className="error">{suggestError}</p> : null}
         <label htmlFor="project-deadline">Deadline (optional)</label>
         <input
           id="project-deadline"

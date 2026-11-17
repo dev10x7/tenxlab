@@ -282,6 +282,31 @@ above a **left-panel** menu of sections. The menu is data in
   the flow, mirroring ByteXL); `/nimbus/apps` lists forked workspaces and their
   live `deployUrl`/`ideUrl`. Both are read-only views over existing endpoints —
   no new API was added for them.
+- **The Nimbus landing is one consolidated view (E6e).** `/nimbus` (student)
+  renders `nimbusLanding()` (`apps/web/src/lib/lms.ts`) — a pure fold of
+  projects + per-fork statuses + submissions into `{ workspaces, openProjects,
+  counts }` — so the page stays a thin renderer. It shows a count strip and a
+  "Your workspaces" grid whose cards carry the quick actions (open / stop /
+  **Publish app** / download / delete); publish is one click (default port,
+  inline override) against the existing `deploy` endpoint.
+- **Workspace quick actions act on `workspaceId`, not `forkId`.** `nimbusLanding`
+  rows carry both; deploy/undeploy/download/stop/delete all key off
+  `workspaceId` (the fork id is only for the `/nimbus/workspace/[forkId]` link).
+- **A resume restores `ideUrl`.** `stopWorkspace` nulls `ideUrl`; re-forking a
+  stopped workspace scales the workload back up and re-reads the provider
+  (`ProjectService.resume`) so the IDE URL returns, rather than staying null
+  until the next full re-fork.
+- **AI-suggested project copy (`POST /api/projects/suggest-copy`).** A
+  deterministic, no-LLM suggester: the AI plane's `POST /v1/copy/suggest`
+  (`services/ai/app/copy.py`) derives a title + one-line description from the
+  hint, stacks, and component titles; the API's `ProjectCopyService`
+  (`projects/copy.service.ts`) normalises + caps the input (12 stacks/12
+  components, 200-char hint) and returns `{ ok: false, reason: 'unavailable' }`
+  when the AI plane is off (`AI_PLANE_URL` empty), so the form degrades rather
+  than errors. `AiBridgeClient` implements the `CopySuggester` seam; the web
+  client calls it via the `/api/projects/suggest-copy` proxy. Surfaced as
+  "Suggest title & description with AI" on the instructor create-project form
+  and the student submission form.
 - **Nested route highlight:** `activeHref` matches by longest prefix, so
   `/nimbus/submissions` highlights the nested item, not `/nimbus`.
 - **Collapsible sidebar:** the sidebar collapses to an icons-only rail via the

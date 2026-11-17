@@ -109,8 +109,17 @@ function fakeProvider(handle?: Partial<SessionHandle>): {
         ...handle,
       };
     },
-    async status() {
-      return null;
+    async status(sessionId: string) {
+      return {
+        session_id: sessionId,
+        status: 'ACTIVE',
+        tier: 'tier_2_container',
+        ide_url: 'https://ide.example.com/ws',
+        provider_ref: `ns-${sessionId}`,
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: 1800,
+      };
     },
     async heartbeat() {
       throw new Error('not used');
@@ -565,8 +574,17 @@ function suspendableProvider() {
         ttl_seconds: spec.ttl_seconds,
       };
     },
-    async status() {
-      return null;
+    async status(sessionId: string) {
+      return {
+        session_id: sessionId,
+        status: 'ACTIVE',
+        tier: 'tier_2_container',
+        ide_url: 'https://ide.example.com/ws',
+        provider_ref: `ns-${sessionId}`,
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        ttl_seconds: 1800,
+      };
     },
     async heartbeat() {
       throw new Error('not used');
@@ -613,6 +631,12 @@ test('re-forking a stopped suspendable workspace resumes it without re-provision
   await waitFor(async () => (await fx.workspaces.findById(first.workspaceId))?.status === 'running');
   assert.deepEqual(calls.resume, [first.workspaceId]);
   assert.deepEqual(calls.terminate, [], 'resume must not re-provision from scratch');
+  // `stop` clears ideUrl; the resume restores it so the card keeps its
+  // "Open workspace" link instead of staying dead until the next re-fork.
+  assert.equal(
+    (await fx.workspaces.findById(first.workspaceId))?.ideUrl,
+    'https://ide.example.com/ws',
+  );
 });
 
 test('re-forking a failed workspace re-provisions instead of patching a gone Deployment', async () => {

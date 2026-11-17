@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .copy import suggest_copy
 from .plagiarism import compare_against_cohort
 from .quality import score_quality
 from .speech import evaluate_speech
@@ -80,6 +81,17 @@ class TutorRequest(BaseModel):
     mode: str = ASSIST
     # The runtime error the student just hit, when there is one.
     stderr: str = ""
+
+
+class CopyRequest(BaseModel):
+    """Facts a project already has; the suggester only words them (§2.11)."""
+
+    # Free text the author typed, used as the title subject.
+    hint: str = ""
+    # Template stack slugs, e.g. ["spring-boot", "mongodb"].
+    stacks: list[str] = Field(default_factory=list)
+    # Technology slot names, e.g. ["Task API", "Web UI"].
+    component_titles: list[str] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------ routes
@@ -207,6 +219,21 @@ async def tutor_review(req: TutorRequest) -> dict:
         # Present only in assist mode, and only when there is something to fix.
         "corrected_code": review.corrected_code,
         "follow_up_question": review.follow_up_question,
+    }
+
+
+@app.post("/v1/copy/suggest")
+async def copy_suggest(req: CopyRequest) -> dict:
+    """Suggest a project title and description from its structural facts."""
+    suggestion = suggest_copy(
+        hint=req.hint,
+        stacks=req.stacks,
+        component_titles=req.component_titles,
+    )
+    return {
+        "title": suggestion.title,
+        "description": suggestion.description,
+        "based_on": suggestion.based_on,
     }
 
 

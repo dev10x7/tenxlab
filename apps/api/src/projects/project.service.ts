@@ -690,9 +690,13 @@ export class ProjectService {
     if (!suspender) return;
     try {
       await suspender.resume(workspace.id);
+      // `stop` nulls `ideUrl`; the resumed workload reuses the same ingress, so
+      // re-read the provider to restore it instead of leaving the card without
+      // an "Open workspace" link until the next re-fork.
+      const handle = await this.deps.provider?.status(workspace.id);
       await this.deps.workspaces.update(workspace.id, {
         status: 'running',
-        ideUrl: workspace.ideUrl ?? null,
+        ideUrl: handle?.ide_url ?? workspace.ideUrl ?? null,
         lastActivityAt: new Date(),
       });
     } catch (err) {

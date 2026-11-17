@@ -516,16 +516,16 @@ two views) but must be added to the backlog to reach parity. See Phase E6.
 
 Scope surfaced by the newest release videos that our backlog never captured.
 These are the items to reconcile before declaring Nimbus parity. **All
-parity-blocking items now ship (E6);** what remains here is the consolidated
-landing view (a UX polish), one-click publish, and the visual AI Mentor /
-Clarity (Phase F).
+parity-blocking items now ship (E6),** including the consolidated landing view
+and one-click publish; what remains here is the visual AI Mentor / Clarity
+(Phase F).
 
 | Capability | Status | Gap / note |
 |---|---|---|
-| Nimbus landing dashboard (workspaces, projects, deployed apps, live projects) | **Partial** | `/nimbus` lists projects + forks + submissions; `/nimbus/apps` now lists forked workspaces with their live `deployUrl`/`ideUrl`. Deploy + download + **delete** quick actions now ship on each fork card; a single consolidated landing view is still to come |
+| Nimbus landing dashboard (workspaces, projects, deployed apps, live projects) | **Done** | `/nimbus` is the consolidated landing: a count strip (workspaces / running / live apps / open projects / submissions), a "Your workspaces" grid with per-workspace quick actions (open / stop / publish / download / delete), and the projects still open to fork. `nimbusLanding()` folds projects + fork statuses + submissions into one view (`apps/web/src/lib/lms.ts`); `/nimbus/apps` remains the published-apps list |
 | Download workspace (export files) | **Done** | "Download files" on each fork card streams a gzipped tar (`GET /api/projects/workspaces/:id/download`) |
 | Manual stop from the dashboard | **Done** | `stopWorkspace` + "Stop workspace" on each fork card |
-| Publish Apps (published-workspaces list + one-click publish) | **Partial** | Deploy/undeploy ships (E5) and `/nimbus/apps` aggregates published workspaces; publish is still per-workspace, not a one-click landing button |
+| Publish Apps (published-workspaces list + one-click publish) | **Done** | One-click **Publish app** on each landing workspace card (default port, override inline) → `POST /api/projects/workspaces/:id/deploy`; the live URL appears in place, and `/nimbus/apps` lists every published workspace |
 | Template categories (front end / backend / full stack / other) | **Done** | Every template carries a `category`; the picker groups them into `<optgroup>`s (`groupTemplates` + `templateCategoryLabel`), covering front end / backend / full stack / database / other |
 | Database workspaces (MySQL / Postgres / SQL Server / MongoDB) | **Done** | Four `database`-category templates ship (`projects/templates.ts`), each a `framework` image with the engine pre-installed |
 | AI Mentor — diagram/image generation | **Missing** | Phase F tutor is text-only in our plan; ByteXL's mentor is *visual* |
@@ -544,7 +544,7 @@ for **surfaces**, independent of the feature backlog above.
 |---|---|---|
 | **Coding Abilities** | The four student modules (Editor / Labs / Assessments / Nimbus) and their behaviour | **Covered** — `/editor`, `/labs`, `/assessments`, `/nimbus` (§2.2–2.5) |
 | **Coding Tests** | Read-only stub regions in tests (`start/end your solution`, one editable region) | **Done** — `assessments/read-only.ts` (§2.4) |
-| **Project Evaluation & Submission** | Create project (AI title/description), attach template workspace, fork, submit, trainer score | **Done** — `project-submission.service.ts` (§2.5); AI title/description generation is the remaining Nimbus-polish item |
+| **Project Evaluation & Submission** | Create project (AI title/description), attach template workspace, fork, submit, trainer score | **Done** — `project-submission.service.ts` (§2.5); AI title/description ships as the deterministic AI-plane `POST /v1/copy/suggest` (`services/ai/app/copy.py`) behind `POST /api/projects/suggest-copy` + `ProjectCopyService`, surfaced as "Suggest title & description with AI" on the create-project form and the submission form |
 | **SafeExamBrowser Guide** | `.seb` download entry point, kiosk/network filtering, quit password | **Mostly done** — `GET /api/assessments/:id/seb` now serves the `.seb` config (download button on the assessments page); kiosk/network filtering is SEB's job. Quit password still deferred (ADR-17) |
 | **FAQs** | Email delivery, DNS/access, editor STDIN, library policy | **Partial** — our `/help` FAQ covers STDIN + library policy; no email/DNS ops FAQ (not applicable — no mailer yet) |
 | **Video Guides** | Screencast walkthroughs per module | **Missing** — our help centre is text + screenshots; ByteXL embeds video. Optional Phase F polish |
@@ -820,6 +820,21 @@ sub-milestones so each ends demonstrable and CI-green:
       `category`, and the create-workspace picker renders `<optgroup>`s via
       `groupTemplates` + `templateCategoryLabel` (`projects.test.ts` and
       `lms.test.mjs` cover both).
+- [x] **E6e — Nimbus landing + one-click publish + AI project copy (2026-11-11).**
+      The release-video remainder (§2.10): `/nimbus` becomes the **consolidated
+      landing** (`nimbusLanding()` folds projects + fork statuses + submissions
+      into one view) with a count strip and a "Your workspaces" grid whose cards
+      carry the quick actions (open / stop / **one-click Publish app** / download
+      / delete); the projects still open to fork sit below. The quick actions key
+      off `workspaceId`, and re-forking a stopped workspace now restores its
+      `ideUrl` so the "Open workspace" link survives a stop/resume cycle.
+      **AI-suggested project title & description** (§2.11) ships as the
+      deterministic AI-plane `POST /v1/copy/suggest` (`services/ai/app/copy.py`),
+      behind `POST /api/projects/suggest-copy` + `ProjectCopyService` (caps +
+      normalise, `unavailable` when the AI plane is off), open to any signed-in
+      user and surfaced as "Suggest title & description with AI" on the
+      create-project and submission forms. The visual AI Mentor / Clarity stay
+      Phase F.
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 

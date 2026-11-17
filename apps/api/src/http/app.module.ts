@@ -33,6 +33,7 @@ import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { UsageService } from '../labs/usage.service';
 import { ProjectService } from '../projects/project.service';
+import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { QualityEvaluationService } from '../projects/quality-evaluation.service';
 import { AiBridgeClient } from '../ai/ai-bridge.client';
@@ -61,9 +62,9 @@ import {
   SupportController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, DASHBOARD, SUPPORT };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT };
 
 const DEMO_STATE = createDemoState();
 
@@ -363,6 +364,12 @@ const STORE_PROVIDER = {
           reader: isWorkspaceReader(provider) ? provider : null,
           analyzer,
         }),
+    },
+    {
+      provide: PROJECT_COPY,
+      inject: [AI_BRIDGE],
+      useFactory: (suggester: AiBridgeClient | null) =>
+        new ProjectCopyService(suggester),
     },
     {
       provide: SECRET_BOX,

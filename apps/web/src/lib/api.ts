@@ -305,6 +305,13 @@ export interface ProjectForkRef {
   sourceWorkspaceId: string | null;
 }
 
+/** An AI-suggested project title/description (§2.11), with what it drew on. */
+export interface ProjectCopySuggestion {
+  title: string;
+  description: string;
+  basedOn: string[];
+}
+
 export interface ProjectComponentView {
   id: string;
   projectId: string;
@@ -805,6 +812,16 @@ export const api = {
     ),
   proctoredAttempts: () => request<ProctoredAttemptRow[]>('/api/proctoring/attempts'),
   projectTemplates: () => request<ProjectTemplate[]>('/api/projects/templates'),
+  /** AI-suggested project copy (§2.11); 503 when the AI plane is unconfigured. */
+  suggestProjectCopy: (input: {
+    hint?: string;
+    stacks?: string[];
+    componentTitles?: string[];
+  }) =>
+    request<ProjectCopySuggestion>('/api/projects/suggest-copy', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   projects: () => request<Array<StudentProjectView | InstructorProjectView>>('/api/projects'),
   project: (id: string) =>
     request<StudentProjectView | InstructorProjectView>(

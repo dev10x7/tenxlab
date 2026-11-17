@@ -78,9 +78,25 @@ export interface CodeReviewer {
   }): Promise<TutorReport>;
 }
 
+/** A project title/description the suggester proposed, with what it used. */
+export interface CopySuggestion {
+  title: string;
+  description: string;
+  basedOn: string[];
+}
+
+/** What the project authoring form needs from the AI plane (fakeable in tests). */
+export interface CopySuggester {
+  suggestProjectCopy(input: {
+    hint?: string;
+    stacks: string[];
+    componentTitles: string[];
+  }): Promise<CopySuggestion>;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-export class AiBridgeClient implements QualityAnalyzer, CodeReviewer {
+export class AiBridgeClient implements QualityAnalyzer, CodeReviewer, CopySuggester {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
@@ -172,6 +188,53 @@ export class AiBridgeClient implements QualityAnalyzer, CodeReviewer {
       followUpQuestion:
         typeof json.follow_up_question === 'string' ? json.follow_up_question : null,
     };
+  }
+
+  /** Suggest a project title/description from its structural facts (§2.11). */
+  async suggestProjectCopy(input: {
+    hint?: string;
+    stacks: string[];
+    componentTitles: string[];
+  }): Promise<CopySuggestion> {
+    const json = await this.postJson('/v1/copy/suggest', {
+      hint: input.hint ?? '',
+      stacks: input.stacks,
+      component_titles: input.componentTitles,
+    });
+    return {
+      title: typeof json.title === 'string' ? json.title : '',
+      description: typeof json.description === 'string' ? json.description : '',
+      basedOn: Array.isArray(json.based_on)
+        ? json.based_on.map((v) => String(v))
+        : [],
+    };
+  }
+
+  /** POST a JSON body and parse the JSON response, mapping errors uniformly. */
+  private async postJson(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'request failed';
+      throw new AiBridgeError(`AI plane unreachable: ${reason}`, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      throw new AiBridgeError(`AI plane rejected the request (${res.status})`, res.status);
+    }
+    return (await res.json()) as Record<string, unknown>;
   }
 }
 

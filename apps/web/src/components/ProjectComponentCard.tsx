@@ -230,6 +230,8 @@ export function ProjectComponentCard({
           <SubmissionForm
             projectId={project.id}
             componentId={component.id}
+            componentTitle={component.title}
+            technology={component.technology}
             workspaceId={status.workspaceId}
             maxScore={project.maxScore}
             onSubmitted={onChanged}
@@ -541,12 +543,16 @@ function GitPublishControl({ workspaceId }: { workspaceId: string }) {
 function SubmissionForm({
   projectId,
   componentId,
+  componentTitle,
+  technology,
   workspaceId,
   maxScore,
   onSubmitted,
 }: {
   projectId: string;
   componentId: string;
+  componentTitle: string;
+  technology: string;
   workspaceId: string;
   maxScore: number;
   onSubmitted: () => void;
@@ -556,8 +562,36 @@ function SubmissionForm({
   const [githubUrl, setGithubUrl] = useState('');
   const [demoUrl, setDemoUrl] = useState('');
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
   const [done, setDone] = useState<ProjectSubmission | null>(null);
+
+  /**
+   * AI-suggest a submission title/description from the component's facts
+   * (§2.11). A student can accept the draft or keep writing their own.
+   */
+  async function suggestCopy() {
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const suggestion = await api.suggestProjectCopy({
+        hint: title.trim() || description.trim(),
+        stacks: [technology],
+        componentTitles: [componentTitle],
+      });
+      if (suggestion.title) setTitle(suggestion.title);
+      if (suggestion.description) setDescription(suggestion.description);
+    } catch (err) {
+      setSuggestError(
+        err instanceof ApiError && err.status === 503
+          ? 'AI suggestions are not available on this deployment.'
+          : 'Could not generate a suggestion. Please try again.',
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -610,6 +644,18 @@ function SubmissionForm({
         onChange={(e) => setDescription(e.target.value)}
         placeholder="What does your project do?"
       />
+      <div className="row" style={{ gap: 8, marginTop: 4, alignItems: 'center' }}>
+        <button
+          className="btn secondary"
+          type="button"
+          onClick={suggestCopy}
+          disabled={suggesting}
+        >
+          {suggesting ? 'Suggesting…' : 'Suggest title & description with AI'}
+        </button>
+        <span className="muted">Drafts a name and blurb from your project.</span>
+      </div>
+      {suggestError ? <p className="error">{suggestError}</p> : null}
       <label htmlFor={`gh-${componentId}`}>GitHub URL (optional)</label>
       <input
         id={`gh-${componentId}`}
