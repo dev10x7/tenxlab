@@ -700,6 +700,35 @@ G.
   aloud via the browser's speech synthesis, so the practice is listening, not
   reading. Proxy route: `apps/web/src/app/api/clarity/[...path]`.
 
+## Reconcile-on-read (workspaces & lab sessions, 2026-11-11)
+
+- **A row outlives the cluster it describes.** A rebuilt kind cluster (or a
+  namespace reaped out of band) leaves a `project_workspaces` row claiming
+  `running` with an `ideHost`, or a `lab_sessions` row claiming `ACTIVE` — so the
+  student's IDE link resolves to an ingress with no matching rule and returns a
+  bare 404. There is no background reconciler; the durable row is repaired **on
+  read**.
+- `ProjectService.reconcile()` runs in `getForkStatus()` and in the re-fork
+  path (`fork()`); `LabLaunchService.reconcile()` runs in `getSession()`. When
+  the row claims a live state but `provider.status(id)` returns `null` (the
+  workload is gone), the row is flipped to `failed`/`FAILED` with `ideHost`
+  cleared and `lastActivityAt` stamped.
+- **Only `running`/`ACTIVE` are reconciled.** A `provisioning` row may still be
+  in flight; a `stopped` row legitimately has no compute (its volume is the
+  promise). A provider **error** (not a null) leaves the row untouched — a
+  transient control-plane blip must not condemn a healthy workspace.
+- This makes re-fork self-healing: reconciling a stale row to `failed` routes it
+  into the existing re-provision branch instead of re-attaching to a dead URL.
+- **UI recovery** is a `Start again` action that calls `forkProjectComponent`
+  (not a resume): the component card (`ProjectComponentCard.tsx`), the Nimbus
+  landing card, and the workspace detail page. The fork-status response carries
+  `componentId`/`projectId` so the detail page can re-fork; `NimbusWorkspaceRow`
+  carries `componentId` for the same reason.
+- **Verified live** against real Postgres + kind: a stale `running` row
+  self-heals to `failed` (`ideHost` null) on the next read, a healthy `running`
+  row is untouched, and `Start again` re-provisions to a reachable IDE (302 →
+  login 200). Tests: `project.service.test.ts` (5) + `core.test.ts` lab-launch (2).
+
 ## Gotchas
 
 - Clean `dist/` before trusting a test count; stale compiled tests inflate it.
