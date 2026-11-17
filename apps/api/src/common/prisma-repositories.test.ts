@@ -84,7 +84,7 @@ test(
       const moduleId = `module-${suffix}`;
       const lessonId = `lesson-${suffix}`;
       await db.course.create({
-        data: { id: courseId, tenantId, title: 'C', status: 'published' },
+        data: { id: courseId, tenantId, slug: `c-${suffix}`, title: 'C', status: 'published' },
       });
       await db.module.create({ data: { id: moduleId, courseId, title: 'M' } });
       await db.lesson.create({

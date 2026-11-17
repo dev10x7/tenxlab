@@ -17,6 +17,8 @@ export interface LessonSummary {
   status: 'not_started' | 'in_progress' | 'complete';
   score?: number | null;
   hint?: string;
+  /** Lab lessons only: false when the lesson has no exercise to launch. */
+  launchable?: boolean;
 }
 
 export interface CourseSummary {
@@ -37,6 +39,8 @@ export interface LessonDetail {
   hint?: string;
   body?: string;
   assessmentId?: string;
+  /** Lab lessons only: false when the lesson has no exercise to launch. */
+  launchable?: boolean;
   courseSlug: string;
   courseTitle: string;
 }
@@ -179,6 +183,8 @@ export interface AssessmentView {
   proctored: boolean;
   durationSeconds: number | null;
   maxScore: number;
+  /** True when a passcode must be supplied before a fresh attempt starts. */
+  requiresPasscode: boolean;
   questions: AssessmentQuestion[];
 }
 
@@ -237,6 +243,13 @@ export interface ProctoredAttemptRow {
 
 export type ProjectTemplateKind = 'framework' | 'base_image';
 
+export type ProjectTemplateCategory =
+  | 'front_end'
+  | 'back_end'
+  | 'full_stack'
+  | 'database'
+  | 'other';
+
 export interface ProjectTemplate {
   id: string;
   slug: string;
@@ -245,6 +258,8 @@ export interface ProjectTemplate {
   kind: ProjectTemplateKind;
   stack: string;
   image: string;
+  category: ProjectTemplateCategory;
+  database?: string;
 }
 
 export type ProjectStatus = 'draft' | 'published' | 'closed';
@@ -369,11 +384,149 @@ export interface StudentSubmissionView {
   workspace: { id: string; status: WorkspaceStatus } | null;
 }
 
+/** One enrolled course shown as a roadmap on the student dashboard. */
+export interface DashboardRoadmap {
+  courseId: string;
+  slug: string;
+  title: string;
+  progress: number;
+  lessonsComplete: number;
+  lessonsTotal: number;
+}
+
+/** A competitive standing: the student's rank within a cohort. */
+export interface DashboardRank {
+  scope: 'university' | 'batch';
+  label: string;
+  rank: number;
+  total: number;
+  percentile: number;
+  averageScore: number | null;
+}
+
+export interface DashboardProfileItem {
+  key: string;
+  label: string;
+  done: boolean;
+}
+
+/** One outstanding item in the dashboard's "Up Next for You" widget. */
+export interface DashboardUpNextItem {
+  kind: 'project' | 'assessment';
+  id: string;
+  title: string;
+  href: string;
+  dueAt: string | null;
+  detail: string;
+}
+
+/** The dashboard's "Resume Learning" widget: where to continue from. */
+export interface DashboardResumeItem {
+  courseId: string;
+  courseSlug: string;
+  courseTitle: string;
+  lessonId: string;
+  lessonTitle: string;
+  href: string;
+  progress: number;
+}
+
+/** The student dashboard's aggregated view (roadmaps, ranks, profile, next). */
+export interface StudentDashboard {
+  studentName: string;
+  roadmaps: DashboardRoadmap[];
+  rankings: DashboardRank[];
+  profile: { percent: number; items: DashboardProfileItem[] };
+  upNext: DashboardUpNextItem[];
+  resume: DashboardResumeItem | null;
+}
+
+/** A recorded attendance status; 'not_marked' means no record exists yet. */
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'not_marked';
+
+export interface AttendanceCounts {
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  marked: number;
+}
+
+export interface AttendanceSummary {
+  percent: number;
+  counts: AttendanceCounts;
+}
+
+/** The student's own attendance: an overall figure plus the session list. */
+export interface StudentAttendance {
+  overall: AttendanceSummary;
+  sessions: Array<{
+    sessionId: string;
+    title: string;
+    scheduledAt: string;
+    status: AttendanceStatus;
+  }>;
+}
+
+export interface ClassSession {
+  id: string;
+  batchId: string;
+  title: string;
+  scheduledAt: string;
+}
+
+/** The trainer's cohort matrix: roster x sessions with per-student percent. */
+export interface BatchAttendance {
+  batchId: string;
+  batchName: string;
+  sessions: Array<{ id: string; title: string; scheduledAt: string }>;
+  rows: Array<{
+    userId: string;
+    fullName: string;
+    email: string;
+    percent: number;
+    counts: AttendanceCounts;
+    cells: Array<{ sessionId: string; status: AttendanceStatus }>;
+  }>;
+}
+
 /** GitHub connection state for git publish. */
 export interface GitStatus {
   connected: boolean;
   login: string | null;
   provider: string;
+}
+
+/** A lesson as the instructor's course editor sees it. */
+export interface LessonEditor {
+  id: string;
+  title: string;
+  type: string;
+  kind: 'video' | 'reading' | 'lab' | 'quiz';
+  position: number;
+  maxScore: number;
+  exerciseSlug: string | null;
+  runtimeTier: string | null;
+  hint: string | null;
+  body: string | null;
+  assessmentId: string | null;
+}
+
+export interface ModuleEditor {
+  id: string;
+  title: string;
+  position: number;
+  lessons: LessonEditor[];
+}
+
+/** A course in the authoring surface: drafts included, unlike the catalog. */
+export interface CourseEditor {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  status: string;
+  modules: ModuleEditor[];
 }
 
 /** A device-flow grant: the code the student types at GitHub. */
@@ -421,12 +574,99 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  /** The student dashboard's aggregated view (roadmaps, ranks, profile). */
+  dashboard: () => request<StudentDashboard>('/api/dashboard'),
   courses: () => request<CourseSummary[]>('/api/catalog/courses'),
   course: (slug: string) => request<CourseSummary>(`/api/catalog/courses/${slug}`),
   lesson: (slug: string, lessonId: string) =>
     request<LessonDetail>(
       `/api/catalog/courses/${encodeURIComponent(slug)}/lessons/${encodeURIComponent(lessonId)}`,
     ),
+  /** Authoring: every course in the tenant, drafts included. */
+  authoringCourses: () => request<CourseEditor[]>('/api/authoring/courses'),
+  /** Authoring: one course in full. */
+  authoringCourse: (courseId: string) =>
+    request<CourseEditor>(`/api/authoring/courses/${encodeURIComponent(courseId)}`),
+  createCourse: (input: { title: string; description?: string }) =>
+    request<CourseEditor>('/api/authoring/courses', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateCourse: (
+    courseId: string,
+    patch: Partial<{ title: string; description: string; slug: string }>,
+  ) =>
+    request<CourseEditor>(`/api/authoring/courses/${encodeURIComponent(courseId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  publishCourse: (courseId: string) =>
+    request<CourseEditor>(
+      `/api/authoring/courses/${encodeURIComponent(courseId)}/publish`,
+      { method: 'POST' },
+    ),
+  unpublishCourse: (courseId: string) =>
+    request<CourseEditor>(
+      `/api/authoring/courses/${encodeURIComponent(courseId)}/unpublish`,
+      { method: 'POST' },
+    ),
+  deleteCourse: (courseId: string) =>
+    request<void>(`/api/authoring/courses/${encodeURIComponent(courseId)}`, {
+      method: 'DELETE',
+    }),
+  addModule: (courseId: string, title: string) =>
+    request<ModuleEditor>(
+      `/api/authoring/courses/${encodeURIComponent(courseId)}/modules`,
+      { method: 'POST', body: JSON.stringify({ title }) },
+    ),
+  updateModule: (moduleId: string, patch: Partial<{ title: string; position: number }>) =>
+    request<ModuleEditor>(`/api/authoring/courses/modules/${encodeURIComponent(moduleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteModule: (moduleId: string) =>
+    request<void>(`/api/authoring/courses/modules/${encodeURIComponent(moduleId)}`, {
+      method: 'DELETE',
+    }),
+  addLesson: (
+    moduleId: string,
+    input: {
+      title: string;
+      type: string;
+      maxScore?: number;
+      exerciseSlug?: string | null;
+      runtimeTier?: string | null;
+      hint?: string | null;
+      body?: string | null;
+      assessmentId?: string | null;
+    },
+  ) =>
+    request<LessonEditor>(
+      `/api/authoring/courses/modules/${encodeURIComponent(moduleId)}/lessons`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  updateLesson: (
+    lessonId: string,
+    patch: Partial<{
+      title: string;
+      type: string;
+      position: number;
+      maxScore: number;
+      exerciseSlug: string | null;
+      runtimeTier: string | null;
+      hint: string | null;
+      body: string | null;
+      assessmentId: string | null;
+    }>,
+  ) =>
+    request<LessonEditor>(`/api/authoring/courses/lessons/${encodeURIComponent(lessonId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteLesson: (lessonId: string) =>
+    request<void>(`/api/authoring/courses/lessons/${encodeURIComponent(lessonId)}`, {
+      method: 'DELETE',
+    }),
   launchLab: (lessonId: string) =>
     request<LabSession>('/api/labs/launch', {
       method: 'POST',
@@ -449,6 +689,22 @@ export const api = {
     request<{ ok: true }>(`/api/batches/${encodeURIComponent(batchId)}/students`, {
       method: 'POST',
       body: JSON.stringify({ userId, courseId }),
+    }),
+  /** Attendance (E6c): the caller's own overall + session-level attendance. */
+  myAttendance: () => request<StudentAttendance>('/api/attendance/me'),
+  batchSessions: (batchId: string) =>
+    request<ClassSession[]>(`/api/attendance/batches/${encodeURIComponent(batchId)}/sessions`),
+  createClassSession: (batchId: string, input: { title: string; scheduledAt: string }) =>
+    request<ClassSession>(`/api/attendance/batches/${encodeURIComponent(batchId)}/sessions`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  batchAttendance: (batchId: string) =>
+    request<BatchAttendance>(`/api/attendance/batches/${encodeURIComponent(batchId)}`),
+  markAttendance: (sessionId: string, userId: string, status: AttendanceStatus) =>
+    request<{ ok: true }>(`/api/attendance/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ userId, status }),
     }),
   editorLanguages: () => request<EditorLanguage[]>('/api/editor/languages'),
   runCode: (input: { language: string; source: string; stdin: string }) =>
@@ -492,9 +748,10 @@ export const api = {
   assessments: () => request<AssessmentView[]>('/api/assessments'),
   assessment: (id: string) =>
     request<AssessmentView>(`/api/assessments/${encodeURIComponent(id)}`),
-  startAttempt: (assessmentId: string) =>
+  startAttempt: (assessmentId: string, passcode?: string) =>
     request<AttemptView>(`/api/assessments/${encodeURIComponent(assessmentId)}/attempts`, {
       method: 'POST',
+      body: JSON.stringify({ passcode }),
     }),
   attempt: (attemptId: string) =>
     request<AttemptView>(`/api/assessments/attempts/${encodeURIComponent(attemptId)}`),
@@ -531,6 +788,12 @@ export const api = {
     request<{ workspaceId: string; status: string }>(
       `/api/projects/workspaces/${encodeURIComponent(workspaceId)}/stop`,
       { method: 'POST' },
+    ),
+  /** Delete (Nov'25 §1.5): destroy the workspace, its volume, and its fork. */
+  deleteWorkspace: (workspaceId: string) =>
+    request<{ workspaceId: string; deleted: true }>(
+      `/api/projects/workspaces/${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' },
     ),
   /** Deploy (E5): expose the workspace's service on a public URL. */
   deployWorkspace: (workspaceId: string, port: number) =>

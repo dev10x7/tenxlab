@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   api,
   ApiError,
   type InstructorProjectView,
+  type ForkStatus,
   type ProjectSubmission,
   type ProjectTemplate,
+  type ProjectTemplateCategory,
   type Session,
   type StudentProjectView,
   type TenantUsage,
@@ -15,6 +18,7 @@ import {
   formatUsd,
   projectDeadlineLabel,
   submissionStatusLabel,
+  templateCategoryLabel,
 } from '@/lib/lms';
 import { ProjectComponentCard } from '@/components/ProjectComponentCard';
 
@@ -52,13 +56,23 @@ export default function NimbusPage() {
 function StudentProjects() {
   const [projects, setProjects] = useState<StudentProjectView[]>([]);
   const [submissions, setSubmissions] = useState<ProjectSubmission[]>([]);
+  const [statuses, setStatuses] = useState<Record<string, ForkStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     const [p, s] = await Promise.all([api.projects(), api.myProjectSubmissions()]);
-    setProjects(p as StudentProjectView[]);
+    const views = p as StudentProjectView[];
+    setProjects(views);
     setSubmissions(s.map((v) => v.submission));
+    // One status read per fork powers the landing strip's "live projects" count.
+    const forkIds = views.flatMap((view) =>
+      view.components.filter((c) => c.fork).map((c) => c.fork!.id),
+    );
+    const pairs = await Promise.all(
+      forkIds.map((id) => api.forkStatus(id).then((st) => [id, st] as const)),
+    );
+    setStatuses(Object.fromEntries(pairs));
   }, []);
 
   useEffect(() => {
@@ -69,6 +83,14 @@ function StudentProjects() {
 
   if (loading) return <p className="muted">Loading projects…</p>;
 
+  // The Nimbus landing strip (Nov'25 §1.5): a student's workspaces, live apps,
+  // and the projects still open to fork, all on one view.
+  const workspaceCount = projects.reduce(
+    (n, view) => n + view.components.filter((c) => c.fork).length,
+    0,
+  );
+  const liveAppCount = Object.values(statuses).filter((s) => s.deployUrl).length;
+
   return (
     <div>
       <h1>Nimbus Projects</h1>
@@ -77,6 +99,30 @@ function StudentProjects() {
         your code, stop the workspace, then submit it with a GitHub or demo link
         for your trainer to evaluate.
       </p>
+
+      <div className="grid" style={{ marginTop: 16 }}>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Your workspaces</h3>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {workspaceCount} forked workspace{workspaceCount === 1 ? '' : 's'} ·{' '}
+            <Link href="/nimbus/apps">Nimbus Apps →</Link>
+          </p>
+        </div>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Live projects</h3>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {liveAppCount} published app{liveAppCount === 1 ? '' : 's'} with a
+            demo URL
+          </p>
+        </div>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Open projects</h3>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {projects.length} project{projects.length === 1 ? '' : 's'} available
+            to fork
+          </p>
+        </div>
+      </div>
 
       {error ? <p className="error">{error}</p> : null}
 
@@ -290,6 +336,7 @@ function CreateProjectCard({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [templateSlug, setTemplateSlug] = useState(templates[0]?.slug ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -305,11 +352,13 @@ function CreateProjectCard({
         deadline: deadline ? new Date(deadline).toISOString() : null,
       });
       // Give the new project one component so a student has something to fork.
-      if (templates[0]) {
+      const chosen =
+        templates.find((t) => t.slug === templateSlug) ?? templates[0];
+      if (chosen) {
         await api.addProjectComponent(project.id, {
-          title: templates[0].title,
-          technology: templates[0].stack,
-          templateSlug: templates[0].slug,
+          title: chosen.title,
+          technology: chosen.stack,
+          templateSlug: chosen.slug,
         });
       }
       setTitle('');
@@ -348,6 +397,22 @@ function CreateProjectCard({
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
         />
+        <label htmlFor="project-template">Starting template</label>
+        <select
+          id="project-template"
+          value={templateSlug}
+          onChange={(e) => setTemplateSlug(e.target.value)}
+        >
+          {groupTemplates(templates).map(([category, group]) => (
+            <optgroup key={category} label={templateCategoryLabel(category)}>
+              {group.map((t) => (
+                <option key={t.slug} value={t.slug}>
+                  {t.title}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
         {error ? <p className="error">{error}</p> : null}
         <button className="btn" type="submit" disabled={busy || !title.trim()}>
           Create draft
@@ -355,6 +420,28 @@ function CreateProjectCard({
       </form>
     </div>
   );
+}
+
+/** Group templates by picker category, in a stable display order. */
+function groupTemplates(
+  templates: ProjectTemplate[],
+): Array<[ProjectTemplateCategory, ProjectTemplate[]]> {
+  const order: ProjectTemplateCategory[] = [
+    'front_end',
+    'back_end',
+    'full_stack',
+    'database',
+    'other',
+  ];
+  const byCategory = new Map<ProjectTemplateCategory, ProjectTemplate[]>();
+  for (const template of templates) {
+    const list = byCategory.get(template.category) ?? [];
+    list.push(template);
+    byCategory.set(template.category, list);
+  }
+  return order
+    .filter((category) => byCategory.has(category))
+    .map((category) => [category, byCategory.get(category)!]);
 }
 
 function EvaluationQueue({ projectId }: { projectId: string }) {

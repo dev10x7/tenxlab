@@ -5,6 +5,7 @@ import type {
   ProgressRepository,
   UserRepository,
 } from '../common/ports';
+import type { CourseCatalog } from '../catalog/course-catalog';
 
 export interface BatchSummaryDto {
   id: string;
@@ -47,8 +48,8 @@ export interface GradebookDto {
 /**
  * Cohort management: create batches, assign students, and read the instructor
  * gradebook. The gradebook aggregates each enrolled student's progress rows
- * against the batch's lessons, so a score that lands from the lab webhook shows
- * up here without a second write path.
+ * against the batch's courses' lessons, so a score that lands from the lab
+ * webhook shows up here without a second write path.
  *
  * Reads are pure over the injected ports, so the DTO shapes are unit-testable
  * without a database.
@@ -60,8 +61,8 @@ export class BatchService {
     private readonly memberships: MembershipRepository,
     private readonly users: UserRepository,
     private readonly progress: ProgressRepository,
-    /** Lesson ids in the batch's course, in display order. */
-    private readonly courseLessons: Array<{ id: string; title: string }> = [],
+    /** Resolves a batch's courses to their lessons, in display order. */
+    private readonly catalog: CourseCatalog,
   ) {}
 
   async listBatches(tenantId: string): Promise<BatchSummaryDto[]> {
@@ -161,6 +162,10 @@ export class BatchService {
     const userIds = [...new Set(enrollments.map((e) => e.userId))];
     const progressRows = await this.progress.listByUsers(userIds);
 
+    // Columns are the lessons of the batch's courses, in enrolment order, so an
+    // authored course contributes its own lessons rather than a fixed list.
+    const courseLessons = await this.courseLessonsFor(enrollments);
+
     const rows: GradebookRowDto[] = [];
     for (const userId of userIds) {
       const user = await this.users.findById(userId);
@@ -168,7 +173,7 @@ export class BatchService {
       const byLesson = new Map(
         progressRows.filter((p) => p.userId === userId).map((p) => [p.lessonId, p]),
       );
-      const cells: GradebookCellDto[] = this.courseLessons.map((lesson) => {
+      const cells: GradebookCellDto[] = courseLessons.map((lesson) => {
         const record = byLesson.get(lesson.id);
         return {
           lessonId: lesson.id,
@@ -197,8 +202,29 @@ export class BatchService {
     return {
       batchId: batch.id,
       batchName: batch.name,
-      lessons: this.courseLessons,
+      lessons: courseLessons,
       rows,
     };
+  }
+
+  /** The distinct lessons of a batch's enrolled courses, in enrolment order. */
+  private async courseLessonsFor(
+    enrollments: Array<{ courseId: string }>,
+  ): Promise<Array<{ id: string; title: string }>> {
+    const out: Array<{ id: string; title: string }> = [];
+    const seenCourse = new Set<string>();
+    const seenLesson = new Set<string>();
+    for (const enrollment of enrollments) {
+      if (seenCourse.has(enrollment.courseId)) continue;
+      seenCourse.add(enrollment.courseId);
+      const course = await this.catalog.resolve(enrollment.courseId);
+      if (!course) continue;
+      for (const lesson of course.lessons) {
+        if (seenLesson.has(lesson.id)) continue;
+        seenLesson.add(lesson.id);
+        out.push(lesson);
+      }
+    }
+    return out;
   }
 }

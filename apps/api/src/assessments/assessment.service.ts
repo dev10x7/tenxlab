@@ -53,6 +53,8 @@ export interface AssessmentDto {
   proctored: boolean;
   durationSeconds: number | null;
   maxScore: number;
+  /** True when a passcode must be supplied before a fresh attempt starts. */
+  requiresPasscode: boolean;
   questions: AssessmentQuestionDto[];
 }
 
@@ -81,6 +83,11 @@ export interface AttemptResultDto {
   maxScore: number;
   results: QuestionResultDto[];
 }
+
+/** Outcome of starting (or resuming) a sitting. */
+export type StartAttemptResult =
+  | { ok: true; attempt: AttemptDto }
+  | { ok: false; reason: 'not_found' | 'passcode_required' };
 
 export interface AssessmentDeps {
   attempts: AttemptRepository;
@@ -126,17 +133,27 @@ export class AssessmentService {
   /**
    * Start a sitting, or resume the open one. Resuming rather than creating a
    * second attempt is what makes a page refresh safe: the deadline does not move.
+   *
+   * A graded assessment may carry a start passcode (Nov'25 §1.5): a fresh
+   * attempt is refused unless the caller supplies the matching code. Resuming an
+   * already-open attempt never re-checks the passcode, so a refresh mid-exam is
+   * never locked out.
    */
   async startAttempt(
     userId: string,
     assessmentId: string,
     clock: Clock = systemClock,
-  ): Promise<AttemptDto | null> {
+    passcode?: string,
+  ): Promise<StartAttemptResult> {
     const assessment = this.find(assessmentId);
-    if (!assessment) return null;
+    if (!assessment) return { ok: false, reason: 'not_found' };
 
     const open = await this.deps.attempts.findOpen(userId, assessmentId);
-    if (open) return this.toAttemptDto(open, assessment, clock);
+    if (open) return { ok: true, attempt: this.toAttemptDto(open, assessment, clock) };
+
+    if (assessment.passcode && passcode !== assessment.passcode) {
+      return { ok: false, reason: 'passcode_required' };
+    }
 
     const window =
       assessment.durationSeconds != null
@@ -148,7 +165,7 @@ export class AssessmentService {
       startedAt: clock.now(),
       endsAt: window?.endsAt ?? null,
     });
-    return this.toAttemptDto(record, assessment, clock);
+    return { ok: true, attempt: this.toAttemptDto(record, assessment, clock) };
   }
 
   /** A live attempt, scoped to its owner. */
@@ -396,6 +413,7 @@ function toAssessmentDto(a: DemoAssessment): AssessmentDto {
     proctored: a.mode === 'graded',
     durationSeconds: a.durationSeconds,
     maxScore: questions.reduce((sum, q) => sum + q.maxScore, 0),
+    requiresPasscode: Boolean(a.passcode),
     questions,
   };
 }

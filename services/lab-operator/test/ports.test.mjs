@@ -25,6 +25,14 @@ function fakePool(state = {}) {
       if (text.includes('FROM lab_sessions')) {
         return { rows: sessions.filter((s) => s.status === 'ACTIVE') };
       }
+      if (text.includes('FROM project_workspaces')) {
+        return { rows: (state.forks ?? []).filter((f) => f.status === 'running' || f.status === 'stopped') };
+      }
+      if (text.includes('UPDATE project_workspaces')) {
+        const row = (state.forks ?? []).find((f) => f.id === values[0]);
+        if (row) row.status = text.includes("'archived'") ? 'archived' : 'stopped';
+        return { rows: [] };
+      }
       if (text.includes('INSERT INTO warm_sandboxes')) {
         warm.push({ tier: values[1], providerRef: values[2] });
         return { rows: [] };
@@ -121,6 +129,52 @@ test('terminateSession tears down the provider ref then marks the row', async ()
   await ports.terminateSession('s1');
   assert.deepEqual(provider.terminated, ['tenxlab-t2-s1']);
   assert.ok(pool.calls.some((c) => c.text.includes('UPDATE lab_sessions')));
+});
+
+test('listForks returns only running/stopped forks with parsed dates', async () => {
+  const pool = fakePool({
+    forks: [
+      { id: 'w1', status: 'running', createdAt: '2026-01-01T00:00:00Z', lastActivityAt: '2026-01-01T00:00:00Z' },
+      { id: 'w2', status: 'archived', createdAt: '2026-01-01T00:00:00Z', lastActivityAt: '2026-01-01T00:00:00Z' },
+      { id: 'w3', status: 'stopped', createdAt: '2026-01-01T00:00:00Z', lastActivityAt: '2026-01-01T00:00:00Z' },
+    ],
+  });
+  const ports = new PgOperatorPorts({ pool, provider: fakeProvider() });
+  const forks = await ports.listForks();
+  assert.deepEqual(forks.map((f) => f.id), ['w1', 'w3']);
+  assert.ok(forks[0].lastActivityAt instanceof Date);
+});
+
+test('stopFork suspends a suspendable fork provider and marks the row stopped', async () => {
+  const pool = fakePool({ forks: [{ id: 'w1', status: 'running' }] });
+  const suspended = [];
+  const provider = {
+    ...fakeProvider(),
+    async suspend(id) {
+      suspended.push(id);
+    },
+    async resume() {},
+  };
+  const ports = new PgOperatorPorts({ pool, provider });
+  await ports.stopFork('w1');
+  assert.deepEqual(suspended, ['w1']);
+  assert.ok(pool.calls.some((c) => c.text.includes('UPDATE project_workspaces')));
+});
+
+test('stopFork tears down a non-suspendable provider instead', async () => {
+  const pool = fakePool({ forks: [{ id: 'w1', status: 'running' }] });
+  const provider = fakeProvider();
+  const ports = new PgOperatorPorts({ pool, provider });
+  await ports.stopFork('w1');
+  assert.deepEqual(provider.terminated, ['w1']);
+});
+
+test('archiveFork marks the row archived', async () => {
+  const pool = fakePool({ forks: [{ id: 'w1', status: 'stopped' }] });
+  const ports = new PgOperatorPorts({ pool, provider: fakeProvider() });
+  await ports.archiveFork('w1');
+  const update = pool.calls.find((c) => c.text.includes('UPDATE project_workspaces'));
+  assert.match(update.text, /archived/);
 });
 
 test('parseKubeConfig lifts server, token and base64 CA', () => {

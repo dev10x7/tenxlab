@@ -245,6 +245,132 @@ login → list → start → report signals → submit → instructor review ove
   Editor; the read-only stub region is enforced *before* the code runs. With the
   runner off, a coding question scores 0 rather than failing the attempt.
 
+## Student dashboard & ByteXL-style navigation (2026-11-11)
+
+The student portal mirrors ByteXL's layout: a **global header** (in `AppShell`:
+notifications + platform-settings actions, role pill, display name, sign out)
+above a **left-panel** menu of sections. The menu is data in
+`apps/web/src/lib/nav.ts`; keep `nav.test.mjs` in sync when you touch it.
+
+- **Student sections, in order:** `Home` (Dashboard, Feed), `Learning` (AI
+  Mentor, Courses→`/learn`, Catalog→`/catalog`, Classes), `Practice` (Editor,
+  Labs, Assessments), `Nimbus` (build→`/nimbus`, Submissions→`/nimbus/submissions`,
+  Apps→`/nimbus/apps`), `Insights` (Student Reports, Resumes, AI Interviewer),
+  `Community` (Social, Help→`/help/student`). The `Feed`, `Social`, and
+  `Student Reports` entries are P3 placeholders and render through
+  `SurfacePage`; `Classes` and `Help` are live.
+- **The dashboard is a three-panel view** (`app/dashboard/page.tsx`): the header
+  (shell), a main column of **industry roadmaps** + **competitive rankings**
+  (university + batch), and a right rail with the **profile-completion** nudge.
+  Its data comes from `GET /api/dashboard` → `DashboardService`
+  (`apps/api/src/dashboard/dashboard.service.ts`), which is pure over the
+  injected ports so every number is unit-testable.
+- **`DashboardService` inputs:** enrolments (via the new
+  `EnrollmentRepository.listByUser`), the caller's `lesson_progress`, tenant
+  student memberships (university cohort), and the batch roster (batch cohort).
+  Rankings use competition ranking (ties share the better rank) and read the
+  same progress rows the instructor gradebook reads, so a lab-webhook score
+  moves both. Profile completion is a fixed 7-item checklist (enrolled, started
+  a lesson, completed a lesson, saved a snippet, created a workspace, submitted
+  a project, connected GitHub) — extend the list in one place.
+- **The dashboard is student-only.** `DashboardController` returns 403 for
+  instructor/admin sessions, so the page first reads the session and renders a
+  redirect to the staff home (`/grading`, `/admin/users`) rather than firing a
+  doomed request; instructor/admin nav keeps its own layout.
+- **Nimbus sub-surfaces:** `/nimbus/submissions` lists the student's submitted
+  workspaces with trainer score, auto-evaluation, and feedback (the LMS side of
+  the flow, mirroring ByteXL); `/nimbus/apps` lists forked workspaces and their
+  live `deployUrl`/`ideUrl`. Both are read-only views over existing endpoints —
+  no new API was added for them.
+- **Nested route highlight:** `activeHref` matches by longest prefix, so
+  `/nimbus/submissions` highlights the nested item, not `/nimbus`.
+- **Collapsible sidebar:** the sidebar collapses to an icons-only rail via the
+  toggle in `.sidebar-head`; the state lives on `.shell.sidebar-collapsed` and is
+  persisted under `tenxlab.sidebar.collapsed` in `localStorage`. Collapsed, the
+  labels/section titles are hidden and each link carries a `title` for hover.
+- **The IDE opens in the main panel:** the Nimbus workspace view is
+  `/nimbus/workspace/[forkId]` (`app/nimbus/workspace/[forkId]/page.tsx`), which
+  polls the fork and frames `ideUrl` in `.ide-frame` once it is ready, with an
+  "Open in new tab" fallback. `ProjectComponentCard` links here ("Open
+  workspace"). For the frame to load, the `ide-gateway` strips `X-Frame-Options`
+  and any CSP `frame-ancestors` (`sanitizeResponseHeaders` in
+  `deploy/kubelab/ide-gateway.mjs`) — code-server otherwise refuses to be
+  embedded.
+
+## Help centre (role guides, 2026-11-11)
+
+- **Two role pages, one content module.** `/help/student` and
+  `/help/instructor` (`app/help/<role>/page.tsx`) both render
+  `RoleHelpPage` (`components/RoleHelpPage.tsx`) from `STUDENT_GUIDES` /
+  `INSTRUCTOR_GUIDES` in `apps/web/src/lib/help.ts`. Each guide is data — a
+  title, summary, the live `route`, a `screenshot` filename, and an ordered
+  `steps` list — so the hub, the pages, and the tests share one source.
+- **Screenshots are real, checked-in captures** under `apps/web/public/help/`,
+  named `<role>-<feature>.png`. `help.test.mjs` fails if a guide references a
+  screenshot that is not on disk or a route that is not in that role's nav.
+- **Regenerate after a UI change:** `npm run shots:help` (needs the stack up and
+  Playwright's Chromium; `scripts/shots/capture-help.mjs` seeds a couple of
+  attendance rows first so the instructor matrix is not empty).
+- **The Docker web image must copy `public/`** — `next start` serves static
+  assets from there. `apps/web/Dockerfile` copies `apps/web/public` into the
+  runner stage; without it every screenshot 404s in the container.
+- **Wiring:** `nav.ts` exposes `helpHref(role)` (instructor/admin →
+  `/help/instructor`, else `/help/student`) and adds the role's help item to the
+  sidebar; `AppShell` also renders a top-bar `?` shortcut to `helpHref`.
+  `activeHref` keeps the role item lit on the shared `/help` hub.
+- **Attendance needs a web proxy.** The `/classes` surface calls
+  `/api/attendance/*`, served by a catch-all proxy at
+  `app/api/attendance/[...path]/route.ts` (same shape as `authoring`); without
+  it the student and trainer attendance views both error.
+- **Reusable tooling:** the whole flow (scaffold the pages, capture the
+  screenshots, verify them) is packaged as the `help-centre` skill under
+  `.agents/skills/help-centre/`. Prefer its `scripts/*.mjs` over re-writing
+  this by hand; see `SKILL.md` and `references/worked-example.md`.
+
+## Course authoring (2026-11-19)
+
+The catalog is now **repository-backed** — the demo array is seed input only.
+Instructors build a course as a tree of **modules** (chapters) and **lessons**,
+then **publish** it so students see it in `/catalog` and `/learn`.
+
+- **Domain:** `CourseRecord`/`ModuleRecord` and the extended `LessonRecord`
+  (authoring fields: `body`, `hint`, `assessmentId`) live in
+  `common/ports.ts`, with `CourseRepository`/`ModuleRepository` on `Repositories`
+  and both in-memory (`common/in-memory.ts`) and Prisma
+  (`common/prisma-repositories.ts`) impls. Migration
+  `20261119000000_course_authoring` adds `Course.slug` and the lesson columns.
+- **Reads:** `CatalogService` takes `(courses, modules, lessons, progress)` and
+  only returns **published** courses, so a draft never reaches a student.
+- **Writes:** `CourseAuthoringService` (`catalog/course-authoring.service.ts`)
+  is pure over the ports and tenant-scoped — every id is resolved through the
+  owning course, so guessing an id cannot cross tenants. It owns the
+  draft→published lifecycle (`publish`/`unpublish`) and `slugify` (unique slug
+  per tenant; a clash is `slug_taken`).
+- **HTTP:** `CourseAuthoringController` (`/api/authoring/...`) gates every call
+  on the `course:write` capability via `requireCapability` (`http/guards.ts`).
+  A student session gets 403; the DTOs are `CourseEditorDto`/`ModuleEditorDto`/
+  `LessonEditorDto`.
+- **Web:** `/authoring` (course list, drafts included) → `/authoring/[courseId]`
+  (course editor: edit details, add/delete chapters and lessons, publish). The
+  client methods are `api.authoringCourses`/`createCourse`/`addModule`/
+  `addLesson`/`publishCourse`/… in `apps/web/src/lib/api.ts`. One catch-all proxy
+  handler (`app/api/authoring/[...path]/route.ts`) forwards every verb to the API
+  — a new browser-facing authoring route needs no extra file.
+- **Enrolment → course resolution is repository-backed (2026-11-19).** Both
+  consumers of a stored `courseId` — the student dashboard's roadmaps and the
+  instructor gradebook's columns — resolve through `CourseCatalog`
+  (`catalog/course-catalog.ts`, built by `courseCatalogFrom` over the
+  `CourseRepository`/`ModuleRepository`/`LessonRepository` ports). The catalog
+  walks course → modules → lessons on each read, so a course an instructor
+  authored a minute ago reaches a roadmap and a gradebook exactly like a seeded
+  one. The gradebook's columns are now the distinct lessons of the batch's
+  enrolled courses, not a fixed list. `DEMO_COURSES` is now **seed input only**
+  (`seed.ts`, `demo/state.ts`) — no service reads it to resolve a course.
+- **Known limitation:** the gradebook renders one flat column list per batch —
+  the union of its enrolled courses' lessons in enrolment order. A batch that
+  mixes courses therefore shows both courses' lessons side by side rather than
+  grouping columns by course. Fine while a batch is single-course in practice.
+
 ## Tier-1 execution (Piston) — license-verified 2026-11-11
 
 Tier-1 (single-file DSA code) is served by **Piston** (`engineer-man/piston`,
@@ -270,18 +396,20 @@ request/response tier-1 contract.
 - The tier-1 seam is `CodeExecutionProvider` (`packages/lab-provider`), **not**
   `LabProvider`: a run is request/response, a lab is a long-lived session. Do
   not force Piston into the session model.
-- Piston runs untrusted code, so its compose service sits behind the `runner`
-  profile (`docker compose --profile runner up`) and is off by default; the
-  API's `PISTON_ENABLED` gates the Run button. With it off, the Editor still
-  serves languages and snippets — only Run returns 503.
-- `scripts/dev-up.sh` brings Piston up itself (step 4b: `docker compose --profile
-  runner up -d piston`) and starts the API with `PISTON_ENABLED=true`, so the
-  Editor's Run works in the dev stack. If compose is unavailable the step warns
-  and the API falls back to Run → 503. The pinned image
-  (`ghcr.io/engineer-man/piston:latest`) ships only six runtimes
-  (`python`, `javascript`, `java`, `c`, `c++`, `sqlite3`); the Editor catalog is
-  larger, so step 4b also POSTs the missing ones to `/api/v2/packages`
-  (`EDITOR_PISTON_RUNTIMES`) — keep that list in sync with `EDITOR_LANGUAGES`.
+- Piston runs untrusted code, so its compose service is `privileged` and starts
+  by default with the rest of the stack; the API's `PISTON_ENABLED` gates the Run
+  button (it is `true` in compose). With it off, the Editor still serves
+  languages and snippets — only Run returns 503.
+- `piston-init` (compose) installs the Editor's runtimes into Piston on first
+  boot and is idempotent, so later boots are cheap. The stock Piston image ships
+  only six runtimes (`python`, `javascript`, `java`, `c`, `c++`, `sqlite3`); the
+  Editor catalog is larger, so the init container POSTs the missing ones to
+  `/api/v2/packages` — keep that list in sync with `EDITOR_LANGUAGES`. Note that
+  Piston *package* names differ from runtime aliases: install `node` for
+  JavaScript, `gcc` for C/C++, `mono` for C#.
+- `scripts/dev-up.sh` brings Piston up itself (step 4b) and starts the API with
+  `PISTON_ENABLED=true`, so the Editor's Run works in the dev stack. If compose
+  is unavailable the step warns and the API falls back to Run → 503.
   Check what is installed with `GET /api/v2/runtimes`.
 - The Editor language catalog is curated (`EDITOR_LANGUAGES` in
   `packages/contracts`): each entry pairs a Piston runtime alias with a
@@ -306,15 +434,18 @@ The surface is live at `/nimbus` for both roles (student: fork → build → sto
 submit; instructor: author → publish → evaluate).
 
 **Release-video refresh (2026-11-14).** The monthly release videos were
-transcribed (see `docs/BYTEXL_PARITY_ANALYSIS.md` §1.5/§2.10). Beyond E0–E6 they
+transcribed (see `docs/BYTEXL_PARITY_ANALYSIS.md` §1.5/§2.10). Beyond E0–E5 they
 add: a Nimbus **landing dashboard** (workspaces + deployed apps + live projects,
 deploy/download/delete quick actions), **database workspaces**
 (MySQL/Postgres/SQL Server/Mongo), a **visual AI Mentor** (diagrams + images),
 **university/batch ranks** + a **profile-completion tile**, an **exam start
 passcode**, and **Clarity** — a standalone CEFR-graded English-communication
-product. None block the Nimbus parity exit criterion; they are folded into E6b
-(passcode), E6c (database templates), F (visual mentor, CEFR), and G (ranks,
-profile tile).
+product. The parity-blocking subset has shipped: **E6b** (exam start passcode),
+**E6c** (database templates + category grouping), **E6** (Up Next / Resume,
+attendance, ranks, profile tile, and the fork-card deploy/download/delete quick
+actions). The **visual AI Mentor** and **Clarity** (CEFR) are folded into Phase
+F; the standalone **landing dashboard** view and any remaining polish into Phase
+G.
 
 - **E0 = domain + persistence only** (this commit). Contracts in
   `packages/contracts` (`Project`, `ProjectComponent`, `ProjectTemplate`,
@@ -384,7 +515,17 @@ profile tile).
   the workspace, and `stopWorkspace` clears them (a stop tears the namespace
   down). Routes: `POST`/`DELETE /api/projects/workspaces/:workspaceId/deploy`.
   **Multi-service apps stay N independent workspaces** (§1.4) — there is no
-  composed multi-container deploy. Fork cost/quota policy is still E5b.
+  composed multi-container deploy.
+- **E5b = fork cost/quota policy** (ADR-20). A fork's compute is **suspended, not
+  destroyed, on stop**: `ProjectService.stopWorkspace` calls the provider-neutral
+  `Suspendable` seam when the provider offers it (`suspend`/`resume`), so the
+  durable volume survives and re-forking resumes the same workspace. A provider
+  without the seam is terminated as before. Forks are swept by the lab operator
+  on their **own** idle/max-session limits (`findForksToStop`, 60-min idle / 8-h
+  max, ADR-20), never the 30-min lab sweep. `tenants.maxStorageGb` (0 = unlimited)
+  is a fork-only ceiling enforced at fork time (`checkStorageQuota` +
+  `forkStorageGb`); a *new* fork over the ceiling is a `storage_exceeded` conflict
+  (409), while re-attaching to or resuming an existing fork is never gated.
 - **Nimbus git publish** (`github/git-publish.service.ts`). "Source Control"
   connects GitHub via the **OAuth device flow** (`GitHubClient`, `DeviceCodeGrant`)
   and stores the token **encrypted** with `SecretBox` on a `GitConnection` row;
@@ -442,6 +583,12 @@ profile tile).
   `next.config.mjs` — it is inlined into the client bundle at
   build time, so the browser would call that host directly and login/launch fail
   with "Something went wrong" while `curl` against the proxy still works.
+- **A Nest controller is dead until it is listed in `AppModule.controllers`.**
+  Importing the class is not enough; `DashboardController` shipped wired to the
+  provider but *unregistered*, so `/api/dashboard` 404'd (and the dashboard page
+  rendered empty) until it was added. The `e2e.*.test.ts` suite boots the real
+  `AppModule`, so a route-level assertion there catches this — unit-testing the
+  controller class directly does not.
 - Next.js patches global `fetch` and caches route-handler responses by URL. The
   proxy must pass `cache: 'no-store'` (see `proxyFetchInit`), or a lab session
   poll replays the first `WARM` response forever and the launch never completes.
@@ -463,8 +610,20 @@ profile tile).
   is a `RoutingProvider`, not a bare `KubeLabAdapter`: `tier_3_vcluster` →
   KubeLab (adapter-only, ADR-8), `tier_2_container` → our `PodProvider`. Each
   route is gated by env (`KUBELAB_ENABLED`, `POD_PROVIDER_ENABLED`); with none
-  set the provider is `null` and launches record a catalog-only session. A tier
-  with no route fails loudly rather than silently no-op'ing.
+  set the provider is `null`. A tier with no route fails loudly rather than
+  silently no-op'ing.
+- **With no execution plane, lab launch fails fast (503) instead of creating a
+  `WARM` session that never reaches `ACTIVE`** — otherwise the launch button
+  spins forever. The failure reason is `lab_unavailable` → `SERVICE_UNAVAILABLE`;
+  the web `LabLaunchButton` explains it. The controller also maps the other
+  reasons honestly: `lesson_not_found` → 404, `membership_required` → 403,
+  `not_a_lab` → 400 (never a misleading 401). Project forks keep the older
+  behaviour (a provider-less fork stays `provisioning`) because
+  `e2e.projects.test.ts` encodes that contract deliberately.
+- **A `lab`-kind lesson is only launchable if it has an `exerciseSlug`.** The
+  catalog DTOs carry `launchable` (`kind === 'lab' && Boolean(exerciseSlug)`), so
+  the Labs page disables the launch control and the lesson page explains the gap
+  instead of letting the student hit a 400. Seeded demo labs always have a slug.
 - `PodProvider.provider_ref` is the session's **namespace** and doubles as the
   session id for status/terminate, so `namespaceFor` is idempotent (it accepts
   an already-prefixed name). Changing that breaks terminate-after-status.
@@ -477,3 +636,18 @@ profile tile).
 - The operator needs cluster-wide RBAC (it creates/deletes per-session
   namespaces); `deploy/lab-operator/operator.yaml` grants it. Compose runs it
   under the `operator` profile and mounts `KUBECONFIG` read-only.
+- **A user-defined Docker network defaults to MTU 1500 and ignores the daemon's
+  `mtu` setting.** When the real path MTU is lower (the OpenHands sandbox host is
+  1460/1450, because the outer network adds tunnelling overhead), small packets
+  pass but full-size TLS records are silently dropped — GitHub downloads hang
+  while npm works, which looks like an app bug. Piston installs its runtimes by
+  fetching packages from GitHub at runtime, so it hung and wedged its API. The
+  compose `default` network pins `com.docker.network.driver.mtu` (1450, or
+  `DOCKER_NETWORK_MTU`) to match the daemon. Changing it requires recreating the
+  network (`docker compose down` then up); an existing network keeps its old MTU.
+- **Piston package names are not runtime aliases.** `POST /api/v2/packages` keys
+  on the package (`node`, `gcc`, `mono`, `typescript`) while `GET /api/v2/runtimes`
+  reports the language (`javascript`, `c`, `csharp`), so an idempotency check must
+  map one to the other — installing an alias like `javascript` 404s. Re-installing
+  an already-present package returns 500 `Already installed`, which `piston-init`
+  treats as success.

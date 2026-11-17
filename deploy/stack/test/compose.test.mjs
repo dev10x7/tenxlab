@@ -87,3 +87,87 @@ test('api points auto-evaluation at the ai service', () => {
   const body = svc.get('api').join('\n');
   assert.match(body, /AI_PLANE_URL:\s*http:\/\/ai:8000/);
 });
+
+test('the tier-1 runner is part of the default stack', () => {
+  assert.ok(svc.has('piston'), 'missing piston service');
+  const body = svc.get('piston').join('\n');
+  assert.doesNotMatch(body, /profiles:/, 'piston must run by default');
+  assert.match(body, /healthcheck:/);
+  assert.match(svc.get('api').join('\n'), /PISTON_ENABLED:\s*'true'/);
+  assert.match(svc.get('api').join('\n'), /PISTON_BASE_URL:\s*http:\/\/piston:2000/);
+});
+
+test('piston-init installs the editor runtimes after piston is healthy', () => {
+  assert.ok(svc.has('piston-init'), 'missing piston-init service');
+  const body = svc.get('piston-init').join('\n');
+  assert.match(body, /condition:\s*service_healthy/);
+  assert.match(body, /\/api\/v2/);
+  assert.match(body, /\/packages/);
+  // Package names, not runtime aliases: node runs javascript, gcc runs c/c++.
+  for (const pkg of ['python', 'node', 'typescript', 'java', 'gcc', 'mono']) {
+    assert.match(body, new RegExp(`\\b${pkg}:`), `missing package: ${pkg}`);
+  }
+});
+
+test('the default network pins an MTU for container egress', () => {
+  // A user-defined network defaults to MTU 1500, which black-holes large TLS
+  // records when the host path MTU is lower (Piston's GitHub downloads hang).
+  assert.match(raw, /networks:\s*\n\s*default:/);
+  assert.match(raw, /com\.docker\.network\.driver\.mtu/);
+});
+
+test('k8s-up bootstraps the execution plane before the api starts', () => {
+  assert.ok(svc.has('k8s-up'), 'missing k8s-up service');
+  const body = svc.get('k8s-up').join('\n');
+  // It is a one-shot bootstrap, not a long-running workload.
+  assert.match(body, /restart:\s*'no'/);
+  assert.match(body, /\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/);
+  assert.match(body, /kubeconfig:\/kubeconfig/);
+  // The api must not start until the cluster and kubeconfig exist.
+  assert.match(
+    svc.get('api').join('\n'),
+    /k8s-up:\s*\n\s*condition:\s*service_completed_successfully/,
+  );
+});
+
+test('the kind node lands on a fixed address by construction', () => {
+  // The node must be the labs network's only dynamic member: a fixed subnet
+  // with every other service pinned to a static address leaves it the first
+  // (`.2`) allocation. Re-pinning after creation breaks the control plane.
+  const body = svc.get('k8s-up').join('\n');
+  assert.match(body, /ipv4_address:\s*\$\{LAB_K8SUP_IP:-192\.168\.240\.3\}/);
+  assert.match(body, /LAB_NODE_IP:\s*\$\{LAB_NODE_IP:-192\.168\.240\.2\}/);
+  assert.match(raw, /subnet:\s*\$\{LAB_SUBNET:-192\.168\.240\.0\/24\}/);
+});
+
+test('the ide-gateway is the single public entry point for lab IDEs', () => {
+  assert.ok(svc.has('ide-gateway'), 'missing ide-gateway service');
+  const body = svc.get('ide-gateway').join('\n');
+  assert.match(body, /'12001:12001'/);
+  assert.match(body, /IDE_PROXY_PORT:\s*'12001'/);
+  assert.match(body, /ide-gateway\.mjs/);
+  // It must reach the ingress hosts, so it joins `labs`; the api advertises it.
+  assert.match(body, /labs:/);
+  assert.match(
+    svc.get('api').join('\n'),
+    /KUBELAB_IDE_PUBLIC_URL:\s*\$\{KUBELAB_IDE_PUBLIC_URL:-http:\/\/localhost:12001\}/,
+  );
+});
+
+test('the labs network pins an MTU and a static subnet', () => {
+  const block = raw.slice(raw.indexOf('\n  labs:'));
+  assert.match(block, /com\.docker\.network\.driver\.mtu/);
+  assert.match(block, /gateway:\s*\$\{LAB_GATEWAY:-192\.168\.240\.1\}/);
+});
+
+test('the api enables the tier-2 provider and forks out of the box', () => {
+  const body = svc.get('api').join('\n');
+  assert.match(body, /KUBELAB_ENABLED:\s*'true'/);
+  assert.match(body, /POD_PROVIDER_ENABLED:\s*'true'/);
+  // PROJECTS_ENABLED gates the FORK_PROVIDER; without it a fork is a silent no-op.
+  assert.match(body, /PROJECTS_ENABLED:\s*'true'/);
+  assert.match(body, /KUBECONFIG:\s*\/kubeconfig\/config/);
+  // The api reaches the node over `labs`, not only the default network.
+  assert.match(body, /networks:\s*\n\s*default:\s*\{\}/);
+  assert.match(body, /labs:\s*\n\s*ipv4_address:/);
+});

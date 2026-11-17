@@ -1,10 +1,17 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Capability } from './capabilities';
 
 export interface SessionPayload {
   userId: string;
   tenantId: string;
   role: 'student' | 'instructor' | 'admin';
   displayName: string;
+  /**
+   * Capabilities the role holds, resolved when the session is issued so the web
+   * shell can gate authoring surfaces without a second round trip. Optional so
+   * a cookie minted before capabilities existed still verifies.
+   */
+  capabilities?: Capability[];
 }
 
 /**

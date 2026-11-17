@@ -158,3 +158,90 @@ test('surplus ready sandboxes are reported as reaped', async () => {
   assert.equal(report.reaped, 3);
   assert.equal(report.booted, 0);
 });
+
+// --------------------------------------------------- fork stop-when-idle (ADR-20)
+
+function makeForkPorts(forks, overrides = {}) {
+  const calls = { stopFork: [], archiveFork: [] };
+  const ports = makePorts({
+    async getInventory() {
+      // Empty pool so the tick only exercises the fork sweep.
+      return { ready: zeroTiers(), booting: zeroTiers() };
+    },
+    async listForks() {
+      return forks;
+    },
+    async stopFork(id) {
+      calls.stopFork.push(id);
+    },
+    async archiveFork(id) {
+      calls.archiveFork.push(id);
+    },
+    ...overrides,
+  });
+  ports.forkCalls = calls;
+  return ports;
+}
+
+const FORK_CONFIG = {
+  target: { tier_1_microvm: 0, tier_2_container: 0, tier_3_vcluster: 0 },
+  maxInFlightPerTier: 1,
+  idleLimitsSeconds: { tier_1_microvm: 900, tier_2_container: 1800, tier_3_vcluster: 1200 },
+};
+
+test('an idle running fork is suspended and reported', async () => {
+  const now = Date.now();
+  const ports = makeForkPorts([
+    { id: 'w1', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 3601_000) },
+  ]);
+  const report = await new LabOperator(ports, FORK_CONFIG).tick(now);
+  assert.deepEqual(report.stoppedForks, ['w1']);
+  assert.deepEqual(ports.forkCalls.stopFork, ['w1']);
+  assert.deepEqual(report.errors, []);
+});
+
+test('a fresh running fork is left alone', async () => {
+  const now = Date.now();
+  const ports = makeForkPorts([
+    { id: 'w1', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 60_000) },
+  ]);
+  const report = await new LabOperator(ports, FORK_CONFIG).tick(now);
+  assert.deepEqual(report.stoppedForks, []);
+});
+
+test('a long-stopped fork is archived', async () => {
+  const now = Date.now();
+  const day = 24 * 3600 * 1000;
+  const ports = makeForkPorts([
+    { id: 'w1', status: 'stopped', createdAt: new Date(now - 200 * day), lastActivityAt: new Date(now - 91 * day) },
+  ]);
+  const report = await new LabOperator(ports, FORK_CONFIG).tick(now);
+  assert.deepEqual(report.archivedForks, ['w1']);
+  assert.deepEqual(ports.forkCalls.archiveFork, ['w1']);
+});
+
+test('a failing fork stop is recorded but does not abort the tick', async () => {
+  const now = Date.now();
+  const ports = makeForkPorts(
+    [
+      { id: 'w1', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 3601_000) },
+    ],
+    {
+      async stopFork() {
+        throw new Error('cluster unavailable');
+      },
+    },
+  );
+  const report = await new LabOperator(ports, FORK_CONFIG).tick(now);
+  assert.deepEqual(report.stoppedForks, []);
+  assert.equal(report.errors.length, 1);
+  assert.match(report.errors[0], /stop fork w1/);
+});
+
+test('a deployment without fork ports skips the fork sweep entirely', async () => {
+  const now = Date.now();
+  // makePorts has no listForks/stopFork, so the sweep must be a no-op.
+  const report = await new LabOperator(makePorts(), config).tick(now);
+  assert.deepEqual(report.stoppedForks, []);
+  assert.deepEqual(report.archivedForks, []);
+});

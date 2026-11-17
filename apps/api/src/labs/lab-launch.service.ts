@@ -32,7 +32,8 @@ export type LaunchFailureReason =
   | 'lesson_not_found'
   | 'not_a_lab'
   | 'membership_required'
-  | 'tenant_quota_exceeded';
+  | 'tenant_quota_exceeded'
+  | 'lab_unavailable';
 
 export interface LaunchDeps {
   lessons: LessonRepository;
@@ -103,6 +104,17 @@ export class LabLaunchService {
       exerciseSlug: lesson.exerciseSlug,
     }).tier;
 
+    // No execution plane is configured (KubeLab/Pod provider disabled). Creating
+    // a session here would leave it WARM forever and hang the student's poll, so
+    // fail fast with a reason the UI can explain.
+    if (!this.deps.provider) {
+      return {
+        ok: false,
+        reason: 'lab_unavailable',
+        message: 'Lab environments are not available in this deployment',
+      };
+    }
+
     const session = await this.deps.sessions.create({
       tenantId: req.tenantId,
       userId: req.userId,
@@ -114,11 +126,9 @@ export class LabLaunchService {
       ttlSeconds: this.deps.idleTtlSeconds ?? 1800,
     });
 
-    if (this.deps.provider) {
-      void this.provision(session, tier).catch(() => {
-        // provision() records the failure on the session row.
-      });
-    }
+    void this.provision(session, tier).catch(() => {
+      // provision() records the failure on the session row.
+    });
 
     return {
       ok: true,

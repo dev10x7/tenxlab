@@ -43,6 +43,8 @@ function languageExtension(id: string) {
       return python();
     case 'javascript':
       return javascript();
+    case 'typescript':
+      return javascript({ typescript: true });
     case 'java':
       return java();
     case 'cpp':

@@ -230,20 +230,22 @@ say "Tier-1 execution pool (Piston)"
 if curl -sf -o /dev/null "http://localhost:2000/api/v2/runtimes"; then
   ok "piston (:2000) up"
 elif command -v docker >/dev/null 2>&1 && docker_run compose version >/dev/null 2>&1; then
-  docker_run compose --profile runner up -d piston >/dev/null 2>&1 \
+  docker_run compose up -d piston >/dev/null 2>&1 \
     && wait_for_http "http://localhost:2000/api/v2/runtimes" 30 "piston (:2000)" \
     || warn "piston did not start; Editor Run will return 503"
 else
   warn "docker compose unavailable; skipping piston (Editor Run will return 503)"
 fi
 
-# The stock image ships only a handful of runtimes (python, javascript, java, c,
-# c++, sqlite3); the Editor catalog is larger. Install any missing ones so Run
-# works for every offered language. Idempotent; skips cleanly when Piston is off.
+# The stock image ships only a handful of runtimes; the Editor catalog is
+# larger. Install any missing ones so Run works for every offered language.
+# Idempotent; skips cleanly when Piston is off.
 if curl -sf -o /dev/null "http://localhost:2000/api/v2/runtimes"; then
   say "Piston runtimes (Editor language catalog)"
-  # language[:version] — keep in sync with EDITOR_LANGUAGES in packages/contracts.
-  EDITOR_PISTON_RUNTIMES="python javascript java c c++ sqlite3 csharp go rust php ruby kotlin bash"
+  # Piston *package* names, which differ from runtime aliases: node runs
+  # javascript, gcc runs c/c++, mono runs csharp. Keep in sync with
+  # EDITOR_LANGUAGES in packages/contracts.
+  EDITOR_PISTON_RUNTIMES="python node typescript java gcc sqlite3 mono go rust php ruby kotlin bash"
   have_runtimes="$(curl -s "http://localhost:2000/api/v2/runtimes" 2>/dev/null || echo '[]')"
   installed=0
   for runtime in $EDITOR_PISTON_RUNTIMES; do

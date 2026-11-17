@@ -116,6 +116,17 @@ a:hover {
   border: 1px solid var(--border);
 }
 
+.btn.danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.btn.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -215,12 +226,76 @@ label {
   align-self: flex-start;
   height: 100vh;
   overflow-y: auto;
+  transition: width 0.16s ease, flex-basis 0.16s ease;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 4px 16px;
 }
 
 .sidebar-brand {
-  display: block;
-  padding: 6px 10px 16px;
+  padding: 0 6px;
   font-size: 18px;
+}
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sidebar-toggle:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+/* Collapsed rail: icons only, labels and section titles hidden. */
+.shell.sidebar-collapsed {
+  --sidebar-w: 68px;
+}
+
+.sidebar-collapsed .sidebar-head {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-collapsed .sidebar-brand {
+  padding: 0;
+  font-size: 15px;
+}
+
+.sidebar-collapsed .sidebar-brand span {
+  display: none;
+}
+
+.sidebar-collapsed .nav-section-title,
+.sidebar-collapsed .nav-label,
+.sidebar-collapsed .nav-badge {
+  display: none;
+}
+
+.sidebar-collapsed .nav-link {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.sidebar-collapsed .nav-icon {
+  width: auto;
+  font-size: 16px;
 }
 
 .sidebar-nav {
@@ -458,6 +533,28 @@ textarea.stdin {
   border-color: rgba(198, 40, 40, 0.4);
 }
 
+/* ---- Attendance status pills (ByteXL parity §2.9) ---- */
+
+.pill.present {
+  color: var(--ok);
+  border-color: rgba(61, 220, 151, 0.4);
+}
+
+.pill.absent {
+  color: var(--danger);
+  border-color: rgba(198, 40, 40, 0.4);
+}
+
+.pill.late {
+  color: var(--warn);
+  border-color: rgba(255, 180, 84, 0.4);
+}
+
+.pill.excused {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
 .exam-clock {
   font-variant-numeric: tabular-nums;
   font-size: 20px;
@@ -494,3 +591,209 @@ textarea.stdin {
   border-top: 1px solid var(--border);
 }
 
+
+/* ---- Student dashboard: main column + right rail ---- */
+
+.dashboard-layout {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rank-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.rank-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 50%;
+  background: rgba(29, 161, 242, 0.12);
+  color: var(--brand-strong);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.profile-ring {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-ring-figure {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--brand-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.checklist li.done {
+  color: var(--text);
+}
+
+.checklist .check {
+  width: 18px;
+  text-align: center;
+  color: var(--ok);
+}
+
+.checklist li:not(.done) .check {
+  color: var(--border);
+}
+
+.topbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.topbar-action:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+/* ---- Nimbus workspace: the IDE embedded in the main panel ---- */
+
+/* The workspace view drops the reading-width cap so code-server gets the room. */
+.content:has(.ide-panel) {
+  max-width: none;
+  padding-bottom: 24px;
+}
+
+.ide-panel {
+  display: flex;
+  flex-direction: column;
+  /* Fill the content area: viewport minus the sticky top bar (~72px) and the
+     content's own top/bottom padding (48px). */
+  height: calc(100vh - 124px);
+  min-height: 480px;
+}
+
+.ide-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 12px;
+}
+
+.ide-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* ---- Help centre: role guides with screenshots ---- */
+
+.help-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 24px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+.help-toc {
+  position: sticky;
+  top: 88px;
+}
+
+.help-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.help-toc li {
+  margin: 6px 0;
+}
+
+.help-toc a {
+  color: var(--muted);
+}
+
+.help-toc a:hover {
+  color: var(--text);
+}
+
+.help-guides {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.help-guide {
+  /* Anchor targets clear the sticky top bar when jumped to. */
+  scroll-margin-top: 88px;
+}
+
+.help-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 12px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.help-steps {
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.help-steps li {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .help-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .help-toc {
+    position: static;
+  }
+}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { proxyFetchInit } from './lms';
+import { methodHasBody, proxyFetchInit } from './lms';
 
 const API_BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 
@@ -19,15 +19,14 @@ export async function proxy(
   const cookie = req.headers.get('cookie');
   if (cookie) headers.set('cookie', cookie);
 
-  const body =
-    init.method && init.method !== 'GET' && init.method !== 'HEAD'
-      ? await req.text()
-      : undefined;
+  const method = init.method ?? req.method;
+
+  const body = methodHasBody(method) ? await req.text() : undefined;
 
   const upstream = await fetch(
     `${API_BASE}${path}`,
     proxyFetchInit({
-      method: init.method ?? req.method,
+      method,
       headers,
       body,
     }),
@@ -45,6 +44,44 @@ export async function proxy(
 
   const text = await upstream.text();
   return new NextResponse(text, {
+    status: upstream.status,
+    headers: responseHeaders,
+  });
+}
+
+/**
+ * Proxy a browser request whose response is binary (e.g. a workspace download).
+ *
+ * The text-based `proxy` above would corrupt a tar.gz by decoding it as UTF-8,
+ * so this variant forwards the raw bytes and the download headers untouched.
+ */
+export async function proxyBinary(
+  req: NextRequest,
+  path: string,
+  init: { method?: string } = {},
+): Promise<NextResponse> {
+  const headers = new Headers();
+  const cookie = req.headers.get('cookie');
+  if (cookie) headers.set('cookie', cookie);
+
+  const method = init.method ?? req.method;
+
+  const upstream = await fetch(`${API_BASE}${path}`, { method, headers });
+
+  const responseHeaders = new Headers();
+  const setCookie = upstream.headers.get('set-cookie');
+  if (setCookie) responseHeaders.set('set-cookie', setCookie);
+  const upstreamType = upstream.headers.get('content-type');
+  if (upstreamType) responseHeaders.set('content-type', upstreamType);
+  const disposition = upstream.headers.get('content-disposition');
+  if (disposition) responseHeaders.set('content-disposition', disposition);
+
+  if (upstream.status === 204) {
+    return new NextResponse(null, { status: 204, headers: responseHeaders });
+  }
+
+  const bytes = await upstream.arrayBuffer();
+  return new NextResponse(bytes, {
     status: upstream.status,
     headers: responseHeaders,
   });

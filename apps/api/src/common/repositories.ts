@@ -1,6 +1,9 @@
 import type {
+  AttendanceRepository,
   AttemptRepository,
   BatchRepository,
+  ClassSessionRepository,
+  CourseRepository,
   EnrollmentRepository,
   EventLedger,
   GitConnectionRepository,
@@ -8,6 +11,7 @@ import type {
   LabSessionRepository,
   LessonRepository,
   MembershipRepository,
+  ModuleRepository,
   ProctorEventRepository,
   ProgressRepository,
   ProjectComponentRepository,
@@ -32,11 +36,15 @@ export interface Repositories {
   tenants: TenantRepository;
   users: UserRepository;
   memberships: MembershipRepository;
+  courses: CourseRepository;
+  modules: ModuleRepository;
   lessons: LessonRepository;
   sessions: LabSessionRepository;
   progress: ProgressRepository;
   batches: BatchRepository;
   enrollments: EnrollmentRepository;
+  classSessions: ClassSessionRepository;
+  attendance: AttendanceRepository;
   snippets: SnippetRepository;
   attempts: AttemptRepository;
   proctorEvents: ProctorEventRepository;

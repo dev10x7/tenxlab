@@ -116,6 +116,23 @@ export const EDITOR_LANGUAGES: EditorLanguage[] = [
     stdinHint: 'One line of text, read from standard input.',
   },
   {
+    id: 'typescript',
+    label: 'TypeScript',
+    pistonRuntime: 'typescript',
+    cmLanguage: 'typescript',
+    extension: '.ts',
+    template: [
+      'import * as fs from "fs";',
+      '',
+      'const input: string = fs.readFileSync(0, "utf8").trim();',
+      '// start your solution',
+      'console.log(input);',
+      '// end your solution',
+      '',
+    ].join('\n'),
+    stdinHint: 'One line of text, read from standard input.',
+  },
+  {
     id: 'java',
     label: 'Java',
     pistonRuntime: 'java',
@@ -605,6 +622,20 @@ export type ProctorSummary = z.infer<typeof ProctorSummary>;
 export const ProjectTemplateKind = z.enum(['framework', 'base_image']);
 export type ProjectTemplateKind = z.infer<typeof ProjectTemplateKind>;
 
+/**
+ * Grouping shown in the create-workspace picker, mirroring ByteXL's
+ * "front end / backend / full stack / other templates" categories plus the
+ * database workspaces it added in the Nov'25 release.
+ */
+export const ProjectTemplateCategory = z.enum([
+  'front_end',
+  'back_end',
+  'full_stack',
+  'database',
+  'other',
+]);
+export type ProjectTemplateCategory = z.infer<typeof ProjectTemplateCategory>;
+
 /** A template a workspace can be created from (e.g. React, Spring Boot, Debian). */
 export const ProjectTemplate = z.object({
   id: z.string().min(1),
@@ -616,6 +647,10 @@ export const ProjectTemplate = z.object({
   stack: z.string().min(1),
   /** Container image the workspace runs. */
   image: z.string().min(1),
+  /** Picker grouping; defaults to `other` for an unlabelled template. */
+  category: ProjectTemplateCategory.default('other'),
+  /** Database engine a database workspace ships with, e.g. "postgres". */
+  database: z.string().optional(),
 });
 export type ProjectTemplate = z.infer<typeof ProjectTemplate>;
 

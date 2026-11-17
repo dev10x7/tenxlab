@@ -76,6 +76,7 @@ test('the full proctored exam flow succeeds end to end', async () => {
   const started = await call('/api/assessments/k8s-quiz-1/attempts', {
     method: 'POST',
     cookie: student,
+    body: JSON.stringify({ passcode: 'K8S-2026' }),
   });
   assert.equal(started.status, 201);
   const attempt = started.body as {

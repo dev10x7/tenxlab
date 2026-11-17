@@ -61,7 +61,14 @@ export default function LabsPage() {
               </span>
             </div>
             <p className="muted">{lab.courseTitle}</p>
-            <LabLaunchButton lessonId={lab.id} />
+            {lab.launchable === false ? (
+              <p className="muted">
+                This lab has no runnable exercise yet. Your instructor can add
+                one to make it launchable.
+              </p>
+            ) : (
+              <LabLaunchButton lessonId={lab.id} />
+            )}
             {lab.hint ? <HintReveal hint={lab.hint} /> : null}
           </div>
         ))}

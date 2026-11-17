@@ -113,21 +113,30 @@ and `instructor@tenxlab.local` / `demo1234`.
 
 #### Enable the Editor's Run button (Piston)
 
-Code execution is off by default, so the Editor's Run button returns 503 until
-a tier-1 pool is configured. Start Piston and install the runtimes the editor
-offers, then run the API with it enabled:
+The Editor's Run button is backed by Piston, which is part of the default stack:
 
 ```bash
-docker compose --profile runner up -d piston
+docker compose up --build
 curl -s http://localhost:2000/api/v2/runtimes                       # inspect
-# The stock image ships only a few runtimes; install the rest of the catalog.
-# Keep this list in sync with EDITOR_LANGUAGES (packages/contracts).
-for lang in python javascript java c 'c++' sqlite3 csharp go rust php ruby kotlin bash; do
+```
+
+`piston-init` installs the editor's language runtimes on first boot, and the API
+starts with `PISTON_ENABLED=true`, so Run works out of the box. The stock Piston
+image ships only a handful of runtimes; the init container adds the rest of the
+catalog. To install a runtime by hand (Piston package names differ from runtime
+aliases: `node` runs JavaScript, `gcc` runs C/C++, `mono` runs C#):
+
+```bash
+for lang in python node typescript java gcc sqlite3 mono go rust php ruby kotlin bash; do
   curl -s -X POST http://localhost:2000/api/v2/packages \
     -H 'content-type: application/json' \
     -d "{\"language\":\"$lang\",\"version\":\"*\"}"
 done
+```
 
+Running the API outside Compose against that Piston:
+
+```bash
 cd apps/api
 PISTON_ENABLED=true npm start
 ```

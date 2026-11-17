@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import type { RuntimeTier } from '@tenxlab/contracts';
-import type { LabProvider } from '@tenxlab/lab-provider';
-import type { OperatorPorts, OperatorSession, PoolInventory } from './operator';
+import type { LabProvider, Suspendable } from '@tenxlab/lab-provider';
+import type { OperatorFork, OperatorPorts, OperatorSession, PoolInventory } from './operator';
 
 /** The slice of `pg.Pool` this module uses; injected so tests can fake it. */
 export interface Queryable {
@@ -27,6 +27,13 @@ export interface PgPortsOptions {
   /** Connection string, or an already-constructed pool (tests). */
   databaseUrl?: string;
   pool?: Queryable;
+  /**
+   * Provider used for the fork sweep. A fork needs a *persistent* workspace (a
+   * Deployment it can scale to zero), while a lab session is a disposable pod,
+   * so the operator drives two provider modes. Defaults to `provider` when the
+   * deployment has only one (tests, labs-only installs).
+   */
+  forkProvider?: LabProvider;
 }
 
 const ZERO_TIERS: Record<RuntimeTier, number> = {
@@ -37,11 +44,13 @@ const ZERO_TIERS: Record<RuntimeTier, number> = {
 
 export class PgOperatorPorts implements OperatorPorts {
   readonly provider: LabProvider;
+  private readonly forkProvider: LabProvider;
   private readonly pool: Queryable;
   private readonly owned: Pool | null;
 
   constructor(opts: PgPortsOptions) {
     this.provider = opts.provider;
+    this.forkProvider = opts.forkProvider ?? opts.provider;
     if (opts.pool) {
       this.pool = opts.pool;
       this.owned = null;
@@ -104,4 +113,63 @@ export class PgOperatorPorts implements OperatorPorts {
       [randomUUID(), tier, providerRef],
     );
   }
+
+  /**
+   * Running/stopped project forks, for the ADR-20 stop-when-idle sweep. Forks
+   * live in `project_workspaces`, not `lab_sessions`: the lab idle sweep must
+   * never reap a student's long-lived project. `archived` forks are already
+   * cold, so they are excluded.
+   */
+  async listForks(): Promise<OperatorFork[]> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      status: string;
+      createdAt: Date;
+      lastActivityAt: Date;
+    }>(
+      `SELECT id, status, "createdAt", "lastActivityAt"
+         FROM project_workspaces
+        WHERE status IN ('running', 'stopped')`,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      createdAt: new Date(r.createdAt),
+      lastActivityAt: new Date(r.lastActivityAt),
+    }));
+  }
+
+  /**
+   * Suspend a fork's compute (ADR-20) and mark it stopped. The volume survives
+   * the suspend, so a later re-fork scales the workload back up. A provider that
+   * cannot suspend is torn down instead; its volume is still assumed durable.
+   */
+  async stopFork(id: string): Promise<void> {
+    const suspender = suspendable(this.forkProvider);
+    if (suspender) {
+      await suspender.suspend(id);
+    } else {
+      await this.forkProvider.terminate(id);
+    }
+    await this.pool.query(
+      `UPDATE project_workspaces SET status = 'stopped', "lastActivityAt" = now() WHERE id = $1`,
+      [id],
+    );
+  }
+
+  /** Archive a long-stopped fork's volume (cold storage, ADR-10). */
+  async archiveFork(id: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE project_workspaces SET status = 'archived' WHERE id = $1`,
+      [id],
+    );
+  }
+}
+
+/** Structural check: can this provider suspend/resume a fork's compute? */
+function suspendable(provider: LabProvider): Suspendable | null {
+  const candidate = provider as Partial<Suspendable>;
+  return typeof candidate.suspend === 'function' && typeof candidate.resume === 'function'
+    ? (candidate as Suspendable)
+    : null;
 }

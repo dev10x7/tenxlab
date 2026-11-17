@@ -6,6 +6,7 @@ import {
   lessonStatusLabel,
   courseProgress,
   proxyFetchInit,
+  methodHasBody,
   gradebookRowSummary,
   gradebookCellLabel,
   snippetTitle,
@@ -22,6 +23,11 @@ import {
   submissionStatusLabel,
   projectDeadlinePassed,
   projectDeadlineLabel,
+  rankPercentileLabel,
+  templateCategoryLabel,
+  attendanceStatusLabel,
+  attendanceStatusClass,
+  attendancePercentLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -76,6 +82,16 @@ test('proxyFetchInit disables caching so session polls see fresh status', () => 
   });
   assert.equal(init.cache, 'no-store');
   assert.equal(init.redirect, 'manual');
+});
+
+test('methodHasBody forwards write bodies and skips reads', () => {
+  // Regression: the authoring catch-all proxy dropped POST/PATCH bodies, so
+  // "Create course" sent an empty payload and the API rejected it.
+  for (const method of ['POST', 'PATCH', 'PUT', 'DELETE']) {
+    assert.equal(methodHasBody(method), true, `${method} carries a body`);
+  }
+  assert.equal(methodHasBody('GET'), false);
+  assert.equal(methodHasBody('HEAD'), false);
 });
 
 test('gradebookRowSummary reports progress and average', () => {
@@ -225,4 +241,57 @@ test('projectDeadlineLabel reads Closed once the deadline passes', () => {
     'Closed — deadline passed',
   );
   assert.match(projectDeadlineLabel('2026-07-01T00:00:00Z', now), /^Due /);
+});
+
+test('rankPercentileLabel reads as a top-percent band', () => {
+  assert.equal(rankPercentileLabel(100), 'Top of the cohort');
+  assert.equal(rankPercentileLabel(90), 'Top 10%');
+  assert.equal(rankPercentileLabel(75), 'Top 25%');
+  assert.equal(rankPercentileLabel(50), 'Top 50%');
+  assert.equal(rankPercentileLabel(49), 'Bottom half');
+  assert.equal(rankPercentileLabel(0), 'Bottom half');
+});
+
+test('rankPercentileLabel clamps out-of-range input', () => {
+  assert.equal(rankPercentileLabel(150), 'Top of the cohort');
+  assert.equal(rankPercentileLabel(-10), 'Bottom half');
+});
+
+test('templateCategoryLabel names the picker groups (Nov\'25 §1.5)', () => {
+  assert.equal(templateCategoryLabel('front_end'), 'Front end');
+  assert.equal(templateCategoryLabel('back_end'), 'Backend');
+  assert.equal(templateCategoryLabel('full_stack'), 'Full stack');
+  assert.equal(templateCategoryLabel('database'), 'Database');
+  assert.equal(templateCategoryLabel('other'), 'Other templates');
+  assert.equal(templateCategoryLabel('unknown'), 'Other templates');
+});
+
+test('attendanceStatusLabel names every status including the unmarked state', () => {
+  assert.equal(attendanceStatusLabel('present'), 'Present');
+  assert.equal(attendanceStatusLabel('absent'), 'Absent');
+  assert.equal(attendanceStatusLabel('late'), 'Late');
+  assert.equal(attendanceStatusLabel('excused'), 'Excused');
+  assert.equal(attendanceStatusLabel('not_marked'), 'Not marked');
+  assert.equal(attendanceStatusLabel('anything-else'), 'Not marked');
+});
+
+test('attendanceStatusClass maps to a stable css class', () => {
+  assert.equal(attendanceStatusClass('present'), 'present');
+  assert.equal(attendanceStatusClass('absent'), 'absent');
+  assert.equal(attendanceStatusClass('late'), 'late');
+  assert.equal(attendanceStatusClass('excused'), 'excused');
+  assert.equal(attendanceStatusClass('not_marked'), 'not_marked');
+  assert.equal(attendanceStatusClass('unknown'), 'not_marked');
+});
+
+test('attendancePercentLabel flags a shortfall below the 75% threshold', () => {
+  assert.equal(attendancePercentLabel(100), '100%');
+  assert.equal(attendancePercentLabel(75), '75%');
+  assert.equal(attendancePercentLabel(74), '74% — below 75%');
+  assert.equal(attendancePercentLabel(0), '0% — below 75%');
+});
+
+test('attendancePercentLabel clamps out-of-range input', () => {
+  assert.equal(attendancePercentLabel(140), '100%');
+  assert.equal(attendancePercentLabel(-5), '0% — below 75%');
 });

@@ -55,7 +55,7 @@ test('assessment endpoints require a session', async () => {
 test('starting and submitting an attempt runs end to end', async () => {
   const { assessmentController } = wiring();
   const cookie = cookieFor('u1');
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookie));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookie));
   assert.equal(attempt.assessmentId, 'k8s-quiz-1');
   assert.equal(attempt.status, 'in_progress');
 
@@ -73,14 +73,14 @@ test('starting and submitting an attempt runs end to end', async () => {
 test('starting an unknown assessment is a 404', async () => {
   const { assessmentController } = wiring();
   await assert.rejects(
-    () => assessmentController.start('nope', req(cookieFor('u1'))),
+    () => assessmentController.start('nope', { passcode: 'K8S-2026' }, req(cookieFor('u1'))),
     /not found/i,
   );
 });
 
 test('reading another user’s attempt is a 404', async () => {
   const { assessmentController } = wiring();
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookieFor('u1')));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookieFor('u1')));
   await assert.rejects(
     () => assessmentController.attempt(attempt.id, req(cookieFor('u2'))),
     /not found/i,
@@ -89,7 +89,7 @@ test('reading another user’s attempt is a 404', async () => {
 
 test('proctoring events require a session and a known type', async () => {
   const { assessmentController, proctoringController } = wiring();
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookieFor('u1')));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookieFor('u1')));
   await assert.rejects(
     () => proctoringController.record(attempt.id, { type: 'copy' }, req()),
     /Sign in required/,
@@ -103,7 +103,7 @@ test('proctoring events require a session and a known type', async () => {
 
 test('a student can only report events for their own attempt', async () => {
   const { assessmentController, proctoringController } = wiring();
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookieFor('u1')));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookieFor('u1')));
   await assert.rejects(
     () =>
       proctoringController.record(attempt.id, { type: 'copy' }, req(cookieFor('u2'))),
@@ -113,7 +113,7 @@ test('a student can only report events for their own attempt', async () => {
 
 test('instructor review is gated and scoped to the tenant', async () => {
   const { assessmentController, proctoringController } = wiring();
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookieFor('u1')));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookieFor('u1')));
   await proctoringController.record(
     attempt.id,
     { type: 'vm_detected' },
@@ -137,11 +137,34 @@ test('instructor review is gated and scoped to the tenant', async () => {
 
 test('the instructor attempt list carries a risk summary per attempt', async () => {
   const { assessmentController, proctoringController } = wiring();
-  const attempt = await assessmentController.start('k8s-quiz-1', req(cookieFor('u1')));
+  const attempt = await assessmentController.start('k8s-quiz-1', { passcode: 'K8S-2026' }, req(cookieFor('u1')));
   await proctoringController.record(attempt.id, { type: 'copy' }, req(cookieFor('u1')));
 
   const list = await proctoringController.list(req(cookieFor('instructor', 'instructor')));
   assert.equal(list.length, 1);
   assert.equal(list[0]!.attemptId, attempt.id);
   assert.equal(list[0]!.risk.riskScore, 8);
+});
+
+test('starting a locked test without a passcode is a 403', async () => {
+  const { assessmentController } = wiring();
+  await assert.rejects(
+    () => assessmentController.start('k8s-quiz-1', {}, req(cookieFor('u1'))),
+    /passcode/i,
+  );
+});
+
+test('starting a locked test with the wrong passcode is a 403', async () => {
+  const { assessmentController } = wiring();
+  await assert.rejects(
+    () => assessmentController.start('k8s-quiz-1', { passcode: 'nope' }, req(cookieFor('u1'))),
+    /passcode/i,
+  );
+});
+
+test('the assessment view flags a locked test without leaking the code', async () => {
+  const { assessmentController } = wiring();
+  const view = await assessmentController.get('k8s-quiz-1', req(cookieFor('u1')));
+  assert.equal(view.requiresPasscode, true);
+  assert.equal((view as unknown as Record<string, unknown>)['passcode'], undefined);
 });

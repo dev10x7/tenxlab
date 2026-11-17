@@ -263,10 +263,63 @@ function labFixture(maxConcurrentLabs = 10) {
     memberships,
     tenants,
     sessions,
+    provider: {
+      name: 'fake',
+      async provision(spec: { session_id: string }) {
+        return {
+          session_id: spec.session_id,
+          status: 'ACTIVE' as const,
+          tier: 'tier_3_vcluster' as const,
+          ide_url: 'https://ide.example.com/session',
+          provider_ref: 'fake-1',
+          started_at: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          ttl_seconds: 1800,
+        };
+      },
+    } as never,
+  });
+  return { svc, sessions, memberships, lessons, tenants };
+}
+
+test('lab launch fails fast when no execution plane is configured', async () => {
+  const svc = new LabLaunchService({
+    lessons: new InMemoryLessonRepository([
+      {
+        id: 'lesson_1',
+        moduleId: 'mod_1',
+        title: 'Create a Pod',
+        type: 'interactive_lab',
+        exerciseSlug: 'create-simple-pod',
+        runtimeTier: 'tier_3_vcluster',
+        maxScore: 100,
+      },
+    ]),
+    memberships: new InMemoryMembershipRepository([
+      { id: 'm1', userId: 'user_1', tenantId: 'tenant_1', role: 'student', status: 'active' },
+    ]),
+    tenants: new InMemoryTenantRepository([
+      {
+        id: 'tenant_1',
+        name: 'Acme',
+        domain: 'acme',
+        maxConcurrentLabs: 10,
+        monthlyBudgetCents: 0,
+        plan: 'standard',
+        status: 'active',
+      },
+    ]),
+    sessions: new InMemoryLabSessionRepository(),
     provider: null,
   });
-  return { svc, sessions, memberships };
-}
+  const res = await svc.launch({
+    userId: 'user_1',
+    tenantId: 'tenant_1',
+    lessonId: 'lesson_1',
+  });
+  assert.equal(res.ok, false);
+  if (!res.ok) assert.equal(res.reason, 'lab_unavailable');
+});
 
 test('lab launch creates a session and routes it to the vcluster tier', async () => {
   const { svc, sessions } = labFixture();
@@ -279,6 +332,7 @@ test('lab launch creates a session and routes it to the vcluster tier', async ()
   if (res.ok) {
     assert.equal(res.tier, 'tier_3_vcluster');
     assert.equal(res.status, 'WARM');
+    await waitFor(async () => (await sessions.findById(res.sessionId))?.status === 'ACTIVE');
     const row = await sessions.findById(res.sessionId);
     assert.equal(row?.exerciseSlug, 'create-simple-pod');
     assert.equal(row?.userId, 'user_1');

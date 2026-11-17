@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AttendanceRecord,
+  AttendanceRepository,
   AttemptRecord,
   AttemptRepository,
   BatchRecord,
   BatchRepository,
+  ClassSessionRecord,
+  ClassSessionRepository,
+  CourseRecord,
+  CourseRepository,
   EnrollmentRecord,
   EnrollmentRepository,
   EventLedger,
@@ -17,6 +23,8 @@ import type {
   LessonRepository,
   MembershipRecord,
   MembershipRepository,
+  ModuleRecord,
+  ModuleRepository,
   ProctorEventRecord,
   ProctorEventRepository,
   ProgressRepository,
@@ -112,8 +120,91 @@ export class InMemoryLessonRepository implements LessonRepository {
   async findByExerciseSlug(exerciseSlug: string) {
     return this.rows.find((l) => l.exerciseSlug === exerciseSlug) ?? null;
   }
+  async create(input: Omit<LessonRecord, 'id'>) {
+    const row: LessonRecord = { id: randomUUID(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async update(id: string, patch: Partial<LessonRecord>) {
+    const row = this.rows.find((l) => l.id === id);
+    if (!row) throw new Error(`lesson ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  async delete(id: string) {
+    const idx = this.rows.findIndex((l) => l.id === id);
+    if (idx >= 0) this.rows.splice(idx, 1);
+  }
+  async listByModule(moduleId: string) {
+    return this.rows
+      .filter((l) => l.moduleId === moduleId)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  }
   seed(l: LessonRecord) {
     this.rows.push(l);
+  }
+}
+
+export class InMemoryCourseRepository implements CourseRepository {
+  constructor(private readonly rows: CourseRecord[] = []) {}
+  async create(input: Omit<CourseRecord, 'id' | 'createdAt'>) {
+    const row: CourseRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((c) => c.id === id) ?? null;
+  }
+  async findBySlug(tenantId: string, slug: string) {
+    return this.rows.find((c) => c.tenantId === tenantId && c.slug === slug) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .filter((c) => c.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  async update(id: string, patch: Partial<CourseRecord>) {
+    const row = this.rows.find((c) => c.id === id);
+    if (!row) throw new Error(`course ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  async delete(id: string) {
+    const idx = this.rows.findIndex((c) => c.id === id);
+    if (idx >= 0) this.rows.splice(idx, 1);
+  }
+  seed(c: CourseRecord) {
+    this.rows.push(c);
+  }
+}
+
+export class InMemoryModuleRepository implements ModuleRepository {
+  constructor(private readonly rows: ModuleRecord[] = []) {}
+  async create(input: Omit<ModuleRecord, 'id'>) {
+    const row: ModuleRecord = { id: randomUUID(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((m) => m.id === id) ?? null;
+  }
+  async listByCourse(courseId: string) {
+    return this.rows
+      .filter((m) => m.courseId === courseId)
+      .sort((a, b) => a.position - b.position);
+  }
+  async update(id: string, patch: Partial<ModuleRecord>) {
+    const row = this.rows.find((m) => m.id === id);
+    if (!row) throw new Error(`module ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  async delete(id: string) {
+    const idx = this.rows.findIndex((m) => m.id === id);
+    if (idx >= 0) this.rows.splice(idx, 1);
+  }
+  seed(m: ModuleRecord) {
+    this.rows.push(m);
   }
 }
 
@@ -241,8 +332,80 @@ export class InMemoryEnrollmentRepository implements EnrollmentRepository {
   async listByBatch(batchId: string) {
     return this.rows.filter((e) => e.batchId === batchId);
   }
+  async listByUser(userId: string) {
+    return this.rows.filter((e) => e.userId === userId);
+  }
   seed(e: EnrollmentRecord) {
     this.rows.push(e);
+  }
+}
+
+export class InMemoryClassSessionRepository implements ClassSessionRepository {
+  constructor(private readonly rows: ClassSessionRecord[] = []) {}
+  async create(input: { batchId: string; title: string; scheduledAt: Date }) {
+    const row: ClassSessionRecord = {
+      id: randomUUID(),
+      batchId: input.batchId,
+      title: input.title,
+      scheduledAt: input.scheduledAt,
+      createdAt: new Date(),
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((s) => s.id === id) ?? null;
+  }
+  async listByBatch(batchId: string) {
+    return this.rows
+      .filter((s) => s.batchId === batchId)
+      .sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+  }
+  seed(s: ClassSessionRecord) {
+    this.rows.push(s);
+  }
+}
+
+export class InMemoryAttendanceRepository implements AttendanceRepository {
+  constructor(private readonly rows: AttendanceRecord[] = []) {}
+  async mark(input: {
+    sessionId: string;
+    userId: string;
+    status: string;
+    markedBy?: string | null;
+  }) {
+    const existing = this.rows.find(
+      (a) => a.sessionId === input.sessionId && a.userId === input.userId,
+    );
+    if (existing) {
+      existing.status = input.status;
+      existing.markedBy = input.markedBy ?? null;
+      existing.markedAt = new Date();
+      return existing;
+    }
+    const row: AttendanceRecord = {
+      id: randomUUID(),
+      sessionId: input.sessionId,
+      userId: input.userId,
+      status: input.status,
+      markedBy: input.markedBy ?? null,
+      markedAt: new Date(),
+    };
+    this.rows.push(row);
+    return row;
+  }
+  async listBySession(sessionId: string) {
+    return this.rows.filter((a) => a.sessionId === sessionId);
+  }
+  async listBySessions(sessionIds: string[]) {
+    const set = new Set(sessionIds);
+    return this.rows.filter((a) => set.has(a.sessionId));
+  }
+  async listByUser(userId: string) {
+    return this.rows.filter((a) => a.userId === userId);
+  }
+  seed(a: AttendanceRecord) {
+    this.rows.push(a);
   }
 }
 
@@ -497,11 +660,18 @@ export class InMemoryProjectWorkspaceRepository implements ProjectWorkspaceRepos
       .filter((w) => w.tenantId === tenantId && w.userId === userId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
+  async countByTenant(tenantId: string) {
+    return this.rows.filter((w) => w.tenantId === tenantId).length;
+  }
   async update(id: string, patch: Partial<ProjectWorkspaceRecord>) {
     const row = this.rows.find((w) => w.id === id);
     if (!row) throw new Error(`project workspace ${id} not found`);
     Object.assign(row, patch);
     return row;
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((w) => w.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
   }
   seed(w: ProjectWorkspaceRecord) {
     this.rows.push(w);
@@ -529,6 +699,13 @@ export class InMemoryProjectForkRepository implements ProjectForkRepository {
   }
   async listByProject(projectId: string) {
     return this.rows.filter((f) => f.projectId === projectId);
+  }
+  async findByWorkspaceId(workspaceId: string) {
+    return this.rows.find((f) => f.workspaceId === workspaceId) ?? null;
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((f) => f.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
   }
   seed(f: ProjectForkRecord) {
     this.rows.push(f);

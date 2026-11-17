@@ -129,9 +129,12 @@ export class UsageService {
       spentThisPeriodCents,
       estimatedCostCents,
     });
-    return decision.allowed
-      ? null
-      : { reason: decision.reason, message: decision.message };
+    if (decision.allowed) return null;
+    // The lab gate sets no storage quota, so `storage_exceeded` cannot occur
+    // here; it is a fork concern (ADR-20), enforced at fork time.
+    const reason =
+      decision.reason === 'budget_exceeded' ? 'budget_exceeded' : 'concurrency_exceeded';
+    return { reason, message: decision.message };
   }
 
   private now(): Date {

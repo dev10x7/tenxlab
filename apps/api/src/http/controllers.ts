@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -23,12 +24,20 @@ import { SIGNATURE_HEADER, type RuntimeTier } from '@tenxlab/contracts';
 import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService, type SessionPayload } from '../identity/session.service';
+import { capabilitiesFor } from '../identity/capabilities';
 import { findDemoUserByEmail } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { UsageService } from '../labs/usage.service';
 import { GradebookWebhookService } from '../gradebook/gradebook-webhook.service';
 import { CatalogService } from '../catalog/catalog.service';
+import {
+  CourseAuthoringService,
+  type WriteResult,
+} from '../catalog/course-authoring.service';
+import { requireCapability } from './guards';
 import { BatchService } from '../batches/batch.service';
+import { AttendanceService } from '../attendance/attendance.service';
+import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService, isProctorEventType } from '../proctoring/proctoring.service';
@@ -43,8 +52,11 @@ import { GitPublishService } from '../github/git-publish.service';
 import { EXERCISE_BOOTSTRAP, EXERCISE_CHECK } from '../catalog/demo-data';
 import {
   ASSESSMENT,
+  ATTENDANCE,
   BATCH,
   CATALOG,
+  COURSE_AUTHORING,
+  DASHBOARD,
   EDITOR,
   GIT,
   GRADEBOOK,
@@ -88,6 +100,7 @@ export class AuthController {
       tenantId: user.tenantId,
       role: user.role,
       displayName: user.fullName,
+      capabilities: capabilitiesFor(user.role),
     };
     res.setHeader('set-cookie', this.sessions.setCookie(payload));
     return payload;
@@ -114,12 +127,14 @@ export class CatalogController {
 
   @Get('courses')
   async courses(@Req() req: Request) {
-    return this.catalog.listCourses(this.requireSession(req).userId);
+    const session = this.requireSession(req);
+    return this.catalog.listCourses(session.tenantId, session.userId);
   }
 
   @Get('courses/:slug')
   async course(@Param('slug') slug: string, @Req() req: Request) {
-    const course = await this.catalog.getCourse(slug, this.requireSession(req).userId);
+    const session = this.requireSession(req);
+    const course = await this.catalog.getCourse(session.tenantId, slug, session.userId);
     if (!course) throw new NotFoundException('Course not found');
     return course;
   }
@@ -130,10 +145,12 @@ export class CatalogController {
     @Param('lessonId') lessonId: string,
     @Req() req: Request,
   ) {
+    const session = this.requireSession(req);
     const lesson = await this.catalog.getLesson(
+      session.tenantId,
       slug,
       lessonId,
-      this.requireSession(req).userId,
+      session.userId,
     );
     if (!lesson) throw new NotFoundException('Lesson not found');
     return lesson;
@@ -144,6 +161,177 @@ export class CatalogController {
     if (!session) throw new UnauthorizedException('Sign in required');
     return session;
   }
+}
+
+/**
+ * Course & lesson authoring. Instructors build a course as a tree of modules and
+ * lessons, then publish it. Every route requires the `course:write` capability
+ * and is tenant-scoped, so an instructor only ever touches their own content.
+ */
+@Controller('api/authoring/courses')
+export class CourseAuthoringController {
+  constructor(
+    @Inject(COURSE_AUTHORING) private readonly authoring: CourseAuthoringService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get()
+  async list(@Req() req: Request) {
+    return this.authoring.listCourses(this.guard(req).tenantId);
+  }
+
+  @Get(':courseId')
+  async get(@Param('courseId') courseId: string, @Req() req: Request) {
+    const course = await this.authoring.getCourse(this.guard(req).tenantId, courseId);
+    if (!course) throw new NotFoundException('Course not found');
+    return course;
+  }
+
+  @Post()
+  @HttpCode(201)
+  async create(
+    @Body() body: { title?: string; description?: string },
+    @Req() req: Request,
+  ) {
+    const result = await this.authoring.createCourse({
+      tenantId: this.guard(req).tenantId,
+      title: body?.title ?? '',
+      description: body?.description,
+    });
+    return unwrap(result);
+  }
+
+  @Patch(':courseId')
+  async update(
+    @Param('courseId') courseId: string,
+    @Body() body: { title?: string; description?: string; slug?: string },
+    @Req() req: Request,
+  ) {
+    return unwrap(
+      await this.authoring.updateCourse(this.guard(req).tenantId, courseId, body ?? {}),
+    );
+  }
+
+  @Post(':courseId/publish')
+  async publish(@Param('courseId') courseId: string, @Req() req: Request) {
+    return unwrap(await this.authoring.publish(this.guard(req).tenantId, courseId));
+  }
+
+  @Post(':courseId/unpublish')
+  async unpublish(@Param('courseId') courseId: string, @Req() req: Request) {
+    return unwrap(await this.authoring.unpublish(this.guard(req).tenantId, courseId));
+  }
+
+  @Delete(':courseId')
+  @HttpCode(204)
+  async remove(@Param('courseId') courseId: string, @Req() req: Request) {
+    await unwrap(await this.authoring.deleteCourse(this.guard(req).tenantId, courseId));
+  }
+
+  @Post(':courseId/modules')
+  @HttpCode(201)
+  async addModule(
+    @Param('courseId') courseId: string,
+    @Body() body: { title?: string },
+    @Req() req: Request,
+  ) {
+    return unwrap(
+      await this.authoring.addModule(this.guard(req).tenantId, courseId, body?.title ?? ''),
+    );
+  }
+
+  @Patch('modules/:moduleId')
+  async updateModule(
+    @Param('moduleId') moduleId: string,
+    @Body() body: { title?: string; position?: number },
+    @Req() req: Request,
+  ) {
+    return unwrap(
+      await this.authoring.updateModule(this.guard(req).tenantId, moduleId, body ?? {}),
+    );
+  }
+
+  @Delete('modules/:moduleId')
+  @HttpCode(204)
+  async removeModule(@Param('moduleId') moduleId: string, @Req() req: Request) {
+    await unwrap(await this.authoring.deleteModule(this.guard(req).tenantId, moduleId));
+  }
+
+  @Post('modules/:moduleId/lessons')
+  @HttpCode(201)
+  async addLesson(
+    @Param('moduleId') moduleId: string,
+    @Body()
+    body: {
+      title?: string;
+      type?: string;
+      maxScore?: number;
+      exerciseSlug?: string | null;
+      runtimeTier?: string | null;
+      hint?: string | null;
+      body?: string | null;
+      assessmentId?: string | null;
+    },
+    @Req() req: Request,
+  ) {
+    return unwrap(
+      await this.authoring.addLesson(this.guard(req).tenantId, moduleId, {
+        title: body?.title ?? '',
+        type: body?.type ?? 'reading',
+        maxScore: body?.maxScore,
+        exerciseSlug: body?.exerciseSlug ?? null,
+        runtimeTier: body?.runtimeTier ?? null,
+        hint: body?.hint ?? null,
+        body: body?.body ?? null,
+        assessmentId: body?.assessmentId ?? null,
+      }),
+    );
+  }
+
+  @Patch('lessons/:lessonId')
+  async updateLesson(
+    @Param('lessonId') lessonId: string,
+    @Body()
+    body: {
+      title?: string;
+      type?: string;
+      position?: number;
+      maxScore?: number;
+      exerciseSlug?: string | null;
+      runtimeTier?: string | null;
+      hint?: string | null;
+      body?: string | null;
+      assessmentId?: string | null;
+    },
+    @Req() req: Request,
+  ) {
+    return unwrap(
+      await this.authoring.updateLesson(this.guard(req).tenantId, lessonId, body ?? {}),
+    );
+  }
+
+  @Delete('lessons/:lessonId')
+  @HttpCode(204)
+  async removeLesson(@Param('lessonId') lessonId: string, @Req() req: Request) {
+    await unwrap(await this.authoring.deleteLesson(this.guard(req).tenantId, lessonId));
+  }
+
+  private guard(req: Request): SessionPayload {
+    return requireCapability(this.sessions, req, 'course:write');
+  }
+}
+
+/** Map a service write result onto HTTP: 404 for a missing id, 400 otherwise. */
+function unwrap<T>(result: WriteResult<T>): T {
+  if (result.ok) return result.value;
+  if (
+    result.reason === 'course_not_found' ||
+    result.reason === 'module_not_found' ||
+    result.reason === 'lesson_not_found'
+  ) {
+    throw new NotFoundException(result.message);
+  }
+  throw new BadRequestException(result.message);
 }
 
 @Controller('api/_callback/sso')
@@ -183,7 +371,18 @@ export class LabController {
       if (result.reason === 'tenant_quota_exceeded') {
         throw new HttpException(result.message, HttpStatus.TOO_MANY_REQUESTS);
       }
-      throw new UnauthorizedException(result.message);
+      if (result.reason === 'lab_unavailable') {
+        throw new HttpException(result.message, HttpStatus.SERVICE_UNAVAILABLE);
+      }
+      if (result.reason === 'lesson_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'membership_required') {
+        throw new ForbiddenException(result.message);
+      }
+      // `not_a_lab`: the lesson exists but has no launchable exercise — a bad
+      // request, not an auth failure, so the client can explain it accurately.
+      throw new BadRequestException(result.message);
     }
     return result;
   }
@@ -325,6 +524,107 @@ export class BatchesController {
         throw new NotFoundException('Batch not found');
       }
       throw new BadRequestException('Only students of this institution can be assigned');
+    }
+    return { ok: true };
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+/**
+ * Attendance (ByteXL parity §2.9): a student reads their own overall +
+ * session-level attendance; a trainer reads the cohort matrix and records
+ * presence. Reads are open to any signed-in tenant member; every write requires
+ * instructor or admin, so a student cannot mark attendance.
+ */
+@Controller('api/attendance')
+export class AttendanceController {
+  constructor(
+    @Inject(ATTENDANCE) private readonly attendance: AttendanceService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** The caller's own attendance, as a student. */
+  @Get('me')
+  async me(@Req() req: Request) {
+    const session = this.requireSession(req);
+    return this.attendance.studentView(session.userId, session.tenantId);
+  }
+
+  /** A batch's scheduled sessions, oldest first. */
+  @Get('batches/:id/sessions')
+  async listSessions(@Param('id') id: string, @Req() req: Request) {
+    const list = await this.attendance.listSessions(id, this.requireSession(req).tenantId);
+    if (!list) throw new NotFoundException('Batch not found');
+    return list;
+  }
+
+  @Post('batches/:id/sessions')
+  @HttpCode(201)
+  async createSession(
+    @Param('id') id: string,
+    @Body() body: { title?: string; scheduledAt?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    const title = body?.title?.trim();
+    if (!title) throw new BadRequestException('title is required');
+    const scheduledAt = body?.scheduledAt;
+    if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+      throw new BadRequestException('scheduledAt must be an ISO date');
+    }
+    const created = await this.attendance.createSession({
+      batchId: id,
+      tenantId: session.tenantId,
+      title,
+      scheduledAt,
+    });
+    if (!created) throw new NotFoundException('Batch not found');
+    return created;
+  }
+
+  /** The trainer's cohort matrix: roster x sessions with per-student %. */
+  @Get('batches/:id')
+  async batch(@Param('id') id: string, @Req() req: Request) {
+    const view = await this.attendance.batchView(id, this.requireInstructor(req).tenantId);
+    if (!view) throw new NotFoundException('Batch not found');
+    return view;
+  }
+
+  /** Record or correct one student's attendance at a session. */
+  @Patch('sessions/:sessionId')
+  async mark(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { userId?: string; status?: string },
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    if (!body?.userId) throw new BadRequestException('userId is required');
+    if (!body?.status) throw new BadRequestException('status is required');
+    const result = await this.attendance.mark({
+      sessionId,
+      tenantId: session.tenantId,
+      userId: body.userId,
+      status: body.status,
+      markedBy: session.userId,
+    });
+    if (!result.ok) {
+      if (result.reason === 'invalid_status') {
+        throw new BadRequestException('Unknown attendance status');
+      }
+      throw new NotFoundException('Session not found');
     }
     return { ok: true };
   }
@@ -521,13 +821,24 @@ export class AssessmentController {
 
   @Post(':id/attempts')
   @HttpCode(201)
-  async start(@Param('id') id: string, @Req() req: Request) {
-    const attempt = await this.assessments.startAttempt(
+  async start(
+    @Param('id') id: string,
+    @Body() body: { passcode?: string },
+    @Req() req: Request,
+  ) {
+    const result = await this.assessments.startAttempt(
       this.requireSession(req).userId,
       id,
+      undefined,
+      body?.passcode,
     );
-    if (!attempt) throw new NotFoundException('Assessment not found');
-    return attempt;
+    if (!result.ok) {
+      if (result.reason === 'passcode_required') {
+        throw new ForbiddenException('A valid start passcode is required');
+      }
+      throw new NotFoundException('Assessment not found');
+    }
+    return result.attempt;
   }
 
   @Get('attempts/:attemptId')
@@ -808,6 +1119,11 @@ export class ProjectsController {
       if (result.reason === 'membership_required') {
         throw new ForbiddenException(result.message);
       }
+      if (result.reason === 'storage_exceeded') {
+        // The tenant is over its fork-storage ceiling (ADR-20): a conflict with
+        // the current plan, not a malformed request.
+        throw new ConflictException(result.message);
+      }
       throw new BadRequestException(result.message);
     }
     return result;
@@ -873,6 +1189,57 @@ export class ProjectsController {
       deployUrl: result.workspace.deployUrl,
       deployPort: result.workspace.deployPort,
     };
+  }
+
+  /**
+   * Download a workspace's files as a gzipped tar (ByteXL's "download
+   * workspace" quick action, Nov'25 §1.5). The workspace must be running.
+   */
+  @Get('workspaces/:workspaceId/download')
+  async downloadWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.projects.download(session.userId, workspaceId);
+    if (!result.ok) {
+      if (result.reason === 'workspace_not_found') {
+        throw new NotFoundException(result.message);
+      }
+      if (result.reason === 'workspace_not_running') {
+        throw new HttpException(result.message, HttpStatus.CONFLICT);
+      }
+      // download_unavailable / download_empty / download_failed
+      throw new HttpException(
+        result.message,
+        result.reason === 'download_empty'
+          ? HttpStatus.CONFLICT
+          : HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    res.setHeader('content-type', 'application/gzip');
+    res.setHeader(
+      'content-disposition',
+      `attachment; filename="workspace-${workspaceId}.tar.gz"`,
+    );
+    res.end(Buffer.from(result.archive));
+  }
+
+  /**
+   * Delete a workspace and its fork (ByteXL's "delete" quick action, Nov'25
+   * §1.5). Destructive: the compute is terminated and the volume released, so
+   * the component becomes forkable again.
+   */
+  @Delete('workspaces/:workspaceId')
+  async deleteWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: Request,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.projects.deleteWorkspace(session.userId, workspaceId);
+    if (!result.ok) throw new NotFoundException(result.message);
+    return { workspaceId: result.workspaceId, deleted: true };
   }
 
   /** Submit a stopped workspace for a project component. */
@@ -1130,5 +1497,28 @@ export class GitController {
     const session = this.sessions.fromCookieHeader(req.headers.cookie);
     if (!session) throw new UnauthorizedException('Sign in required');
     return session;
+  }
+}
+
+/**
+ * The student dashboard's aggregated view: enrolled roadmaps, competitive
+ * rankings, and profile completion. Instructor/admin callers are rejected —
+ * this is the student's own learning environment.
+ */
+@Controller('api/dashboard')
+export class DashboardController {
+  constructor(
+    @Inject(DASHBOARD) private readonly dashboard: DashboardService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  @Get()
+  async view(@Req() req: Request) {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    if (session.role !== 'student') {
+      throw new ForbiddenException('The student dashboard is for students');
+    }
+    return this.dashboard.forStudent(session.userId, session.tenantId);
   }
 }

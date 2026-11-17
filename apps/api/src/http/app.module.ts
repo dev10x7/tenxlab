@@ -10,6 +10,7 @@ import {
   type GitPublisher,
   type LabProvider,
   type ServiceExposer,
+  type WorkspaceArchiver,
   type WorkspaceReader,
 } from '@tenxlab/lab-provider';
 import { loadEnv, type Env } from '../config/env';
@@ -17,11 +18,16 @@ import { JwtService } from '../crypto/jwt.service';
 import { PartnerSsoService } from '../identity/partner-sso.service';
 import { SessionService } from '../identity/session.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { CourseAuthoringService } from '../catalog/course-authoring.service';
+import { courseCatalogFrom } from '../catalog/course-catalog';
 import { BatchService } from '../batches/batch.service';
+import { AttendanceService } from '../attendance/attendance.service';
+import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService } from '../proctoring/proctoring.service';
-import { buildExerciseDescriptor, DEMO_COURSES } from '../catalog/demo-data';
+import { buildExerciseDescriptor } from '../catalog/demo-data';
+import type { CourseCatalog } from '../catalog/course-catalog';
 import { findDemoUserById } from '../identity/demo-users';
 import { LabLaunchService } from '../labs/lab-launch.service';
 import { UsageService } from '../labs/usage.service';
@@ -37,9 +43,12 @@ import { createDemoState, createPrismaState, resolveLessonId } from '../demo/sta
 import type { Repositories } from '../common/repositories';
 import {
   AssessmentController,
+  AttendanceController,
   AuthController,
   BatchesController,
   CatalogController,
+  CourseAuthoringController,
+  DashboardController,
   EditorController,
   GitController,
   JwksController,
@@ -50,9 +59,9 @@ import {
   ProjectsController,
   WebhookController,
 } from './controllers';
-import { ASSESSMENT, BATCH, CATALOG, EDITOR, ENV, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE, AI_BRIDGE } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, USAGE, AI_BRIDGE } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, STORE, BATCH, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, DASHBOARD };
 
 const DEMO_STATE = createDemoState();
 
@@ -82,16 +91,19 @@ const STORE_PROVIDER = {
     JwksController,
     AuthController,
     CatalogController,
+    CourseAuthoringController,
     PartnerSsoController,
     LabController,
     LabAssetController,
     WebhookController,
     BatchesController,
+    AttendanceController,
     EditorController,
     AssessmentController,
     ProctoringController,
     ProjectsController,
     GitController,
+    DashboardController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -116,22 +128,63 @@ const STORE_PROVIDER = {
       provide: CATALOG,
       inject: [STORE],
       useFactory: (store: Repositories) =>
-        new CatalogService(store.progress, DEMO_COURSES),
+        new CatalogService(store.courses, store.modules, store.lessons, store.progress),
+    },
+    {
+      provide: COURSE_AUTHORING,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new CourseAuthoringService(store.courses, store.modules, store.lessons),
+    },
+    {
+      provide: COURSE_CATALOG,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        courseCatalogFrom(store.courses, store.modules, store.lessons),
     },
     {
       provide: BATCH,
-      inject: [STORE],
-      useFactory: (store: Repositories) =>
+      inject: [STORE, COURSE_CATALOG],
+      useFactory: (store: Repositories, catalog: CourseCatalog) =>
         new BatchService(
           store.batches,
           store.enrollments,
           store.memberships,
           store.users,
           store.progress,
-          // The gradebook columns are the lessons of the demo course the
-          // batches are built around.
-          DEMO_COURSES[0]?.lessons.map((l) => ({ id: l.id, title: l.title })) ?? [],
+          catalog,
         ),
+    },
+    {
+      provide: DASHBOARD,
+      inject: [STORE, COURSE_CATALOG],
+      useFactory: (store: Repositories, catalog: CourseCatalog) =>
+        new DashboardService({
+          users: store.users,
+          memberships: store.memberships,
+          enrollments: store.enrollments,
+          progress: store.progress,
+          snippets: store.snippets,
+          workspaces: store.projectWorkspaces,
+          submissions: store.projectSubmissions,
+          gitConnections: store.gitConnections,
+          projects: store.projects,
+          attempts: store.attempts,
+          // Roadmaps resolve an enrolment's courseId to a title and its lessons.
+          courses: catalog,
+        }),
+    },
+    {
+      provide: ATTENDANCE,
+      inject: [STORE],
+      useFactory: (store: Repositories) =>
+        new AttendanceService({
+          batches: store.batches,
+          sessions: store.classSessions,
+          attendance: store.attendance,
+          enrollments: store.enrollments,
+          users: store.users,
+        }),
     },
     {
       provide: SSO,
@@ -146,33 +199,21 @@ const STORE_PROVIDER = {
       provide: PROVIDER,
       inject: [ENV],
       useFactory: (env: Env): LabProvider | null => {
-        const routes: Record<string, LabProvider> = {};
-
-        // Tier-3: KubeLab's vcluster path, unmodified (ADR-8).
-        if (env.KUBELAB_ENABLED) {
-          routes['tier_3_vcluster'] = new KubeLabAdapter({
-            baseUrl: env.KUBELAB_BASE_URL,
-            adminEmail: env.KUBELAB_ADMIN_EMAIL,
-            adminPassword: env.KUBELAB_ADMIN_PASSWORD,
-            allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
-            ideScheme: env.KUBELAB_IDE_SCHEME,
-            publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
-            resolveExercise: (slug) => buildExerciseDescriptor(slug, env.LAB_ASSET_BASE_URL),
-            resolveUser: (userId) => resolveKubeLabUser(userId),
-          });
-        }
-
-        // Tier-2: our own pod provider (code-server + terminal, no vcluster).
-        if (env.POD_PROVIDER_ENABLED) {
-          routes['tier_2_container'] = new PodProvider({
-            cluster: new KubernetesClient(),
-            allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
-            ideScheme: env.KUBELAB_IDE_SCHEME,
-            publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
-            codeServerImage: env.CODE_SERVER_IMAGE,
-          });
-        }
-
+        const routes = buildProviderRoutes(env, { persistent: false });
+        if (Object.keys(routes).length === 0) return null;
+        return new RoutingProvider(routes);
+      },
+    },
+    {
+      // Forks provision a *persistent* tier-2 workspace: a Deployment+PVC the
+      // operator can scale to zero on idle (ADR-20), rather than a lab's bare
+      // pod. Tier-3 KubeLab has no fork workspace model, so it is never routed
+      // here; a fork always lands on tier-2.
+      provide: FORK_PROVIDER,
+      inject: [ENV],
+      useFactory: (env: Env): LabProvider | null => {
+        if (!env.PROJECTS_ENABLED || !env.POD_PROVIDER_ENABLED) return null;
+        const routes = buildProviderRoutes(env, { persistent: true });
         if (Object.keys(routes).length === 0) return null;
         return new RoutingProvider(routes);
       },
@@ -255,7 +296,7 @@ const STORE_PROVIDER = {
     },
     {
       provide: PROJECT,
-      inject: [ENV, STORE, PROVIDER],
+      inject: [ENV, STORE, FORK_PROVIDER],
       useFactory: (env: Env, store: Repositories, provider: LabProvider | null) =>
         new ProjectService({
           projects: store.projects,
@@ -263,9 +304,12 @@ const STORE_PROVIDER = {
           workspaces: store.projectWorkspaces,
           forks: store.projectForks,
           memberships: store.memberships,
-          provider: env.PROJECTS_ENABLED ? provider : null,
+          tenants: store.tenants,
+          provider,
           // Deploy (E5) reuses the same provider when it can expose a service.
-          exposer: env.PROJECTS_ENABLED ? (provider as ServiceExposer | null) : null,
+          exposer: provider as ServiceExposer | null,
+          // Download (Nov'25 §1.5) reuses it again when it can archive a volume.
+          archiver: provider as WorkspaceArchiver | null,
           defaultTier: env.PROJECTS_TIER,
         }),
     },
@@ -297,7 +341,7 @@ const STORE_PROVIDER = {
     },
     {
       provide: QUALITY,
-      inject: [STORE, PROVIDER, AI_BRIDGE],
+      inject: [STORE, FORK_PROVIDER, AI_BRIDGE],
       useFactory: (
         store: Repositories,
         provider: LabProvider | null,
@@ -329,7 +373,7 @@ const STORE_PROVIDER = {
     },
     {
       provide: GIT,
-      inject: [STORE, PROVIDER, GITHUB, SECRET_BOX],
+      inject: [STORE, FORK_PROVIDER, GITHUB, SECRET_BOX],
       useFactory: (
         store: Repositories,
         provider: LabProvider | null,
@@ -376,6 +420,48 @@ function resolveKubeLabUser(userId: string): {
   const user = findDemoUserById(userId);
   if (user) return { email: user.email, name: user.fullName, role: user.role };
   return { email: `${userId}@tenxlab.local`, name: userId };
+}
+
+/**
+ * Build the tier→provider route table. `persistent` selects the tier-2 pod
+ * mode: a lab is a disposable bare Pod, while a project fork is a Deployment
+ * whose compute can be scaled to zero while its volume survives (ADR-20).
+ *
+ * Tier-3 is KubeLab's vcluster path, unmodified (ADR-8). It is a lab-only route:
+ * KubeLab has no fork workspace model, so a persistent route set omits it and a
+ * fork always lands on tier-2.
+ */
+function buildProviderRoutes(
+  env: Env,
+  options: { persistent: boolean },
+): Record<string, LabProvider> {
+  const routes: Record<string, LabProvider> = {};
+
+  if (env.KUBELAB_ENABLED && !options.persistent) {
+    routes['tier_3_vcluster'] = new KubeLabAdapter({
+      baseUrl: env.KUBELAB_BASE_URL,
+      adminEmail: env.KUBELAB_ADMIN_EMAIL,
+      adminPassword: env.KUBELAB_ADMIN_PASSWORD,
+      allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
+      ideScheme: env.KUBELAB_IDE_SCHEME,
+      publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+      resolveExercise: (slug) => buildExerciseDescriptor(slug, env.LAB_ASSET_BASE_URL),
+      resolveUser: (userId) => resolveKubeLabUser(userId),
+    });
+  }
+
+  if (env.POD_PROVIDER_ENABLED) {
+    routes['tier_2_container'] = new PodProvider({
+      cluster: new KubernetesClient(),
+      allowedHosts: env.KUBELAB_ALLOWED_HOSTS,
+      ideScheme: env.KUBELAB_IDE_SCHEME,
+      publicIdeBaseUrl: env.KUBELAB_IDE_PUBLIC_URL,
+      codeServerImage: env.CODE_SERVER_IMAGE,
+      persistent: options.persistent,
+    });
+  }
+
+  return routes;
 }
 
 /** Structural check: can this provider push a workspace to a git remote? */

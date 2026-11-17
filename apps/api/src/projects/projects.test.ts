@@ -36,6 +36,25 @@ test('listTemplates returns contract objects keyed by slug', () => {
   assert.equal(templates[0]?.id, templates[0]?.slug);
 });
 
+test('every template carries a picker category', () => {
+  for (const t of PROJECT_TEMPLATES) {
+    assert.ok(
+      ['front_end', 'back_end', 'full_stack', 'database', 'other'].includes(
+        t.category,
+      ),
+      `${t.slug} has an unknown category ${t.category}`,
+    );
+  }
+});
+
+test('the catalog offers a database workspace for each engine (Nov\'25 §1.5)', () => {
+  const databases = PROJECT_TEMPLATES.filter((t) => t.category === 'database');
+  const engines = databases.map((t) => t.database).sort();
+  assert.deepEqual(engines, ['mongodb', 'mysql', 'postgres', 'sqlserver']);
+  // A database workspace is a runnable framework image, not a bare base image.
+  assert.ok(databases.every((t) => t.kind === 'framework'));
+});
+
 // ---------------------------------------------------------------- projects
 
 test('project repository scopes listing to a tenant, newest first', async () => {

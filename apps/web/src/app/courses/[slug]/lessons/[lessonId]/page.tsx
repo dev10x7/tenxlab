@@ -59,10 +59,17 @@ export default function LessonPage({
       ) : null}
 
       {lesson.kind === 'lab' ? (
-        <p className="muted">
-          This lesson is a hands-on lab. Launch it from the{' '}
-          <a href="/labs">Labs</a> page or the course page.
-        </p>
+        lesson.launchable === false ? (
+          <p className="muted">
+            This lab has no runnable exercise yet. Your instructor can add one
+            to make it launchable.
+          </p>
+        ) : (
+          <p className="muted">
+            This lesson is a hands-on lab. Launch it from the{' '}
+            <a href="/labs">Labs</a> page or the course page.
+          </p>
+        )
       ) : null}
 
       {lesson.kind === 'quiz' ? (

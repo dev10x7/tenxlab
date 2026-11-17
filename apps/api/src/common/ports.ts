@@ -11,6 +11,8 @@ export interface TenantRecord {
   maxConcurrentLabs: number;
   /** Monthly spend ceiling in USD cents. 0 means unlimited. */
   monthlyBudgetCents: number;
+  /** Fork storage ceiling in gibibytes. 0 or absent means unlimited. */
+  maxStorageGb?: number;
   plan: string;
   status: string;
 }
@@ -38,6 +40,33 @@ export interface LessonRecord {
   exerciseSlug?: string | null;
   runtimeTier?: string | null;
   maxScore: number;
+  /** Display order within the module; authored lessons are reorderable. */
+  position?: number;
+  /** Progressive hint for a practice lab, revealed on request. */
+  hint?: string | null;
+  /** Reading/video lesson text shown in the viewer (plain text). */
+  body?: string | null;
+  /** Quiz lessons only: the assessment the viewer links to. */
+  assessmentId?: string | null;
+}
+
+export interface CourseRecord {
+  id: string;
+  tenantId: string;
+  /** URL-safe unique key within the tenant; the catalog addresses by slug. */
+  slug: string;
+  title: string;
+  description: string;
+  /** draft | published. Only published courses are visible to students. */
+  status: string;
+  createdAt: Date;
+}
+
+export interface ModuleRecord {
+  id: string;
+  courseId: string;
+  title: string;
+  position: number;
 }
 
 export interface LabSessionRecord {
@@ -71,6 +100,29 @@ export interface BatchRecord {
   departmentId?: string | null;
   startDate?: Date | null;
   endDate?: Date | null;
+}
+
+/**
+ * One scheduled class meeting of a batch. Attendance is recorded per student per
+ * session, so "overall" attendance is the aggregate and "session-level" is the
+ * per-meeting breakdown (ByteXL parity §2.9).
+ */
+export interface ClassSessionRecord {
+  id: string;
+  batchId: string;
+  title: string;
+  scheduledAt: Date;
+  createdAt: Date;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  sessionId: string;
+  userId: string;
+  /** present | absent | late | excused */
+  status: string;
+  markedBy?: string | null;
+  markedAt: Date;
 }
 
 export interface SnippetRecord {
@@ -267,6 +319,31 @@ export interface LessonRepository {
   findById(id: string): Promise<LessonRecord | null>;
   /** Resolve a lesson from its lab exercise slug (gradebook webhook routing). */
   findByExerciseSlug?(exerciseSlug: string): Promise<LessonRecord | null>;
+  /** Create an authored lesson. */
+  create?(input: Omit<LessonRecord, 'id'>): Promise<LessonRecord>;
+  update?(id: string, patch: Partial<LessonRecord>): Promise<LessonRecord>;
+  delete?(id: string): Promise<void>;
+  /** A module's lessons in display order. */
+  listByModule?(moduleId: string): Promise<LessonRecord[]>;
+}
+
+export interface CourseRepository {
+  create(input: Omit<CourseRecord, 'id' | 'createdAt'>): Promise<CourseRecord>;
+  findById(id: string): Promise<CourseRecord | null>;
+  findBySlug(tenantId: string, slug: string): Promise<CourseRecord | null>;
+  /** A tenant's courses, newest first. */
+  listByTenant(tenantId: string): Promise<CourseRecord[]>;
+  update(id: string, patch: Partial<CourseRecord>): Promise<CourseRecord>;
+  delete(id: string): Promise<void>;
+}
+
+export interface ModuleRepository {
+  create(input: Omit<ModuleRecord, 'id'>): Promise<ModuleRecord>;
+  findById(id: string): Promise<ModuleRecord | null>;
+  /** A course's modules in display order. */
+  listByCourse(courseId: string): Promise<ModuleRecord[]>;
+  update(id: string, patch: Partial<ModuleRecord>): Promise<ModuleRecord>;
+  delete(id: string): Promise<void>;
 }
 
 export interface LabSessionRepository {
@@ -339,6 +416,37 @@ export interface EnrollmentRepository {
     batchId?: string | null;
   }): Promise<EnrollmentRecord>;
   listByBatch(batchId: string): Promise<EnrollmentRecord[]>;
+  /** A user's own enrolments; backs the student dashboard's roadmaps. */
+  listByUser(userId: string): Promise<EnrollmentRecord[]>;
+}
+
+export interface ClassSessionRepository {
+  create(input: {
+    batchId: string;
+    title: string;
+    scheduledAt: Date;
+  }): Promise<ClassSessionRecord>;
+  findById(id: string): Promise<ClassSessionRecord | null>;
+  /** A batch's sessions, oldest first (the schedule order). */
+  listByBatch(batchId: string): Promise<ClassSessionRecord[]>;
+}
+
+export interface AttendanceRepository {
+  /**
+   * Record or correct a student's attendance for a session. Idempotent on the
+   * (session, user) key so a re-mark updates rather than duplicates.
+   */
+  mark(input: {
+    sessionId: string;
+    userId: string;
+    status: string;
+    markedBy?: string | null;
+  }): Promise<AttendanceRecord>;
+  listBySession(sessionId: string): Promise<AttendanceRecord[]>;
+  /** All attendance rows for a set of sessions; backs the batch/student views. */
+  listBySessions(sessionIds: string[]): Promise<AttendanceRecord[]>;
+  /** All attendance rows for a user; backs the student's overall view. */
+  listByUser(userId: string): Promise<AttendanceRecord[]>;
 }
 
 export interface AttemptRepository {
@@ -418,7 +526,11 @@ export interface ProjectWorkspaceRepository {
   findById(id: string): Promise<ProjectWorkspaceRecord | null>;
   /** A user's workspaces within a tenant, newest first. */
   listByUser(tenantId: string, userId: string): Promise<ProjectWorkspaceRecord[]>;
+  /** How many workspaces a tenant holds, for the storage-quota gate (ADR-20). */
+  countByTenant(tenantId: string): Promise<number>;
   update(id: string, patch: Partial<ProjectWorkspaceRecord>): Promise<ProjectWorkspaceRecord>;
+  /** Permanently remove a workspace row (Delete quick action, Nov'25 §1.5). */
+  delete(id: string): Promise<void>;
 }
 
 export interface ProjectForkRepository {
@@ -436,6 +548,10 @@ export interface ProjectForkRepository {
   ): Promise<ProjectForkRecord[]>;
   /** Every fork of a project, for the instructor roster. */
   listByProject(projectId: string): Promise<ProjectForkRecord[]>;
+  /** The fork that owns a workspace (at most one), for delete/cleanup. */
+  findByWorkspaceId(workspaceId: string): Promise<ProjectForkRecord | null>;
+  /** Remove a fork row when its workspace is deleted (Delete quick action). */
+  delete(id: string): Promise<void>;
 }
 
 export interface ProjectSubmissionRepository {

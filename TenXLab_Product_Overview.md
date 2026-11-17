@@ -283,9 +283,10 @@ cost/quota** (`monthlyBudgetCents` + `UsageService.checkLaunch` + the
 score, cached on the workspace and snapshotted onto the submission). Remaining,
 in order:
 
-1. **Per-fork stop-when-idle cost policy** (E5b) — `persistent: true`
-   `PodProvider` mode (Deployment + PVC, scale 0/1), a fork idle-limit table,
-   snapshot-on-stop, and the storage dimension.
+1. **Per-fork stop-when-idle cost policy** (E5b) — **shipped** (ADR-20):
+   `PodProvider` `persistent` mode (Deployment + PVC, scale 0/1) with the
+   `Suspendable` seam, a fork idle-limit table swept by the operator, and the
+   tenant **storage** dimension enforced at fork time (`maxStorageGb`).
 2. **Nimbus polish** — AI-generate project title/description, preview-before-
    publish, and submission-nav parity.
 3. **Phase E6** — dashboard "Up Next"/"Resume Learning" widget, the Nimbus

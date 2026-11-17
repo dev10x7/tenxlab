@@ -9,6 +9,12 @@ import {
   billableMinutes,
   formatUsd,
   checkQuota,
+  checkStorageQuota,
+  forkLifecycle,
+  findForksToStop,
+  findForksToArchive,
+  forkStorageGb,
+  DEFAULT_FORK_TIER,
   budgetWarning,
   DEFAULT_IDLE_LIMITS,
 } from '../dist/index.js';
@@ -241,4 +247,85 @@ test('budget warning escalates at the threshold and beyond', () => {
   assert.equal(budgetWarning(quota, 850)?.level, 'warning');
   assert.equal(budgetWarning(quota, 1000)?.level, 'exceeded');
   assert.equal(budgetWarning({ maxConcurrentLabs: 1, monthlyBudgetCents: 0 }, 999), null);
+});
+
+// --------------------------------------------------------------- fork policy
+
+test('storage quota blocks when the projected fork storage exceeds the cap', () => {
+  const d = checkQuota({
+    quota: { maxConcurrentLabs: 100, monthlyBudgetCents: 0, maxStorageGb: 10 },
+    activeSessions: 0,
+    spentThisPeriodCents: 0,
+    storageUsedGb: 9,
+    estimatedStorageGb: 2,
+  });
+  assert.equal(d.allowed, false);
+  assert.equal(d.allowed === false && d.reason, 'storage_exceeded');
+});
+
+test('storage quota allows a fork within the cap, and is unlimited at 0', () => {
+  const within = checkQuota({
+    quota: { maxConcurrentLabs: 100, monthlyBudgetCents: 0, maxStorageGb: 10 },
+    activeSessions: 0,
+    spentThisPeriodCents: 0,
+    storageUsedGb: 8,
+    estimatedStorageGb: 2,
+  });
+  assert.equal(within.allowed, true);
+  const unlimited = checkQuota({
+    quota: { maxConcurrentLabs: 100, monthlyBudgetCents: 0, maxStorageGb: 0 },
+    activeSessions: 0,
+    spentThisPeriodCents: 0,
+    storageUsedGb: 9999,
+    estimatedStorageGb: 1,
+  });
+  assert.equal(unlimited.allowed, true);
+});
+
+test('checkStorageQuota gates only the storage dimension, independent of a launch', () => {
+  const cap = { maxConcurrentLabs: 100, monthlyBudgetCents: 0, maxStorageGb: 10 };
+  assert.equal(checkStorageQuota(cap, 8, 2).allowed, true);
+  assert.equal(checkStorageQuota(cap, 9, 2).allowed, false);
+  const over = checkStorageQuota(cap, 9, 2);
+  assert.equal(over.allowed === false && over.reason, 'storage_exceeded');
+  // An unset or zero ceiling is unlimited.
+  assert.equal(checkStorageQuota({ maxConcurrentLabs: 1, monthlyBudgetCents: 0 }, 9999, 5).allowed, true);
+  assert.equal(checkStorageQuota({ maxConcurrentLabs: 1, monthlyBudgetCents: 0, maxStorageGb: 0 }, 9999, 5).allowed, true);
+});
+
+test('a fork running past its idle limit is stopped; a stopped one is not', () => {
+  const now = Date.now();
+  const lifecycle = forkLifecycle();
+  const running = { id: 'f1', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 3601_000) };
+  const fresh = { id: 'f2', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 60_000) };
+  const stopped = { id: 'f3', status: 'stopped', createdAt: new Date(now), lastActivityAt: new Date(now - 9999_000) };
+  assert.deepEqual(findForksToStop([running, fresh, stopped], lifecycle, now), ['f1']);
+});
+
+test('a fork alive past the max session is stopped even when active', () => {
+  const now = Date.now();
+  const lifecycle = forkLifecycle();
+  const longLived = {
+    id: 'f1',
+    status: 'running',
+    createdAt: new Date(now - 8 * 3600 * 1000 - 1000),
+    lastActivityAt: new Date(now),
+  };
+  assert.deepEqual(findForksToStop([longLived], lifecycle, now), ['f1']);
+});
+
+test('a fork stopped past retention is archived; a fresh stop is not', () => {
+  const now = Date.now();
+  const lifecycle = forkLifecycle();
+  const day = 24 * 3600 * 1000;
+  const old = { id: 'f1', status: 'stopped', createdAt: new Date(now - 200 * day), lastActivityAt: new Date(now - 91 * day) };
+  const recent = { id: 'f2', status: 'stopped', createdAt: new Date(now - 2 * day), lastActivityAt: new Date(now - day) };
+  const running = { id: 'f3', status: 'running', createdAt: new Date(now), lastActivityAt: new Date(now - 200 * day) };
+  assert.deepEqual(findForksToArchive([old, recent, running], lifecycle, now), ['f1']);
+});
+
+test('fork storage is tier-sized', () => {
+  assert.equal(forkStorageGb('tier_2_container'), 2);
+  assert.equal(forkStorageGb('tier_3_vcluster'), 4);
+  assert.equal(DEFAULT_FORK_TIER, 'tier_2_container');
 });

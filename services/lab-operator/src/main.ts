@@ -16,7 +16,9 @@ export * from './ports';
  * reconciles the warm pool every `RECONCILE_INTERVAL_MS`.
  *
  * The concrete ports are the pod provider for tier-2, KubeLab for tier-3 (when
- * enabled), and a Postgres-backed session/warm store.
+ * enabled), and a Postgres-backed session/warm store. Fork workspaces are driven
+ * through a *persistent* pod provider so a fork can be scaled to zero without
+ * losing its volume (ADR-20).
  */
 function loadConfig(): PoolConfig {
   return {
@@ -30,6 +32,11 @@ function loadConfig(): PoolConfig {
       tier_1_microvm: Number(process.env.IDLE_TIER1 ?? 900),
       tier_2_container: Number(process.env.IDLE_TIER2 ?? 1800),
       tier_3_vcluster: Number(process.env.IDLE_TIER3 ?? 1200),
+    },
+    forkLifecycle: {
+      idleLimitSeconds: Number(process.env.FORK_IDLE_SECONDS ?? 3600),
+      maxSessionSeconds: Number(process.env.FORK_MAX_SESSION_SECONDS ?? 28_800),
+      retentionDays: Number(process.env.FORK_RETENTION_DAYS ?? 90),
     },
   };
 }
@@ -86,14 +93,26 @@ if (require.main === module) {
 function buildPorts(): OperatorPorts | null {
   const databaseUrl = process.env.LAB_OPERATOR_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!databaseUrl) return null;
-  return new PgOperatorPorts({ databaseUrl, provider: buildProvider() });
+  return new PgOperatorPorts({
+    databaseUrl,
+    provider: buildProvider(),
+    // Forks need a persistent workspace (a Deployment scaled to zero on idle),
+    // which is a different provider mode from a lab's disposable pod.
+    forkProvider: buildForkProvider(),
+  });
 }
 
-/**
- * Route tier-3 to KubeLab (when enabled) and tier-2 to the pod provider. The
- * pod provider is always present because it only needs the cluster client.
- */
+/** Route tier-3 to KubeLab (when enabled) and tier-2 to the pod provider. */
 function buildProvider(): LabProvider {
+  return new RoutingProvider(buildRoutes());
+}
+
+/** The persistent pod provider the fork sweep drives (ADR-20). */
+function buildForkProvider(): LabProvider {
+  return new RoutingProvider(buildRoutes({ persistent: true }));
+}
+
+function buildRoutes(options: { persistent?: boolean } = {}): Record<string, LabProvider> {
   const allowedHosts = process.env.KUBELAB_ALLOWED_HOSTS ?? '192.168.49.2.nip.io';
   const ideScheme = (process.env.KUBELAB_IDE_SCHEME as 'https' | 'http') ?? 'https';
   const assetBase = (process.env.LAB_ASSET_BASE_URL ?? '').replace(/\/$/, '');
@@ -105,10 +124,16 @@ function buildProvider(): LabProvider {
       ideScheme,
       publicIdeBaseUrl: process.env.KUBELAB_IDE_PUBLIC_URL,
       codeServerImage: process.env.CODE_SERVER_IMAGE,
+      persistent: options.persistent ?? false,
     }),
   };
 
-  if (process.env.KUBELAB_ENABLED === 'true' || process.env.KUBELAB_ENABLED === '1') {
+  // KubeLab is the tier-3 execution plane (ADR-8) and has no fork workspace
+  // model, so it is only wired into the lab route set, never the fork one.
+  if (
+    !options.persistent &&
+    (process.env.KUBELAB_ENABLED === 'true' || process.env.KUBELAB_ENABLED === '1')
+  ) {
     routes['tier_3_vcluster'] = new KubeLabAdapter({
       baseUrl: process.env.KUBELAB_BASE_URL ?? 'http://localhost:8090',
       adminEmail: process.env.KUBELAB_ADMIN_EMAIL ?? 'tenxlab@tenxlab.local',
@@ -127,6 +152,6 @@ function buildProvider(): LabProvider {
     });
   }
 
-  return new RoutingProvider(routes);
+  return routes;
 }
 /* c8 ignore stop */

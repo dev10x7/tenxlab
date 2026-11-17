@@ -27,6 +27,8 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
+# Static assets (help-centre screenshots) are served by `next start` from public/.
+COPY --from=builder /app/apps/web/public ./apps/web/public
 COPY --from=builder /app/apps/web/next.config.mjs ./apps/web/next.config.mjs
 EXPOSE 3000
 WORKDIR /app/apps/web

@@ -9,6 +9,7 @@
 import { PrismaClient } from '@prisma/client';
 import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from './catalog/demo-data';
 import { DEMO_USERS } from './identity/demo-users';
+import { DEMO_PROJECT, DEMO_PROJECT_COMPONENT } from './projects/demo-project';
 
 export async function seed(db: PrismaClient): Promise<void> {
   await db.tenant.upsert({
@@ -20,6 +21,7 @@ export async function seed(db: PrismaClient): Promise<void> {
       domain: 'demo-college',
       maxConcurrentLabs: 50,
       monthlyBudgetCents: 0,
+      maxStorageGb: 0,
       plan: 'standard',
       status: 'active',
     },
@@ -48,10 +50,16 @@ export async function seed(db: PrismaClient): Promise<void> {
     const courseId = courseIdForSlug(course.slug);
     await db.course.upsert({
       where: { id: courseId },
-      update: { title: course.title, description: course.description, status: 'published' },
+      update: {
+        slug: course.slug,
+        title: course.title,
+        description: course.description,
+        status: 'published',
+      },
       create: {
         id: courseId,
         tenantId: 'demo-tenant',
+        slug: course.slug,
         title: course.title,
         description: course.description,
         status: 'published',
@@ -74,6 +82,9 @@ export async function seed(db: PrismaClient): Promise<void> {
         exerciseSlug: lesson.exerciseSlug ?? null,
         runtimeTier: lesson.runtimeTier ?? null,
         maxScore: lesson.maxScore,
+        hint: lesson.hint ?? null,
+        body: lesson.body ?? null,
+        assessmentId: lesson.assessmentId ?? null,
       };
       await db.lesson.upsert({
         where: { id: lesson.id },
@@ -112,6 +123,49 @@ export async function seed(db: PrismaClient): Promise<void> {
       },
     });
   }
+
+  // A published demo project so the Nimbus surface has content on first boot,
+  // matching the demo catalog and batch above.
+  await db.project.upsert({
+    where: { id: DEMO_PROJECT.id },
+    update: {
+      title: DEMO_PROJECT.title,
+      description: DEMO_PROJECT.description,
+      runtimeTier: DEMO_PROJECT.runtimeTier,
+      status: DEMO_PROJECT.status,
+      maxScore: DEMO_PROJECT.maxScore,
+    },
+    create: {
+      id: DEMO_PROJECT.id,
+      tenantId: DEMO_PROJECT.tenantId,
+      title: DEMO_PROJECT.title,
+      description: DEMO_PROJECT.description,
+      runtimeTier: DEMO_PROJECT.runtimeTier,
+      status: DEMO_PROJECT.status,
+      deadline: DEMO_PROJECT.deadline,
+      maxScore: DEMO_PROJECT.maxScore,
+    },
+  });
+
+  await db.projectComponent.upsert({
+    where: { id: DEMO_PROJECT_COMPONENT.id },
+    update: {
+      title: DEMO_PROJECT_COMPONENT.title,
+      technology: DEMO_PROJECT_COMPONENT.technology,
+      templateSlug: DEMO_PROJECT_COMPONENT.templateSlug,
+      position: DEMO_PROJECT_COMPONENT.position,
+    },
+    create: {
+      id: DEMO_PROJECT_COMPONENT.id,
+      tenantId: DEMO_PROJECT_COMPONENT.tenantId,
+      projectId: DEMO_PROJECT_COMPONENT.projectId,
+      title: DEMO_PROJECT_COMPONENT.title,
+      technology: DEMO_PROJECT_COMPONENT.technology,
+      templateSlug: DEMO_PROJECT_COMPONENT.templateSlug,
+      templateWorkspaceId: DEMO_PROJECT_COMPONENT.templateWorkspaceId,
+      position: DEMO_PROJECT_COMPONENT.position,
+    },
+  });
 }
 
 /* c8 ignore start -- process wiring, exercised by the container entrypoint */

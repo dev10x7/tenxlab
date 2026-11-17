@@ -22,6 +22,7 @@ model Tenant {
   domain             String   @unique
   maxConcurrentLabs  Int      @default(50)
   monthlyBudgetCents Int      @default(0) // 0 = unlimited
+  maxStorageGb       Int      @default(0) // fork storage ceiling; 0 = unlimited
   plan               String   @default("standard")
   status             String   @default("active")
   createdAt          DateTime @default(now())
@@ -61,6 +62,7 @@ model User {
   attempts    Attempt[]
   sessions    LabSession[]
   snippets    CodeSnippet[]
+  attendance  AttendanceRecord[]
 
   projectWorkspaces  ProjectWorkspace[]
   projectForks       ProjectFork[]
@@ -107,6 +109,7 @@ model AcademicBatch {
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department  Department?  @relation(fields: [departmentId], references: [id])
   enrollments Enrollment[]
+  sessions    ClassSession[]
 
   @@index([tenantId])
   @@map("academic_batches")
@@ -115,6 +118,7 @@ model AcademicBatch {
 model Course {
   id          String   @id @default(uuid())
   tenantId    String
+  slug        String
   title       String
   description String?
   status      String   @default("draft")
@@ -124,6 +128,7 @@ model Course {
   modules     Module[]
   enrollments Enrollment[]
 
+  @@unique([tenantId, slug])
   @@index([tenantId])
   @@map("courses")
 }
@@ -145,13 +150,17 @@ model Lesson {
   id           String  @id @default(uuid())
   moduleId     String
   title        String
-  type         String // video | text | pdf | interactive_lab
+  type         String // video | reading | interactive_lab | quiz
   position     Int     @default(0)
   // interactive_lab fields
   labProvider  String?
   exerciseSlug String?
   runtimeTier  String?
   maxScore     Int     @default(100)
+  // authoring fields
+  hint         String?
+  body         String?
+  assessmentId String?
 
   module   Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   progress LessonProgress[]
@@ -190,6 +199,41 @@ model LessonProgress {
   @@unique([userId, lessonId])
   @@index([lessonId])
   @@map("lesson_progress")
+}
+
+// ------------------------------------------------------------- Attendance
+
+// A scheduled class meeting of a batch. Attendance is recorded per student per
+// session: the student's overall attendance is the aggregate, and the
+// session-level view is the per-meeting breakdown (ByteXL parity §2.9).
+model ClassSession {
+  id          String   @id @default(uuid())
+  batchId     String
+  title       String
+  scheduledAt DateTime
+  createdAt   DateTime @default(now())
+
+  batch      AcademicBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  attendance AttendanceRecord[]
+
+  @@index([batchId])
+  @@map("class_sessions")
+}
+
+model AttendanceRecord {
+  id        String   @id @default(uuid())
+  sessionId String
+  userId    String
+  status    String   @default("absent") // present | absent | late | excused
+  markedBy  String?
+  markedAt  DateTime @default(now())
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@map("attendance_records")
 }
 
 // ---------------------------------------------------------------- Labs

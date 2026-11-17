@@ -1,7 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
 import {
+  InMemoryAttendanceRepository,
   InMemoryAttemptRepository,
   InMemoryBatchRepository,
+  InMemoryClassSessionRepository,
+  InMemoryCourseRepository,
   InMemoryEnrollmentRepository,
   InMemoryEventLedger,
   InMemoryGitConnectionRepository,
@@ -9,6 +12,7 @@ import {
   InMemoryLabSessionRepository,
   InMemoryLessonRepository,
   InMemoryMembershipRepository,
+  InMemoryModuleRepository,
   InMemoryProctorEventRepository,
   InMemoryProgressRepository,
   InMemoryProjectComponentRepository,
@@ -23,8 +27,11 @@ import {
   InMemoryUserRepository,
 } from '../common/in-memory';
 import {
+  PrismaAttendanceRepository,
   PrismaAttemptRepository,
   PrismaBatchRepository,
+  PrismaClassSessionRepository,
+  PrismaCourseRepository,
   PrismaEnrollmentRepository,
   PrismaEventLedger,
   PrismaGitConnectionRepository,
@@ -32,6 +39,7 @@ import {
   PrismaLabSessionRepository,
   PrismaLessonRepository,
   PrismaMembershipRepository,
+  PrismaModuleRepository,
   PrismaProctorEventRepository,
   PrismaProgressRepository,
   PrismaProjectComponentRepository,
@@ -60,6 +68,8 @@ export interface DemoState extends Repositories {
   tenants: InMemoryTenantRepository;
   users: InMemoryUserRepository;
   memberships: InMemoryMembershipRepository;
+  courses: InMemoryCourseRepository;
+  modules: InMemoryModuleRepository;
   lessons: InMemoryLessonRepository;
   sessions: InMemoryLabSessionRepository;
   progress: InMemoryProgressRepository;
@@ -88,6 +98,7 @@ export function createDemoState(): DemoState {
       domain: 'demo-college',
       maxConcurrentLabs: 50,
       monthlyBudgetCents: 0,
+      maxStorageGb: 0,
       plan: 'standard',
       status: 'active',
     },
@@ -109,14 +120,43 @@ export function createDemoState(): DemoState {
 
   const lessons = new InMemoryLessonRepository(
     DEMO_COURSES.flatMap((course) =>
-      course.lessons.map((lesson) => ({
+      course.lessons.map((lesson, index) => ({
         id: lesson.id,
         moduleId: lesson.moduleId,
         title: lesson.title,
         type: lesson.type,
+        position: index,
         exerciseSlug: lesson.exerciseSlug ?? null,
         runtimeTier: lesson.runtimeTier ?? null,
         maxScore: lesson.maxScore,
+        hint: lesson.hint ?? null,
+        body: lesson.body ?? null,
+        assessmentId: lesson.assessmentId ?? null,
+      })),
+    ),
+  );
+
+  // The demo corpus is keyed by slug; the system of record stores courses with a
+  // derived stable id and the same slug, so the catalog and enrolment agree.
+  const courses = new InMemoryCourseRepository(
+    DEMO_COURSES.map((course) => ({
+      id: courseIdForSlug(course.slug),
+      tenantId: 'demo-tenant',
+      slug: course.slug,
+      title: course.title,
+      description: course.description,
+      status: 'published',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    })),
+  );
+
+  const modules = new InMemoryModuleRepository(
+    DEMO_COURSES.flatMap((course) =>
+      course.modules.map((m, index) => ({
+        id: m.id,
+        courseId: courseIdForSlug(course.slug),
+        title: m.title,
+        position: index,
       })),
     ),
   );
@@ -147,11 +187,15 @@ export function createDemoState(): DemoState {
     tenants,
     users,
     memberships,
+    courses,
+    modules,
     lessons,
     sessions: new InMemoryLabSessionRepository(),
     progress: new InMemoryProgressRepository(),
     batches,
     enrollments,
+    classSessions: new InMemoryClassSessionRepository(),
+    attendance: new InMemoryAttendanceRepository(),
     snippets: new InMemorySnippetRepository(),
     attempts: new InMemoryAttemptRepository(),
     proctorEvents: new InMemoryProctorEventRepository(),
@@ -174,11 +218,15 @@ export function createPrismaState(db: PrismaClient): Repositories {
     tenants: new PrismaTenantRepository(db),
     users: new PrismaUserRepository(db),
     memberships: new PrismaMembershipRepository(db),
+    courses: new PrismaCourseRepository(db),
+    modules: new PrismaModuleRepository(db),
     lessons: new PrismaLessonRepository(db),
     sessions: new PrismaLabSessionRepository(db),
     progress: new PrismaProgressRepository(db),
     batches: new PrismaBatchRepository(db),
     enrollments: new PrismaEnrollmentRepository(db),
+    classSessions: new PrismaClassSessionRepository(db),
+    attendance: new PrismaAttendanceRepository(db),
     snippets: new PrismaSnippetRepository(db),
     attempts: new PrismaAttemptRepository(db),
     proctorEvents: new PrismaProctorEventRepository(db),

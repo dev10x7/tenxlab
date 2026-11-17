@@ -13,6 +13,8 @@ export interface TenantQuota {
   maxConcurrentLabs: number;
   /** Monthly spend ceiling in USD cents. 0 means unlimited. */
   monthlyBudgetCents: number;
+  /** Fork storage ceiling in gibibytes. 0 (or unset) means unlimited. */
+  maxStorageGb?: number;
 }
 
 export interface QuotaCheckInput {
@@ -21,13 +23,17 @@ export interface QuotaCheckInput {
   spentThisPeriodCents: number;
   /** Cost of the session about to be provisioned, if known. */
   estimatedCostCents?: number;
+  /** Storage already committed by the tenant's forks, in GiB. */
+  storageUsedGb?: number;
+  /** Storage the fork about to be created will consume, in GiB. */
+  estimatedStorageGb?: number;
 }
 
 export type QuotaDecision =
   | { allowed: true }
   | {
       allowed: false;
-      reason: 'concurrency_exceeded' | 'budget_exceeded';
+      reason: 'concurrency_exceeded' | 'budget_exceeded' | 'storage_exceeded';
       message: string;
     };
 
@@ -53,6 +59,38 @@ export function checkQuota(input: QuotaCheckInput): QuotaDecision {
     }
   }
 
+  if (quota.maxStorageGb && quota.maxStorageGb > 0) {
+    const projected = (input.storageUsedGb ?? 0) + (input.estimatedStorageGb ?? 0);
+    if (projected > quota.maxStorageGb) {
+      return {
+        allowed: false,
+        reason: 'storage_exceeded',
+        message: `Fork storage of ${quota.maxStorageGb} GiB would be exceeded`,
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * The storage dimension on its own. A fork is created outside the lab-launch
+ * path (which owns concurrency and budget), so it needs a storage gate it can
+ * call with only the fork's own numbers (ADR-20).
+ */
+export function checkStorageQuota(
+  quota: TenantQuota,
+  storageUsedGb: number,
+  estimatedStorageGb: number,
+): QuotaDecision {
+  if (!quota.maxStorageGb || quota.maxStorageGb <= 0) return { allowed: true };
+  if (storageUsedGb + estimatedStorageGb > quota.maxStorageGb) {
+    return {
+      allowed: false,
+      reason: 'storage_exceeded',
+      message: `Fork storage of ${quota.maxStorageGb} GiB would be exceeded`,
+    };
+  }
   return { allowed: true };
 }
 

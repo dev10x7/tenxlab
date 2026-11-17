@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LabSpec } from '@tenxlab/contracts';
-import { PodProvider, namespaceFor } from '../dist/index.js';
+import { PodProvider, namespaceFor, parseArchiveEnvelope } from '../dist/index.js';
 
 /**
  * In-memory fake of the Kubernetes API slice the provider needs. Records every
@@ -453,3 +453,159 @@ function storeJob(cluster, job) {
   const ns = job.metadata.namespace;
   cluster.store.set(`Job/${ns}/workspace-read`, job);
 }
+
+// ------------------------------------------------- workspace download (E6)
+
+/** A read Job that completes and whose pod logs carry an archive payload. */
+function completingArchiveJob() {
+  return async (manifest) => {
+    if (manifest.kind !== 'Job' || manifest.metadata?.name !== 'workspace-archive') {
+      return null;
+    }
+    return {
+      apiVersion: 'batch/v1',
+      kind: 'Job',
+      metadata: { name: 'workspace-archive', namespace: manifest.metadata.namespace },
+      status: { conditions: [{ type: 'Complete', status: 'True' }] },
+    };
+  };
+}
+
+/** Replace the stored archive Job with a terminal-status variant. */
+function storeArchiveJob(cluster, job) {
+  const ns = job.metadata.namespace;
+  cluster.store.set(`Job/${ns}/workspace-archive`, job);
+}
+
+test('archiveWorkspaceFiles decodes the tar from the archive job logs', async () => {
+  const ns = 'tenxlab-t2-sess-1';
+  const tar = Buffer.from('pretend-this-is-a-tar');
+  const payload = tar.toString('base64');
+  const cluster = fakeCluster({
+    logs: new Map([
+      [`${ns}/workspace-archive`, `<archive>${payload}</archive>\n`],
+    ]),
+  });
+  const originalApply = cluster.apply;
+  const archiveJob = completingArchiveJob();
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    const override = await archiveJob(manifest);
+    if (override) storeArchiveJob(cluster, override);
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+
+  const archive = await p.archiveWorkspaceFiles({ sessionId: 'sess-1' });
+  assert.ok(archive);
+  assert.deepEqual(Buffer.from(archive), tar);
+  assert.ok(
+    cluster.calls.deleted.some((d) => d.kind === 'Job' && d.name === 'workspace-archive'),
+  );
+});
+
+test('archiveWorkspaceFiles requires a running workspace', async () => {
+  const p = provider(fakeCluster());
+  await assert.rejects(
+    () => p.archiveWorkspaceFiles({ sessionId: 'sess-1' }),
+    /not running/,
+  );
+});
+
+test('archiveWorkspaceFiles surfaces an empty payload as an error', async () => {
+  const cluster = fakeCluster();
+  const originalApply = cluster.apply;
+  const archiveJob = completingArchiveJob();
+  cluster.apply = async (manifest) => {
+    await originalApply(manifest);
+    const override = await archiveJob(manifest);
+    if (override) storeArchiveJob(cluster, override);
+  };
+  const p = provider(cluster);
+  await p.provision(spec);
+  await assert.rejects(
+    () => p.archiveWorkspaceFiles({ sessionId: 'sess-1' }),
+    /no payload/,
+  );
+});
+
+test('parseArchiveEnvelope tolerates interleaved log lines and whitespace', async () => {
+  const tar = Buffer.from('bytes');
+  const wrapped = tar.toString('base64').replace(/(.{4})/, '$1\n');
+  const raw = `some startup noise\n<archive>${wrapped}</archive>\ntrailing\n`;
+  const parsed = parseArchiveEnvelope(raw);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(Buffer.from(parsed.archive), tar);
+});
+
+test('parseArchiveEnvelope rejects output without markers', () => {
+  const parsed = parseArchiveEnvelope('nothing to see');
+  assert.equal(parsed.ok, false);
+});
+
+// ------------------------------------------------- persistent fork workspaces
+
+function persistentProvider(cluster, opts = {}) {
+  return new PodProvider({
+    cluster,
+    allowedHosts: '192.168.49.2.nip.io',
+    fetchImpl: async () => ({ status: 200 }),
+    persistent: true,
+    ...opts,
+  });
+}
+
+test('a persistent fork provisions a Deployment, not a bare Pod', async () => {
+  const cluster = fakeCluster();
+  const p = persistentProvider(cluster);
+  await p.provision(spec);
+  const kinds = cluster.calls.applied.map((m) => m.kind);
+  assert.ok(kinds.includes('Deployment'));
+  assert.ok(!kinds.includes('Pod'), 'a fork must not apply a bare Pod');
+  const deployment = cluster.calls.applied.find((m) => m.kind === 'Deployment');
+  assert.equal(deployment.spec.replicas, 1);
+  assert.equal(deployment.spec.template.kind, 'Pod');
+});
+
+test('suspend scales the Deployment to zero without deleting the PVC', async () => {
+  const cluster = fakeCluster();
+  const p = persistentProvider(cluster);
+  await p.provision(spec);
+  cluster.calls.applied.length = 0;
+  cluster.calls.deleted.length = 0;
+
+  await p.suspend('sess-1');
+  assert.equal(cluster.calls.applied.length, 1);
+  assert.equal(cluster.calls.applied[0].kind, 'Deployment');
+  assert.equal(cluster.calls.applied[0].spec.replicas, 0);
+  assert.deepEqual(cluster.calls.deleted, [], 'suspend must not delete anything');
+  // The PVC the workspace lives on is untouched.
+  assert.ok(cluster.store.has('PersistentVolumeClaim/tenxlab-t2-sess-1/workspace'));
+});
+
+test('resume scales the Deployment back to one', async () => {
+  const cluster = fakeCluster();
+  const p = persistentProvider(cluster);
+  await p.provision(spec);
+  await p.suspend('sess-1');
+  cluster.calls.applied.length = 0;
+
+  await p.resume('sess-1');
+  assert.equal(cluster.calls.applied[0].spec.replicas, 1);
+});
+
+test('suspend and resume are rejected for a non-persistent session', async () => {
+  const p = provider(fakeCluster());
+  await assert.rejects(() => p.suspend('sess-1'), /persistent/i);
+  await assert.rejects(() => p.resume('sess-1'), /persistent/i);
+});
+
+test('a suspended fork reads as WARM, and its Deployment keeps the session alive', async () => {
+  const cluster = fakeCluster();
+  const p = persistentProvider(cluster);
+  await p.provision(spec);
+  await p.suspend('sess-1');
+  const handle = await p.status('sess-1');
+  assert.equal(handle?.status, 'WARM');
+});

@@ -1,12 +1,22 @@
-import type { ProjectTemplate, ProjectTemplateKind } from '@tenxlab/contracts';
+import type {
+  ProjectTemplate,
+  ProjectTemplateCategory,
+  ProjectTemplateKind,
+} from '@tenxlab/contracts';
 
 /**
  * The project template catalog — the ByteXL "Nimbus" equivalent.
  *
- * Two shapes, matching ByteXL (see docs/BYTEXL_PARITY_ANALYSIS.md §1.4):
+ * Shapes, matching ByteXL (see docs/BYTEXL_PARITY_ANALYSIS.md §1.4, §1.5):
  *  - `framework`: dependency-ready stacks a student builds in directly.
  *  - `base_image`: a bare OS (Debian) with no language; the student installs
  *    what they need, used for network-OS and infra practice.
+ *
+ * Templates are grouped into the picker's categories (front end / backend /
+ * full stack / database / other). A **database** template is a `framework`
+ * workspace whose image ships the engine pre-installed (MySQL, PostgreSQL, SQL
+ * Server, MongoDB), so a student builds against a real database without a
+ * separate provisioning step.
  *
  * A template is only a scaffold descriptor; provisioning happens through the
  * `LabProvider` seam, so adding a template does not add a code path.
@@ -18,6 +28,9 @@ export interface TemplateSeed {
   kind: ProjectTemplateKind;
   stack: string;
   image: string;
+  category: ProjectTemplateCategory;
+  /** Database engine a database workspace ships with, e.g. "postgres". */
+  database?: string;
 }
 
 export const PROJECT_TEMPLATES: TemplateSeed[] = [
@@ -28,6 +41,7 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'framework',
     stack: 'python',
     image: 'code-server-python:latest',
+    category: 'back_end',
   },
   {
     slug: 'java',
@@ -36,6 +50,7 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'framework',
     stack: 'java',
     image: 'code-server-java:latest',
+    category: 'back_end',
   },
   {
     slug: 'spring-boot',
@@ -44,6 +59,7 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'framework',
     stack: 'spring-boot',
     image: 'code-server-java:latest',
+    category: 'back_end',
   },
   {
     slug: 'spring-boot-mongodb',
@@ -52,6 +68,7 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'framework',
     stack: 'spring-boot',
     image: 'code-server-java:latest',
+    category: 'full_stack',
   },
   {
     slug: 'react',
@@ -60,6 +77,7 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'framework',
     stack: 'react',
     image: 'code-server-node:latest',
+    category: 'front_end',
   },
   {
     slug: 'debian-base',
@@ -69,6 +87,47 @@ export const PROJECT_TEMPLATES: TemplateSeed[] = [
     kind: 'base_image',
     stack: 'debian',
     image: 'code-server-debian:latest',
+    category: 'other',
+  },
+  {
+    slug: 'mysql',
+    title: 'MySQL',
+    description: 'MySQL server pre-installed and running, ready for SQL practice.',
+    kind: 'framework',
+    stack: 'mysql',
+    image: 'code-server-mysql:latest',
+    category: 'database',
+    database: 'mysql',
+  },
+  {
+    slug: 'postgres',
+    title: 'PostgreSQL',
+    description: 'PostgreSQL server pre-installed and running, ready for SQL practice.',
+    kind: 'framework',
+    stack: 'postgres',
+    image: 'code-server-postgres:latest',
+    category: 'database',
+    database: 'postgres',
+  },
+  {
+    slug: 'sqlserver',
+    title: 'SQL Server',
+    description: 'Microsoft SQL Server pre-installed, ready for T-SQL practice.',
+    kind: 'framework',
+    stack: 'sqlserver',
+    image: 'code-server-sqlserver:latest',
+    category: 'database',
+    database: 'sqlserver',
+  },
+  {
+    slug: 'mongodb',
+    title: 'MongoDB',
+    description: 'MongoDB server pre-installed, ready for document-model practice.',
+    kind: 'framework',
+    stack: 'mongodb',
+    image: 'code-server-mongodb:latest',
+    category: 'database',
+    database: 'mongodb',
   },
 ];
 

@@ -1,6 +1,7 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
 import {
   LabProviderError,
+  type ArchiveWorkspaceFilesInput,
   type ExposedService,
   type ExposeInput,
   type GitPublisher,
@@ -9,6 +10,8 @@ import {
   type LabProvider,
   type ReadWorkspaceFilesInput,
   type ServiceExposer,
+  type Suspendable,
+  type WorkspaceArchiver,
   type WorkspaceFile,
   type WorkspaceReader,
 } from './types';
@@ -61,12 +64,23 @@ export interface PodProviderOptions {
   /** How long a workspace file read waits for its job to complete. */
   readTimeoutMs?: number;
   readPollMs?: number;
+  /** How long a workspace archive (download) waits for its job to complete. */
+  archiveTimeoutMs?: number;
+  archivePollMs?: number;
+  /**
+   * ADR-20: a persistent workspace is a Deployment + PVC, so its compute can be
+   * scaled to zero (`suspend`) and back up (`resume`) while its volume survives.
+   * A non-persistent session (a lab) is a bare Pod deleted on terminate. Forks
+   * are persistent; labs are not.
+   */
+  persistent?: boolean;
   /** Injected for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
 
 const NAMESPACE_PREFIX = 'tenxlab-t2-';
 const PORT = 8080;
+const WORKLOAD_NAME = 'code-server';
 const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 2_000;
 const TERMINATE_TIMEOUT_MS = 60_000;
@@ -79,6 +93,9 @@ const READ_JOB = 'workspace-read';
 const READ_JOB_IMAGE = 'python:3.12-alpine';
 const READ_TIMEOUT_MS = 60_000;
 const READ_POLL_MS = 2_000;
+const ARCHIVE_JOB = 'workspace-archive';
+const ARCHIVE_TIMEOUT_MS = 60_000;
+const ARCHIVE_POLL_MS = 2_000;
 
 /**
  * Tier-2 lab provider: one isolated Pod per session (code-server + terminal),
@@ -96,7 +113,15 @@ const READ_POLL_MS = 2_000;
  *
  * Teardown deletes the namespace, which cascades to everything inside it.
  */
-export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, WorkspaceReader {
+export class PodProvider
+  implements
+    LabProvider,
+    ServiceExposer,
+    GitPublisher,
+    WorkspaceReader,
+    WorkspaceArchiver,
+    Suspendable
+{
   readonly name = 'pod';
 
   private readonly cluster: ClusterClient;
@@ -104,6 +129,7 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
   private readonly scheme: string;
   private readonly publicIdeBaseUrl: string | null;
   private readonly codeServerImage: string;
+  private readonly persistent: boolean;
   private readonly readinessTimeoutMs: number;
   private readonly readinessPollMs: number;
   private readonly terminateTimeoutMs: number;
@@ -112,6 +138,8 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
   private readonly gitPushPollMs: number;
   private readonly readTimeoutMs: number;
   private readonly readPollMs: number;
+  private readonly archiveTimeoutMs: number;
+  private readonly archivePollMs: number;
 
   constructor(private readonly opts: PodProviderOptions) {
     this.cluster = opts.cluster;
@@ -119,6 +147,7 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
     this.scheme = opts.ideScheme ?? 'https';
     this.publicIdeBaseUrl = opts.publicIdeBaseUrl?.replace(/\/$/, '') ?? null;
     this.codeServerImage = opts.codeServerImage ?? 'codercom/code-server:latest';
+    this.persistent = opts.persistent ?? false;
     this.readinessTimeoutMs = opts.readinessTimeoutMs ?? READY_TIMEOUT_MS;
     this.readinessPollMs = opts.readinessPollMs ?? READY_POLL_MS;
     this.terminateTimeoutMs = opts.terminateTimeoutMs ?? TERMINATE_TIMEOUT_MS;
@@ -127,6 +156,8 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
     this.gitPushPollMs = opts.gitPushPollMs ?? GIT_PUSH_POLL_MS;
     this.readTimeoutMs = opts.readTimeoutMs ?? READ_TIMEOUT_MS;
     this.readPollMs = opts.readPollMs ?? READ_POLL_MS;
+    this.archiveTimeoutMs = opts.archiveTimeoutMs ?? ARCHIVE_TIMEOUT_MS;
+    this.archivePollMs = opts.archivePollMs ?? ARCHIVE_POLL_MS;
   }
 
   /** The browser-facing IDE URL for a session (raw id or provider ref). */
@@ -150,7 +181,13 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
 
     await this.cluster.apply(namespaceManifest(ns, spec));
     await this.cluster.apply(pvcManifest(ns));
-    await this.cluster.apply(podManifest(ns, this.codeServerImage, resources, spec));
+    if (this.persistent) {
+      // A fork: a Deployment keeps the workload's identity stable across a
+      // scale-to-zero suspend and a scale-up resume, while the PVC survives.
+      await this.cluster.apply(deploymentManifest(ns, this.codeServerImage, resources, spec));
+    } else {
+      await this.cluster.apply(podManifest(ns, this.codeServerImage, resources, spec));
+    }
     await this.cluster.apply(serviceManifest(ns));
     await this.cluster.apply(ingressManifest(ns, this.hostFor(spec.session_id)));
 
@@ -173,21 +210,30 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
   /** `sessionId` here is the provider_ref (the namespace name). */
   async status(sessionId: string): Promise<SessionHandle | null> {
     const ns = namespaceFor(sessionId);
-    const pod = await this.cluster.get('Pod', 'code-server', ns);
-    if (pod === null) {
-      // No pod: either the namespace is gone (terminated) or the pod has not
-      // been created yet. Distinguish by asking for the namespace itself.
-      const existingNs = await this.cluster.get('Namespace', ns, '');
-      if (existingNs === null) return null;
-    }
+    const workload = this.persistent
+      ? await this.cluster.get('Deployment', WORKLOAD_NAME, ns)
+      : await this.cluster.get('Pod', WORKLOAD_NAME, ns);
+    // A session exists if either its workload or its namespace is present: a
+    // suspended fork has a namespace and a scaled-to-zero Deployment, while a
+    // freshly applied session may have a pod before its namespace read settles.
+    const existingNs =
+      workload === null ? await this.cluster.get('Namespace', ns, '') : null;
+    if (workload === null && existingNs === null) return null;
+
+    const ready = this.persistent ? deploymentReady(workload) : podReady(workload);
+    const pod = this.persistent
+      ? await this.cluster.get('Pod', WORKLOAD_NAME, ns)
+      : workload;
     return {
       session_id: sessionId,
-      status: podReady(pod) ? 'ACTIVE' : 'WARM',
+      status: ready ? 'ACTIVE' : 'WARM',
       tier: 'tier_2_container',
       ide_url: this.ideUrlFor(sessionId),
       provider_ref: ns,
       started_at:
-        toIso(readPath(pod, ['metadata', 'creationTimestamp'])) ?? new Date().toISOString(),
+        toIso(readPath(pod, ['metadata', 'creationTimestamp'])) ??
+        toIso(readPath(existingNs, ['metadata', 'creationTimestamp'])) ??
+        new Date().toISOString(),
       last_activity_at: new Date().toISOString(),
       ttl_seconds: 1800,
     };
@@ -216,6 +262,41 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
     }
   }
 
+  /**
+   * Stop a fork's compute without destroying its volume (ADR-20): scale the
+   * Deployment to zero. The PVC, Service and Ingress stay, so a resume is a
+   * scale-up rather than a re-provision. Idempotent.
+   */
+  async suspend(sessionId: string): Promise<void> {
+    if (!this.persistent) {
+      throw new LabProviderError('Only a persistent workspace can be suspended', 400);
+    }
+    const ns = namespaceFor(sessionId);
+    await this.cluster.apply(scaleManifest(ns, 0));
+  }
+
+  /** Bring a suspended fork's compute back up. Idempotent. */
+  async resume(sessionId: string): Promise<void> {
+    if (!this.persistent) {
+      throw new LabProviderError('Only a persistent workspace can be resumed', 400);
+    }
+    const ns = namespaceFor(sessionId);
+    await this.cluster.apply(scaleManifest(ns, 1));
+  }
+
+  /**
+   * Whether a session's compute is present. A non-persistent session is a bare
+   * Pod; a persistent fork is a Deployment whose pod may be scaled away while
+   * suspended, so the Deployment's desired replicas are the source of truth.
+   */
+  private async workloadRunning(ns: string): Promise<boolean> {
+    if (this.persistent) {
+      const deployment = await this.cluster.get('Deployment', WORKLOAD_NAME, ns);
+      return readPath(deployment, ['spec', 'replicas']) !== 0 && deployment !== null;
+    }
+    return (await this.cluster.get('Pod', WORKLOAD_NAME, ns)) !== null;
+  }
+
   private hostFor(sessionId: string): string {
     return `${namespaceFor(sessionId)}.${this.opts.allowedHosts}`;
   }
@@ -240,8 +321,7 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
    */
   async expose(input: ExposeInput): Promise<ExposedService> {
     const ns = namespaceFor(input.sessionId);
-    const pod = await this.cluster.get('Pod', 'code-server', ns);
-    if (pod === null) {
+    if (!(await this.workloadRunning(ns))) {
       throw new LabProviderError(
         `Workspace ${input.sessionId} is not running; nothing to expose`,
         409,
@@ -270,8 +350,7 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
    */
   async publish(input: GitPublishInput): Promise<GitPublishResult> {
     const ns = namespaceFor(input.sessionId);
-    const pod = await this.cluster.get('Pod', 'code-server', ns);
-    if (pod === null) {
+    if (!(await this.workloadRunning(ns))) {
       throw new LabProviderError(
         `Workspace ${input.sessionId} is not running; nothing to publish`,
         409,
@@ -339,8 +418,7 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
    */
   async readWorkspaceFiles(input: ReadWorkspaceFilesInput): Promise<WorkspaceFile[]> {
     const ns = namespaceFor(input.sessionId);
-    const pod = await this.cluster.get('Pod', 'code-server', ns);
-    if (pod === null) {
+    if (!(await this.workloadRunning(ns))) {
       throw new LabProviderError(
         `Workspace ${input.sessionId} is not running; nothing to read`,
         409,
@@ -376,6 +454,55 @@ export class PodProvider implements LabProvider, ServiceExposer, GitPublisher, W
         return { ok: false, reason: 'timed out reading the workspace' };
       }
       await sleep(this.readPollMs);
+    }
+  }
+
+  /**
+   * Archive the workspace's files as a tar for download (Nov'25 "download
+   * workspace"). A short-lived Job mounts the same `workspace` PVC, runs
+   * `tar czf - -C /workspace .`, and base64-encodes the stream to stdout so it
+   * survives the log transport. The Job is deleted when the archive is read.
+   */
+  async archiveWorkspaceFiles(
+    input: ArchiveWorkspaceFilesInput,
+  ): Promise<Uint8Array | null> {
+    const ns = namespaceFor(input.sessionId);
+    if (!(await this.workloadRunning(ns))) {
+      throw new LabProviderError(
+        `Workspace ${input.sessionId} is not running; nothing to download`,
+        409,
+      );
+    }
+    await this.cluster.delete('Job', ARCHIVE_JOB, ns);
+    await this.cluster.apply(archiveJobManifest(ns));
+
+    const envelope = await this.awaitArchive(ns);
+    await this.cluster.delete('Job', ARCHIVE_JOB, ns);
+    if (!envelope.ok) {
+      throw new LabProviderError(`workspace archive failed: ${envelope.reason}`, 502);
+    }
+    return envelope.archive;
+  }
+
+  /** Wait for the archive Job, then decode its base64 payload from the logs. */
+  private async awaitArchive(
+    ns: string,
+  ): Promise<{ ok: true; archive: Uint8Array } | { ok: false; reason: string }> {
+    const deadline = Date.now() + this.archiveTimeoutMs;
+    for (;;) {
+      const job = await this.cluster.get('Job', ARCHIVE_JOB, ns);
+      const condition = jobCondition(job);
+      if (condition === 'Complete') {
+        const raw = await this.cluster.logs(ns, ARCHIVE_JOB);
+        return parseArchiveEnvelope(raw);
+      }
+      if (condition === 'Failed') {
+        return { ok: false, reason: 'the archive job reported a failure' };
+      }
+      if (Date.now() > deadline) {
+        return { ok: false, reason: 'timed out archiving the workspace' };
+      }
+      await sleep(this.archivePollMs);
     }
   }
 
@@ -502,6 +629,46 @@ function serviceManifest(ns: string): Record<string, unknown> {
       selector: { 'app.kubernetes.io/name': 'tenxlab-lab' },
       ports: [{ port: PORT, targetPort: PORT }],
     },
+  };
+}
+
+/**
+ * The workload for a persistent fork: a Deployment wrapping the same pod
+ * template a lab uses. A Deployment (rather than a bare Pod) is what makes
+ * stop-when-idle possible — its replicas scale to zero on suspend and back to
+ * one on resume, while the PVC it mounts survives.
+ */
+function deploymentManifest(
+  ns: string,
+  image: string,
+  resources: { cpu: string; memory: string },
+  spec: LabSpec,
+): Record<string, unknown> {
+  const pod = podManifest(ns, image, resources, spec);
+  return {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: {
+      name: WORKLOAD_NAME,
+      namespace: ns,
+      labels: labels(spec.session_id),
+    },
+    spec: {
+      replicas: 1,
+      selector: { matchLabels: { 'app.kubernetes.io/name': 'tenxlab-lab' } },
+      strategy: { type: 'Recreate' },
+      template: pod,
+    },
+  };
+}
+
+/** A minimal merge-patch that scales the fork Deployment to `replicas`. */
+function scaleManifest(ns: string, replicas: number): Record<string, unknown> {
+  return {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: { name: WORKLOAD_NAME, namespace: ns },
+    spec: { replicas },
   };
 }
 
@@ -756,6 +923,77 @@ export function parseReadEnvelope(
   return { ok: false, reason: 'the read job produced no file envelope' };
 }
 
+/**
+ * The Job that tars the workspace volume for download.
+ *
+ * It mounts the same `workspace` PVC and streams `tar czf - -C /workspace .`
+ * base64-encoded to stdout, so the binary archive survives the log transport.
+ * The output is wrapped in `<archive>…</archive>` markers so the provider can
+ * find it amid any other log lines.
+ */
+function archiveJobManifest(ns: string): Record<string, unknown> {
+  const script = [
+    'set -e',
+    'cd /workspace',
+    'printf "<archive>"',
+    'tar czf - . | base64 | tr -d "\\n"',
+    'printf "</archive>\\n"',
+  ].join('\n');
+  return {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: {
+      name: ARCHIVE_JOB,
+      namespace: ns,
+      labels: { app: 'tenxlab', role: 'workspace-archive' },
+    },
+    spec: {
+      backoffLimit: 0,
+      ttlSecondsAfterFinished: 300,
+      template: {
+        metadata: { labels: { app: 'tenxlab', role: 'workspace-archive' } },
+        spec: {
+          restartPolicy: 'Never',
+          containers: [
+            {
+              name: 'archive',
+              image: READ_JOB_IMAGE,
+              command: ['/bin/sh', '-c'],
+              args: [script],
+              volumeMounts: [{ name: 'workspace', mountPath: '/workspace' }],
+            },
+          ],
+          volumes: [
+            { name: 'workspace', persistentVolumeClaim: { claimName: 'workspace' } },
+          ],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Parse the archive Job's logs into the tar bytes between the `<archive>`
+ * markers. Kubernetes may interleave unrelated lines, so the markers bound the
+ * payload rather than assuming the whole log is the archive.
+ */
+export function parseArchiveEnvelope(
+  raw: string,
+): { ok: true; archive: Uint8Array } | { ok: false; reason: string } {
+  const start = raw.indexOf('<archive>');
+  const end = raw.indexOf('</archive>');
+  if (start === -1 || end === -1 || end < start) {
+    return { ok: false, reason: 'the archive job produced no payload' };
+  }
+  const payload = raw.slice(start + '<archive>'.length, end).replace(/\s+/g, '');
+  if (!payload) return { ok: false, reason: 'the workspace archive is empty' };
+  try {
+    return { ok: true, archive: new Uint8Array(Buffer.from(payload, 'base64')) };
+  } catch {
+    return { ok: false, reason: 'the archive payload was not valid base64' };
+  }
+}
+
 /** Single-quote a shell argument, escaping embedded quotes. */
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -786,6 +1024,22 @@ function podReady(pod: Record<string, unknown> | null): boolean {
       typeof c === 'object' &&
       c !== null &&
       (c as Record<string, unknown>)['type'] === 'Ready' &&
+      (c as Record<string, unknown>)['status'] === 'True',
+  );
+}
+
+/**
+ * A Deployment is serving when it reports an Available condition. A suspended
+ * Deployment (replicas 0) reports none, which correctly reads as not-ACTIVE.
+ */
+function deploymentReady(deployment: Record<string, unknown> | null): boolean {
+  const conditions = readPath(deployment, ['status', 'conditions']);
+  if (!Array.isArray(conditions)) return false;
+  return conditions.some(
+    (c) =>
+      typeof c === 'object' &&
+      c !== null &&
+      (c as Record<string, unknown>)['type'] === 'Available' &&
       (c as Record<string, unknown>)['status'] === 'True',
   );
 }

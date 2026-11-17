@@ -152,6 +152,48 @@ export interface WorkspaceReader {
   readWorkspaceFiles(input: ReadWorkspaceFilesInput): Promise<WorkspaceFile[]>;
 }
 
+/**
+ * Archive a workspace's files for download (ByteXL's "download workspace"
+ * quick action, Nov'25 §1.5).
+ *
+ * Like `WorkspaceReader`, this is a separate seam because not every provider can
+ * export a volume (a tier-1 Piston run cannot) and the workspace must be
+ * running. The provider returns a tar archive of the workspace root; the LMS
+ * streams it to the student.
+ */
+export interface WorkspaceArchiver {
+  /** Human-readable provider id, e.g. "pod". */
+  readonly name: string;
+  /** Return a tar archive of the workspace root, or null when it is empty. */
+  archiveWorkspaceFiles(input: ArchiveWorkspaceFilesInput): Promise<Uint8Array | null>;
+}
+
+export interface ArchiveWorkspaceFilesInput {
+  /** Provider ref of the running session (e.g. the tier-2 namespace). */
+  sessionId: string;
+  /** Stop once the collected content reaches this many bytes. */
+  maxTotalBytes?: number;
+}
+
+/**
+ * Suspend/resume a session's compute without destroying its durable volume
+ * (ADR-20 fork stop-when-idle).
+ *
+ * A project fork's volume must outlive its compute: stopping a fork scales the
+ * workload to zero but keeps the volume, and re-forking scales it back up. This
+ * is a separate seam from `LabProvider.terminate` because a lab session's
+ * `terminate` deletes everything (it is disposable), while a fork must survive.
+ * Not every provider can suspend (a tier-1 Piston run cannot).
+ */
+export interface Suspendable {
+  /** Human-readable provider id, e.g. "pod". */
+  readonly name: string;
+  /** Scale the session's compute to zero, keeping its volume. Idempotent. */
+  suspend(sessionId: string): Promise<void>;
+  /** Scale the session's compute back up. Idempotent. */
+  resume(sessionId: string): Promise<void>;
+}
+
 /** Error thrown when the provider returns a non-2xx response. */
 export class LabProviderError extends Error {
   constructor(

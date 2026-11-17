@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   api,
   ApiError,
@@ -125,6 +126,35 @@ export function ProjectComponentCard({
     }
   }
 
+  /**
+   * Delete is destructive and irreversible: the workspace's volume is released
+   * and the fork removed, so the component becomes forkable again from scratch.
+   * A confirm step guards against an accidental click (Nov'25 §1.5 quick action).
+   */
+  async function destroy() {
+    if (!status?.workspaceId) return;
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        'Delete this workspace? Its files will be lost and the component becomes forkable again.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteWorkspace(status.workspaceId);
+      setPhase('idle');
+      setStatus(null);
+      onChanged();
+    } catch {
+      setError('Could not delete the workspace. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="card">
       <div className="row">
@@ -152,11 +182,28 @@ export function ProjectComponentCard({
       {phase === 'ready' && status?.ideUrl ? (
         <div>
           <div className="row" style={{ gap: 8 }}>
-            <a className="btn" href={status.ideUrl} target="_blank" rel="noreferrer">
-              Open in VS Code
+            <Link className="btn" href={`/nimbus/workspace/${status.forkId}`}>
+              Open workspace
+            </Link>
+            <a
+              className="btn secondary"
+              href={status.ideUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open in new tab
             </a>
             <button className="btn secondary" onClick={stop} disabled={busy}>
               Stop workspace
+            </button>
+            <a
+              className="btn secondary"
+              href={`/api/projects/workspaces/${encodeURIComponent(status.workspaceId)}/download`}
+            >
+              Download files
+            </a>
+            <button className="btn danger" onClick={destroy} disabled={busy}>
+              Delete workspace
             </button>
           </div>
           <DeployControl
@@ -179,13 +226,26 @@ export function ProjectComponentCard({
       ) : null}
 
       {phase === 'stopped' && status?.workspaceId ? (
-        <SubmissionForm
-          projectId={project.id}
-          componentId={component.id}
-          workspaceId={status.workspaceId}
-          maxScore={project.maxScore}
-          onSubmitted={onChanged}
-        />
+        <div>
+          <SubmissionForm
+            projectId={project.id}
+            componentId={component.id}
+            workspaceId={status.workspaceId}
+            maxScore={project.maxScore}
+            onSubmitted={onChanged}
+          />
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <a
+              className="btn secondary"
+              href={`/api/projects/workspaces/${encodeURIComponent(status.workspaceId)}/download`}
+            >
+              Download files
+            </a>
+            <button className="btn danger" onClick={destroy} disabled={busy}>
+              Delete workspace
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

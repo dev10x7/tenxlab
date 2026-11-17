@@ -1,9 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 import type {
+  AttendanceRecord,
+  AttendanceRepository,
   AttemptRecord,
   AttemptRepository,
   BatchRecord,
   BatchRepository,
+  ClassSessionRecord,
+  ClassSessionRepository,
+  CourseRecord,
+  CourseRepository,
   EnrollmentRecord,
   EnrollmentRepository,
   EventLedger,
@@ -18,6 +24,8 @@ import type {
   LessonRepository,
   MembershipRecord,
   MembershipRepository,
+  ModuleRecord,
+  ModuleRepository,
   ProctorEventRecord,
   ProctorEventRepository,
   ProgressRepository,
@@ -113,31 +121,143 @@ export class PrismaLessonRepository implements LessonRepository {
   constructor(private readonly db: PrismaClient) {}
   async findById(id: string): Promise<LessonRecord | null> {
     const l = await this.db.lesson.findUnique({ where: { id } });
-    if (!l) return null;
-    return {
-      id: l.id,
-      moduleId: l.moduleId,
-      title: l.title,
-      type: l.type,
-      labProvider: l.labProvider ?? null,
-      exerciseSlug: l.exerciseSlug ?? null,
-      runtimeTier: l.runtimeTier ?? null,
-      maxScore: l.maxScore,
-    };
+    return l ? toLesson(l) : null;
   }
   async findByExerciseSlug(exerciseSlug: string): Promise<LessonRecord | null> {
     const l = await this.db.lesson.findFirst({ where: { exerciseSlug } });
-    if (!l) return null;
-    return {
-      id: l.id,
-      moduleId: l.moduleId,
-      title: l.title,
-      type: l.type,
-      labProvider: l.labProvider ?? null,
-      exerciseSlug: l.exerciseSlug ?? null,
-      runtimeTier: l.runtimeTier ?? null,
-      maxScore: l.maxScore,
-    };
+    return l ? toLesson(l) : null;
+  }
+  async create(input: Omit<LessonRecord, 'id'>): Promise<LessonRecord> {
+    const l = await this.db.lesson.create({
+      data: {
+        moduleId: input.moduleId,
+        title: input.title,
+        type: input.type,
+        position: input.position ?? 0,
+        labProvider: input.labProvider ?? null,
+        exerciseSlug: input.exerciseSlug ?? null,
+        runtimeTier: input.runtimeTier ?? null,
+        maxScore: input.maxScore,
+        hint: input.hint ?? null,
+        body: input.body ?? null,
+        assessmentId: input.assessmentId ?? null,
+      },
+    });
+    return toLesson(l);
+  }
+  async update(id: string, patch: Partial<LessonRecord>): Promise<LessonRecord> {
+    const l = await this.db.lesson.update({ where: { id }, data: patch });
+    return toLesson(l);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.lesson.delete({ where: { id } });
+  }
+  async listByModule(moduleId: string): Promise<LessonRecord[]> {
+    const rows = await this.db.lesson.findMany({
+      where: { moduleId },
+      orderBy: { position: 'asc' },
+    });
+    return rows.map(toLesson);
+  }
+}
+
+function toLesson(l: {
+  id: string;
+  moduleId: string;
+  title: string;
+  type: string;
+  position: number;
+  labProvider: string | null;
+  exerciseSlug: string | null;
+  runtimeTier: string | null;
+  maxScore: number;
+  hint: string | null;
+  body: string | null;
+  assessmentId: string | null;
+}): LessonRecord {
+  return {
+    id: l.id,
+    moduleId: l.moduleId,
+    title: l.title,
+    type: l.type,
+    position: l.position,
+    labProvider: l.labProvider,
+    exerciseSlug: l.exerciseSlug,
+    runtimeTier: l.runtimeTier,
+    maxScore: l.maxScore,
+    hint: l.hint,
+    body: l.body,
+    assessmentId: l.assessmentId,
+  };
+}
+
+export class PrismaCourseRepository implements CourseRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: Omit<CourseRecord, 'id' | 'createdAt'>): Promise<CourseRecord> {
+    const c = await this.db.course.create({ data: input });
+    return toCourse(c);
+  }
+  async findById(id: string): Promise<CourseRecord | null> {
+    const c = await this.db.course.findUnique({ where: { id } });
+    return c ? toCourse(c) : null;
+  }
+  async findBySlug(tenantId: string, slug: string): Promise<CourseRecord | null> {
+    const c = await this.db.course.findFirst({ where: { tenantId, slug } });
+    return c ? toCourse(c) : null;
+  }
+  async listByTenant(tenantId: string): Promise<CourseRecord[]> {
+    const rows = await this.db.course.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toCourse);
+  }
+  async update(id: string, patch: Partial<CourseRecord>): Promise<CourseRecord> {
+    const c = await this.db.course.update({ where: { id }, data: patch });
+    return toCourse(c);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.course.delete({ where: { id } });
+  }
+}
+
+function toCourse(c: {
+  id: string;
+  tenantId: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  status: string;
+  createdAt: Date;
+}): CourseRecord {
+  return {
+    id: c.id,
+    tenantId: c.tenantId,
+    slug: c.slug,
+    title: c.title,
+    description: c.description ?? '',
+    status: c.status,
+    createdAt: c.createdAt,
+  };
+}
+
+export class PrismaModuleRepository implements ModuleRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: Omit<ModuleRecord, 'id'>): Promise<ModuleRecord> {
+    const m = await this.db.module.create({ data: input });
+    return m;
+  }
+  async findById(id: string): Promise<ModuleRecord | null> {
+    return this.db.module.findUnique({ where: { id } });
+  }
+  async listByCourse(courseId: string): Promise<ModuleRecord[]> {
+    return this.db.module.findMany({ where: { courseId }, orderBy: { position: 'asc' } });
+  }
+  async update(id: string, patch: Partial<ModuleRecord>): Promise<ModuleRecord> {
+    return this.db.module.update({ where: { id }, data: patch });
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.module.delete({ where: { id } });
   }
 }
 
@@ -235,6 +355,79 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
   async listByBatch(batchId: string): Promise<EnrollmentRecord[]> {
     const rows = await this.db.enrollment.findMany({ where: { batchId } });
     return rows.map(toEnrollment);
+  }
+  async listByUser(userId: string): Promise<EnrollmentRecord[]> {
+    const rows = await this.db.enrollment.findMany({ where: { userId } });
+    return rows.map(toEnrollment);
+  }
+}
+
+export class PrismaClassSessionRepository implements ClassSessionRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(input: {
+    batchId: string;
+    title: string;
+    scheduledAt: Date;
+  }): Promise<ClassSessionRecord> {
+    const s = await this.db.classSession.create({
+      data: {
+        batchId: input.batchId,
+        title: input.title,
+        scheduledAt: input.scheduledAt,
+      },
+    });
+    return toClassSession(s);
+  }
+  async findById(id: string): Promise<ClassSessionRecord | null> {
+    const s = await this.db.classSession.findUnique({ where: { id } });
+    return s ? toClassSession(s) : null;
+  }
+  async listByBatch(batchId: string): Promise<ClassSessionRecord[]> {
+    const rows = await this.db.classSession.findMany({
+      where: { batchId },
+      orderBy: { scheduledAt: 'asc' },
+    });
+    return rows.map(toClassSession);
+  }
+}
+
+export class PrismaAttendanceRepository implements AttendanceRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async mark(input: {
+    sessionId: string;
+    userId: string;
+    status: string;
+    markedBy?: string | null;
+  }): Promise<AttendanceRecord> {
+    // Upsert on the (session, user) unique key: a correction updates the row.
+    const a = await this.db.attendanceRecord.upsert({
+      where: {
+        sessionId_userId: { sessionId: input.sessionId, userId: input.userId },
+      },
+      update: { status: input.status, markedBy: input.markedBy ?? null },
+      create: {
+        sessionId: input.sessionId,
+        userId: input.userId,
+        status: input.status,
+        markedBy: input.markedBy ?? null,
+      },
+    });
+    return toAttendance(a);
+  }
+  async listBySession(sessionId: string): Promise<AttendanceRecord[]> {
+    const rows = await this.db.attendanceRecord.findMany({ where: { sessionId } });
+    return rows.map(toAttendance);
+  }
+  async listBySessions(sessionIds: string[]): Promise<AttendanceRecord[]> {
+    if (sessionIds.length === 0) return [];
+    const rows = await this.db.attendanceRecord.findMany({
+      where: { sessionId: { in: sessionIds } },
+    });
+    return rows.map(toAttendance);
+  }
+  async listByUser(userId: string): Promise<AttendanceRecord[]> {
+    const rows = await this.db.attendanceRecord.findMany({ where: { userId } });
+    return rows.map(toAttendance);
   }
 }
 
@@ -534,12 +727,18 @@ export class PrismaProjectWorkspaceRepository implements ProjectWorkspaceReposit
     });
     return rows.map(toProjectWorkspace);
   }
+  async countByTenant(tenantId: string): Promise<number> {
+    return this.db.projectWorkspace.count({ where: { tenantId } });
+  }
   async update(
     id: string,
     patch: Partial<ProjectWorkspaceRecord>,
   ): Promise<ProjectWorkspaceRecord> {
     const w = await this.db.projectWorkspace.update({ where: { id }, data: patch });
     return toProjectWorkspace(w);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.projectWorkspace.delete({ where: { id } });
   }
 }
 
@@ -576,6 +775,13 @@ export class PrismaProjectForkRepository implements ProjectForkRepository {
   async listByProject(projectId: string): Promise<ProjectForkRecord[]> {
     const rows = await this.db.projectFork.findMany({ where: { projectId } });
     return rows.map(toProjectFork);
+  }
+  async findByWorkspaceId(workspaceId: string): Promise<ProjectForkRecord | null> {
+    const f = await this.db.projectFork.findFirst({ where: { workspaceId } });
+    return f ? toProjectFork(f) : null;
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.projectFork.delete({ where: { id } });
   }
 }
 
@@ -718,6 +924,12 @@ type BatchRow = Awaited<
 type EnrollmentRow = Awaited<
   ReturnType<PrismaClient['enrollment']['findUniqueOrThrow']>
 >;
+type ClassSessionRow = Awaited<
+  ReturnType<PrismaClient['classSession']['findUniqueOrThrow']>
+>;
+type AttendanceRow = Awaited<
+  ReturnType<PrismaClient['attendanceRecord']['findUniqueOrThrow']>
+>;
 type SnippetRow = Awaited<
   ReturnType<PrismaClient['codeSnippet']['findUniqueOrThrow']>
 >;
@@ -759,6 +971,7 @@ function toTenant(t: TenantRow): TenantRecord {
     domain: t.domain,
     maxConcurrentLabs: t.maxConcurrentLabs,
     monthlyBudgetCents: t.monthlyBudgetCents,
+    maxStorageGb: t.maxStorageGb,
     plan: t.plan,
     status: t.status,
   };
@@ -823,6 +1036,27 @@ function toEnrollment(e: EnrollmentRow): EnrollmentRecord {
     userId: e.userId,
     courseId: e.courseId,
     batchId: e.batchId ?? null,
+  };
+}
+
+function toClassSession(s: ClassSessionRow): ClassSessionRecord {
+  return {
+    id: s.id,
+    batchId: s.batchId,
+    title: s.title,
+    scheduledAt: s.scheduledAt,
+    createdAt: s.createdAt,
+  };
+}
+
+function toAttendance(a: AttendanceRow): AttendanceRecord {
+  return {
+    id: a.id,
+    sessionId: a.sessionId,
+    userId: a.userId,
+    status: a.status,
+    markedBy: a.markedBy ?? null,
+    markedAt: a.markedAt,
   };
 }
 

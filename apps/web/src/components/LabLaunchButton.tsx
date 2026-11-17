@@ -69,8 +69,18 @@ export function LabLaunchButton({ lessonId }: { lessonId: string }) {
       setPhase('failed');
       if (err instanceof ApiError && err.status === 429) {
         setError('Your institution has reached its concurrent lab limit. Try again shortly.');
+      } else if (err instanceof ApiError && err.status === 503) {
+        setError(
+          'Lab environments are not available in this deployment. Ask your administrator to enable the lab execution plane.',
+        );
       } else if (err instanceof ApiError && err.status === 401) {
         setError('Please sign in again to launch this lab.');
+      } else if (err instanceof ApiError && err.status === 403) {
+        setError('You are not an active member of this institution.');
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError('This lesson has no runnable exercise to launch.');
+      } else if (err instanceof ApiError && err.status === 404) {
+        setError('This lesson is no longer available.');
       } else {
         setError('Could not start the lab. Please try again.');
       }

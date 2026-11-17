@@ -42,6 +42,11 @@ export interface DemoAssessment {
   mode: 'practice' | 'graded';
   /** Only graded assessments are proctored. */
   durationSeconds: number | null;
+  /**
+   * When set, a fresh attempt must supply this code before it starts (Nov'25
+   * §1.5). Resuming an open attempt never re-checks it.
+   */
+  passcode?: string;
   questions: DemoQuestion[];
 }
 
@@ -62,6 +67,8 @@ export const DEMO_ASSESSMENTS: DemoAssessment[] = [
     title: 'Kubernetes Foundations — Graded Test',
     mode: 'graded',
     durationSeconds: 1800,
+    // Demo start passcode; a real deployment sets this per assessment.
+    passcode: 'K8S-2026',
     questions: [
       {
         id: 'q-pod',

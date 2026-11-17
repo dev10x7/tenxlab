@@ -74,15 +74,19 @@ export default function AssessmentsPage() {
     return () => clearInterval(id);
   }, [attempt, remaining, submit]);
 
-  async function start(assessmentId: string) {
+  async function start(assessmentId: string, passcode?: string) {
     setError(null);
     setResult(null);
     try {
-      const started = await api.startAttempt(assessmentId);
+      const started = await api.startAttempt(assessmentId, passcode);
       setAttempt(started);
       setRemaining(started.remainingSeconds);
       setAnswers(seedAnswers(started.assessment.questions));
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setError('That start passcode is not valid.');
+        return;
+      }
       setError('Could not start this assessment. Please try again.');
     }
   }
@@ -140,28 +144,64 @@ export default function AssessmentsPage() {
 
       <div className="grid" style={{ marginTop: 16 }}>
         {assessments.map((a) => (
-          <div key={a.id} className="card">
-            <div className="row">
-              <h3 style={{ margin: 0 }}>{a.title}</h3>
-              <span className={`pill ${a.proctored ? 'in_progress' : 'complete'}`}>
-                {a.proctored ? 'Proctored' : 'Practice'}
-              </span>
-            </div>
-            <p className="muted">
-              {a.questions.length} questions · {a.maxScore} points ·{' '}
-              {a.durationSeconds == null
-                ? 'untimed'
-                : `${Math.round(a.durationSeconds / 60)} min`}
-            </p>
-            <button type="button" className="btn" onClick={() => void start(a.id)}>
-              {a.mode === 'graded' ? 'Start test' : 'Start practice'}
-            </button>
-          </div>
+          <AssessmentCard key={a.id} assessment={a} onStart={start} />
         ))}
         {assessments.length === 0 ? (
           <p className="muted">No assessments are available yet.</p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One assessment card. A passcode-protected test reveals an input before the
+ * attempt can start, so a student cannot begin a locked sitting by accident.
+ */
+function AssessmentCard({
+  assessment,
+  onStart,
+}: {
+  assessment: AssessmentView;
+  onStart: (assessmentId: string, passcode?: string) => void;
+}) {
+  const [passcode, setPasscode] = useState('');
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>{assessment.title}</h3>
+        <span className={`pill ${assessment.proctored ? 'in_progress' : 'complete'}`}>
+          {assessment.proctored ? 'Proctored' : 'Practice'}
+        </span>
+      </div>
+      <p className="muted">
+        {assessment.questions.length} questions · {assessment.maxScore} points ·{' '}
+        {assessment.durationSeconds == null
+          ? 'untimed'
+          : `${Math.round(assessment.durationSeconds / 60)} min`}
+      </p>
+      {assessment.requiresPasscode ? (
+        <>
+          <label htmlFor={`passcode-${assessment.id}`}>Start passcode</label>
+          <input
+            id={`passcode-${assessment.id}`}
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="Enter the code from your trainer"
+          />
+        </>
+      ) : null}
+      <button
+        type="button"
+        className="btn"
+        style={{ marginTop: 12 }}
+        disabled={assessment.requiresPasscode && !passcode.trim()}
+        onClick={() =>
+          onStart(assessment.id, assessment.requiresPasscode ? passcode.trim() : undefined)
+        }
+      >
+        {assessment.mode === 'graded' ? 'Start test' : 'Start practice'}
+      </button>
     </div>
   );
 }

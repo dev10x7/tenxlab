@@ -50,12 +50,31 @@ enforced** at lab launch. **Auto-evaluation has since shipped** — an `ai-bridg
 client reads the workspace's source through the provider's `WorkspaceReader`
 seam and scores it with the AI plane's in-house `quality.py` (ADR-13); the score
 is cached on the workspace, appended to a history table, and snapshotted onto the
-submission the trainer evaluates. What remains for full Nimbus parity is
-**per-fork stop-when-idle cost/quota policy (E5b) and the dashboard resume +
-attendance widgets (E6)**; what remains for differentiation is the **editor
+submission the trainer evaluates. **E6 has since shipped** — the student
+dashboard carries the **"Up Next"** and **"Resume Learning"** widgets,
+university/batch ranks, and the profile-completion tile; **student attendance**
+(overall + per-session, with a trainer cohort matrix) is live at `/classes`; and
+each Nimbus fork card offers **deploy / download / delete** quick actions.
+**E5b** stop-when-idle fork cost/quota policy has also shipped (ADR-20 — a stop
+suspends the compute and keeps the durable volume; forks get their own sweep and
+a storage ceiling). What remains for differentiation is the **editor
 tutor's assessment-path guardrails** (the practice-editor tutor has shipped —
 `assist`/`socratic`, §1.6), **soft skills** (Phase F), and **contests /
 recruiter portal** (Phase G).
+
+**Observation fixes (2026-11-19).** A round of live-stack observations: (1)
+`/api/projects` returned `[]` because the demo project existed only in the
+in-memory demo state — it is now upserted in `seed.ts`, so a `docker compose up`
+has Nimbus content (verified against real Postgres); (2) lab launch spun forever
+when no execution plane was configured — `LabLaunchService` now fails fast with
+`lab_unavailable` → 503 and the controller maps each reason honestly
+(`lesson_not_found`→404, `membership_required`→403, `not_a_lab`→400) instead of a
+blanket 401; (3) a `lab`-kind lesson with no `exerciseSlug` (the authored "Lab
+A") is now marked `launchable: false` in the catalog DTO so the UI explains the
+gap rather than offering a dead launch; (4) the Help surface is a real
+guide + FAQ page mirroring ByteXL's help centre, not a placeholder. The
+provider-less fork contract was left unchanged (`e2e.projects.test.ts` encodes
+it deliberately).
 
 **Release-video refresh (2026-11-14, §1.5).** Transcribing the monthly release
 videos surfaced scope our backlog never captured: the **Nov'25** video adds a
@@ -72,7 +91,7 @@ standalone **CEFR-graded English-communication** product. These are tracked in
 | Editor (70+ langs, AI help, saved code) | `/editor` on Piston + CodeMirror 6 | Done (13 langs; AI help shipped — `assist`/`socratic`) |
 | Labs (ungraded practice + hints) | `/labs` | Done |
 | Assessments (proctored, auto-graded) | `/assessments` | Done (browser proctoring; SEB + video deferred) |
-| Nimbus (build/host/evaluate projects) | `/nimbus` | **Core + hosting + git publish + auto-evaluation shipped** (E0–E5); fork cost/quota policy + attendance remain |
+| Nimbus (build/host/evaluate projects) | `/nimbus` | **E0–E6 shipped** — core fork→build→stop→submit→evaluate, one-click hosting, git publish, auto-evaluation, fork cost/quota policy, attendance, and the deploy/download/delete quick actions |
 | Partner SSO (HS256) | `identity/partner-sso.service.ts` | Done |
 | Proctoring (tab/copy/time) | `proctoring/` + `ProctorGuard` | Done |
 | Recruiter / hiring | `/resumes` (Skill Passport) | **Missing** (Phase G) |
@@ -393,7 +412,7 @@ or pure logic present, not wired end-to-end · **Missing** = not started.
 | Idempotent gradebook webhook | **Done** | `gradebook/gradebook-webhook.service.ts` |
 | Batches, enrolment & gradebook UI | **Done** | `batches/batch.service.ts` + `/batches`, `/grading` pages; tenant-scoped, role-gated |
 | Copyleft license gate | **Done** | `scripts/check-licenses.mjs` (175 pkgs, clean) |
-| Next.js web client | **Partial** | ByteXL-style shell: role-aware sidebar (Dashboard/Learn/Catalog; Editor/Assessments/Nimbus; Labs+More), plus Lab launch, catalog, and course pages |
+| Next.js web client | **Partial** | ByteXL-style shell: **collapsible** role-aware sidebar (Home: Dashboard/Feed; Learning: AI Mentor/Courses/Classes; Practice: Editor/Labs/Assessments; Nimbus: build/submissions/apps; Insights; Community) + global header (notifications/settings), a three-panel student dashboard (roadmaps, ranks, profile completion), and the Nimbus workspace that opens code-server **in the main panel**; plus Lab launch, catalog, and course pages |
 
 ### 2.2 Editor (ByteXL "Editor")
 
@@ -436,7 +455,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Cloud VS Code workspace (persistent) | **Done** | Forks provision tier-2 pod / tier-3 vcluster `code-server` through the `LabProvider` seam; re-fork resumes a stopped workspace. Durable-state retention policy is E5b |
+| Cloud VS Code workspace (persistent) | **Done** | Forks provision tier-2 pod / tier-3 vcluster `code-server` through the `LabProvider` seam; re-fork resumes a stopped workspace. The IDE opens **embedded in the main panel** (`/nimbus/workspace/<forkId>` frames `ideUrl`, with a new-tab fallback), as ByteXL does, and the `ide-gateway` strips `X-Frame-Options`/`frame-ancestors` so code-server may be framed. Durable-state retention policy is E5b |
 | Framework template catalog (Flask/Java/Spring/Mongo/React/NOS) | **Done** | `projects/templates.ts`: `python-flask`, `java`, `spring-boot`, `spring-boot-mongodb`, `react`, `debian-base` (the "Alpine"/NOS bare image) |
 | Fork a template **or own workspace** | **Done** | `ProjectComponent.templateSlug` (catalog) or `templateWorkspaceId` (fork-your-own, §1.3); one fork per (component, student) |
 | Built-in Source Control → publish to GitHub | **Done** | GitHub OAuth **device flow** connects the student's account; one-click publish pushes the workspace and records every attempt (§1.3). No hosted git backend (ADR-8) |
@@ -447,8 +466,8 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 | SonarQube-style auto-evaluation | **Done** | `QualityEvaluationService` + `AiBridgeClient` read the fork's files via the `WorkspaceReader` seam and score them with the AI plane's `quality.py` (`POST /v1/quality/score`, ADR-13). The score is cached on the workspace (`qualityScore`/`qualityReport`/`analyzedAt`), kept as a `quality_evaluations` history, snapshotted onto the submission (`autoScore`/`autoReport`/`autoEvaluatedAt`), and surfaced to the trainer |
 | Submissions: workspace + GitHub URL + demo URL | **Done** | Optional GitHub/demo links captured |
 | Trainer evaluation + score | **Done** | Role-gated `evaluate(id, {score, feedback})` |
-| Mobile resume / "Up Next" dashboard | **Missing** | No dashboard resume widget (E6) |
-| Fork cost/quota policy (stop-when-idle) | **Partial** | Tenant-level monthly budget now enforced at launch + shown in the Nimbus `UsageCard`; per-fork stop-when-idle/idle limit and the storage dimension remain (E5b, ADR-20) |
+| Mobile resume / "Up Next" dashboard | **Done** | The three-panel student dashboard (roadmaps + ranks + profile) plus the **"Up Next for You"** widget (outstanding projects + due assessments) and the **"Resume Learning"** card (first incomplete lesson of the first enrolled course) shipped 2026-11-11 (`DashboardService.buildUpNext` / `buildResume`) |
+| Fork cost/quota policy (stop-when-idle) | **Done** | Per-fork stop-when-idle with a durable volume (ADR-20): stop **suspends** the compute (Deployment scaled to 0) and keeps the PVC, so re-forking resumes the same workspace; the operator sweeps forks on their own 60-min idle / 8-h max limits (never the 30-min lab sweep); `tenants.maxStorageGb` is enforced at fork time. Tenant-level monthly budget remains enforced at launch + shown in the Nimbus `UsageCard`. |
 
 ### 2.6 Runtime / scale
 
@@ -496,21 +515,48 @@ two views) but must be added to the backlog to reach parity. See Phase E6.
 ### 2.10 Release-video delta (Nov'25 + Jan'26 + Clarity, §1.5)
 
 Scope surfaced by the newest release videos that our backlog never captured.
-These are the items to reconcile before declaring Nimbus parity.
+These are the items to reconcile before declaring Nimbus parity. **All
+parity-blocking items now ship (E6);** what remains here is the consolidated
+landing view (a UX polish), one-click publish, and the visual AI Mentor /
+Clarity (Phase F).
 
 | Capability | Status | Gap / note |
 |---|---|---|
-| Nimbus landing dashboard (workspaces, projects, deployed apps, live projects) | **Partial** | `/nimbus` lists projects + forks + submissions; there is no single landing view aggregating deployed apps and live projects, and no deploy/download/delete quick actions |
-| Download workspace (export files) | **Missing** | No export/download action on a workspace |
+| Nimbus landing dashboard (workspaces, projects, deployed apps, live projects) | **Partial** | `/nimbus` lists projects + forks + submissions; `/nimbus/apps` now lists forked workspaces with their live `deployUrl`/`ideUrl`. Deploy + download + **delete** quick actions now ship on each fork card; a single consolidated landing view is still to come |
+| Download workspace (export files) | **Done** | "Download files" on each fork card streams a gzipped tar (`GET /api/projects/workspaces/:id/download`) |
 | Manual stop from the dashboard | **Done** | `stopWorkspace` + "Stop workspace" on each fork card |
-| Publish Apps (published-workspaces list + one-click publish) | **Partial** | Deploy/undeploy ships (E5); no aggregate "published workspaces / live apps" list |
-| Template categories (front end / backend / full stack / other) | **Partial** | Six slugs exist; no category grouping in the picker |
-| Database workspaces (MySQL / Postgres / SQL Server / MongoDB) | **Missing** | No database template shape; our catalog is language/framework + bare base image only |
+| Publish Apps (published-workspaces list + one-click publish) | **Partial** | Deploy/undeploy ships (E5) and `/nimbus/apps` aggregates published workspaces; publish is still per-workspace, not a one-click landing button |
+| Template categories (front end / backend / full stack / other) | **Done** | Every template carries a `category`; the picker groups them into `<optgroup>`s (`groupTemplates` + `templateCategoryLabel`), covering front end / backend / full stack / database / other |
+| Database workspaces (MySQL / Postgres / SQL Server / MongoDB) | **Done** | Four `database`-category templates ship (`projects/templates.ts`), each a `framework` image with the engine pre-installed |
 | AI Mentor — diagram/image generation | **Missing** | Phase F tutor is text-only in our plan; ByteXL's mentor is *visual* |
-| Dashboard university rank + batch rank | **Missing** | No ranking/leaderboard on the dashboard; overlaps Phase G contests |
-| Profile-completion tile (recruiter visibility) | **Missing** | Recruiter portal is Phase G; no profile-completion nudge |
-| Exam passcode before starting a test | **Missing** | Assessments have proctoring + timers but no start passcode |
+| Dashboard university rank + batch rank | **Done** | `DashboardService` ranks the student within the university cohort and their batch (competition ranking) and the dashboard shows both tiles |
+| Profile-completion tile (recruiter visibility) | **Done** | 7-item checklist on the dashboard drives the recruiter-visibility nudge |
+| Exam passcode before starting a test | **Done** | `POST /api/assessments/:id/attempts` takes an optional `passcode`; a protected sitting is refused (403) without the right code, resumed attempts never re-check |
 | Clarity — CEFR-graded English practice (4 skills) | **Partial** | AI-plane `speech.py` scores speech; no CEFR rubric, no listening/reading/writing practice, no faculty dashboard |
+
+### 2.11 Support-centre reconciliation (support.bytexl.app, fetched 2026-11-11)
+
+A direct read of ByteXL's public help centre. It is the authoritative list of
+what their product actually exposes to users, so it is a good parity checklist
+for **surfaces**, independent of the feature backlog above.
+
+| Support-centre page | What it documents | TenXLab state |
+|---|---|---|
+| **Coding Abilities** | The four student modules (Editor / Labs / Assessments / Nimbus) and their behaviour | **Covered** — `/editor`, `/labs`, `/assessments`, `/nimbus` (§2.2–2.5) |
+| **Coding Tests** | Read-only stub regions in tests (`start/end your solution`, one editable region) | **Done** — `assessments/read-only.ts` (§2.4) |
+| **Project Evaluation & Submission** | Create project (AI title/description), attach template workspace, fork, submit, trainer score | **Done** — `project-submission.service.ts` (§2.5); AI title/description generation is the remaining Nimbus-polish item |
+| **SafeExamBrowser Guide** | `.seb` download entry point, kiosk/network filtering, quit password | **Deferred** — `buildSebConfig` only, no `.seb` route (ADR-17) |
+| **FAQs** | Email delivery, DNS/access, editor STDIN, library policy | **Partial** — our `/help` FAQ covers STDIN + library policy; no email/DNS ops FAQ (not applicable — no mailer yet) |
+| **Video Guides** | Screencast walkthroughs per module | **Missing** — our help centre is text + screenshots; ByteXL embeds video. Optional Phase F polish |
+| **Report an Issue** | In-app issue form (category, title, description, attachments) → support | **Missing** — our `/help` only tells users to contact an admin; no form, no backend |
+
+The takeaway: the **help centre itself** is now at parity (role-scoped guides
+with real screenshots + FAQ), and the module docs (Coding Abilities/Tests,
+Project Evaluation) describe features we already ship. The three support-centre
+items we do **not** match are all small and additive: the in-app **Report an
+Issue** form, **video** guides, and the **`.seb`** download path. None blocks
+core parity; the first is the most valuable (it is a real user-facing workflow,
+not documentation).
 
 ---
 
@@ -713,19 +759,26 @@ sub-milestones so each ends demonstrable and CI-green:
       withdraws the ingress. **Multi-service apps are N independent workspaces**
       wired by the student with their own URLs + CORS (§1.4) — **not** a composed
       multi-container workspace, so there is no E5.1 compose build to do.
-- [ ] **E5b — Fork cost/quota policy (ADR-20).** Stop-when-idle forks: default
+- [x] **E5b — Fork cost/quota policy (ADR-20).** Stop-when-idle forks: default
       tier-2, 60-min idle stop + snapshot, 8-h max session, 90-day retention;
       quotas on concurrency + storage + monthly budget. Reuse `checkQuota`
       (add `storage_exceeded`), `findIdleSessions` (separate limit table), and
       `costSession`; add a `persistent: true` mode to `PodProvider` (Deployment
       + PVC, scale 0/1).
-      → **Tenant-level half done:** `tenants.monthlyBudgetCents` + `UsageService`
-      roll up `costSession` over the tenant's sessions, `checkLaunch` enforces
-      the concurrency + monthly-budget gates at lab launch, and `/api/labs/usage`
-      + the Nimbus `UsageCard` surface the period spend and budget warning. What
-      remains is the **per-fork** stop-when-idle/idle-limit policy and the storage
-      dimension.
-- [ ] **E6 — Dashboard + attendance + release-video delta (§2.10).** ByteXL's
+      → **Done.** `PodProvider` gains a `persistent` mode (a `Deployment` +
+      `PersistentVolumeClaim`, not a bare Pod) and implements the provider-neutral
+      `Suspendable` seam (`suspend` = scale to 0 keeping the volume, `resume` =
+      scale back to 1); `ProjectService.stopWorkspace` suspends when the provider
+      supports it and re-forking resumes the same workspace, so a stop keeps the
+      durable volume. The lab operator sweeps forks on their **own** policy
+      (`findForksToStop`, `runtime-policy/fork-policy.ts`: 60-min idle / 8-h max /
+      90-day retention) against their own tables, never the 30-min lab sweep.
+      Tenant-level monthly budget was already enforced at launch; the **storage
+      dimension** is now enforced at fork time — `tenants.maxStorageGb`
+      (0 = unlimited) with `checkStorageQuota` + `forkStorageGb`; a *new* fork over
+      the ceiling is a `storage_exceeded` conflict (409) and re-attaching/resuming
+      is never gated.
+- [x] **E6 — Dashboard + attendance + release-video delta (§2.10).** ByteXL's
       smarter dashboard: **"Up Next"/"Resume Learning"**, the Nimbus **landing
       dashboard** (workspaces + deployed apps + live projects with
       deploy/download/delete quick actions), **university/batch ranks**, and a
@@ -733,14 +786,41 @@ sub-milestones so each ends demonstrable and CI-green:
       attendance** (overall + session-level) — a new small model + student and
       instructor views, discovered from the Jan'26 video and absent from our
       backlog (§2.9). Plus README/AGENTS notes and parity checkboxes.
-- [ ] **E6b — Assessment hardening: exam start passcode (Nov'25 §1.5).** Require
-      a passcode before a test begins, so "scores are secure and rankings are
-      earned on an even playing field". Small: a per-assessment passcode field +
-      a pre-start gate on the exam route.
-- [ ] **E6c — Template catalog expansion (Nov'25 §1.5).** Add the **database
+      → **Shipped (2026-11-11).** The student dashboard is now a
+      three-panel view: **industry roadmaps** (enrolment → course progress),
+      **competitive rankings** (university + batch, competition-ranked), and the
+      **profile-completion tile** (7-item checklist, recruiter nudge). Backend
+      `DashboardService` + `GET /api/dashboard`; the student nav was restructured
+      into ByteXL's sections (Home/Learning/Practice/Nimbus/Insights/Community)
+      and `/nimbus/submissions` + `/nimbus/apps` now surface the submission and
+      published-app lists. **"Up Next"/"Resume Learning"** widgets render on the
+      dashboard (`view.upNext` / `view.resume`). **Student attendance** ships
+      end-to-end (`attendance/attendance.service.ts`, `AttendanceController`,
+      `/classes`): a student sees their overall percentage + per-session
+      breakdown, a trainer schedules sessions and records a cohort matrix. The
+      **download + delete** quick actions join **stop** on each Nimbus fork card
+      (deploy/undeploy already shipped in E5).
+- [x] **E6d — Collapsible sidebar + IDE in the main panel (2026-11-11).** The
+      sidebar collapses to an icons-only rail (preference persisted in
+      `localStorage`), matching ByteXL's collapsible menu; the Nimbus workspace
+      opens code-server **embedded in the main panel** at
+      `/nimbus/workspace/<forkId>` (with a new-tab fallback), rather than a
+      separate tab.
+- [x] **E6b — Assessment hardening: exam start passcode (Nov'25 §1.5).** A
+      per-assessment `passcode` field plus a pre-start gate: `startAttempt` takes
+      an optional passcode and returns a discriminated result
+      (`passcode_required` / `passcode_invalid`), the controller maps those to
+      403, and the `/assessments` card shows a passcode input when
+      `requiresPasscode` is set. A resumed (open) attempt never re-checks the
+      code, so a refresh mid-sitting is unaffected.
+- [x] **E6c — Template catalog expansion (Nov'25 §1.5).** The **database
       workspace** shape (MySQL / PostgreSQL / SQL Server / MongoDB) and
-      **category grouping** (front end / backend / full stack / other) to the
-      create-workspace picker.
+      **category grouping** (front end / backend / full stack / database / other)
+      ship: `projects/templates.ts` seeds four database templates (a
+      `framework` image with the engine pre-installed), every template carries a
+      `category`, and the create-workspace picker renders `<optgroup>`s via
+      `groupTemplates` + `templateCategoryLabel` (`projects.test.ts` and
+      `lms.test.mjs` cover both).
 - [ ] Exit criterion (unchanged): instructor creates a project; student forks,
       builds, submits; trainer scores it.
 
@@ -783,11 +863,14 @@ sub-milestones so each ends demonstrable and CI-green:
 
 - [ ] Contest lifecycle (`start_time`/`end_time` gating) + Redis sorted-set
       leaderboard updated from the completion webhook, < 500 ms.
-- [ ] **Dashboard ranks** (Nov'25 §1.5): university rank + batch rank tiles on
+- [x] **Dashboard ranks** (Nov'25 §1.5): university rank + batch rank tiles on
       the student dashboard — the lighter, always-on cousin of a timed contest.
+      Shipped (2026-11-11) in `DashboardService` + the dashboard's "Your
+      standing" tiles.
 - [ ] Skill Passport: indexed summary table aggregating verified labs, contest
       ranks, and AI communication scores; drive the **profile-completion tile**
-      that makes a student recruiter-visible (§2.10).
+      that makes a student recruiter-visible (§2.10). *The dashboard's
+      profile-completion tile has shipped; the indexed passport table has not.*
 - [ ] Recruiter role: read-only filters (institution, graduation year, min lab
       score, min communication score) + CSV export / interview invite.
 - [ ] Exit criterion: a live contest with a real-time leaderboard and a

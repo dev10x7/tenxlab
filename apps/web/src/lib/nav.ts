@@ -33,14 +33,29 @@ const DASHBOARD: NavItem = {
   href: '/dashboard',
   label: 'Dashboard',
   icon: '◈',
-  blurb: 'Your courses, progress, and next actions in one place.',
+  blurb: 'Your roadmaps, rankings, and profile in one place.',
+};
+
+const FEED: NavItem = {
+  href: '/feed',
+  label: 'Feed',
+  icon: '≡',
+  blurb: 'Activity from your batch: completions, submissions, and milestones.',
+  phase: 'P3',
 };
 
 const LEARN: NavItem = {
   href: '/learn',
-  label: 'Learn',
+  label: 'Courses',
   icon: '▤',
   blurb: 'Structured course content: videos, readings, and topics.',
+};
+
+const CLASSES: NavItem = {
+  href: '/classes',
+  label: 'Classes',
+  icon: '⛭',
+  blurb: 'Your batches, timetable, and attendance.',
 };
 
 const CATALOG: NavItem = {
@@ -48,6 +63,13 @@ const CATALOG: NavItem = {
   label: 'Catalog',
   icon: '❏',
   blurb: 'Every published course you can enrol in.',
+};
+
+const AUTHORING: NavItem = {
+  href: '/authoring',
+  label: 'Authoring',
+  icon: '✍',
+  blurb: 'Build courses as chapters of lessons and publish them to cohorts.',
 };
 
 const EDITOR: NavItem = {
@@ -78,12 +100,56 @@ const NIMBUS: NavItem = {
   blurb: 'Build, host, and auto-evaluate projects in the cloud.',
 };
 
+const NIMBUS_SUBMISSIONS: NavItem = {
+  href: '/nimbus/submissions',
+  label: 'Nimbus Submissions',
+  icon: '⇪',
+  blurb: 'Submit your workspaces for trainer evaluation before the deadline.',
+};
+
+const NIMBUS_APPS: NavItem = {
+  href: '/nimbus/apps',
+  label: 'Nimbus Apps',
+  icon: '▷',
+  blurb: 'Your published workspaces and live demo URLs.',
+};
+
 const REPORTS: NavItem = {
   href: '/reports',
-  label: 'Reports',
+  label: 'Student Reports',
   icon: '▦',
   blurb: 'Scores, completion, and cohort analytics.',
   phase: 'P3',
+};
+
+const SOCIAL: NavItem = {
+  href: '/social',
+  label: 'Social',
+  icon: '◎',
+  blurb: 'Follow peers, share progress, and join batch discussions.',
+  phase: 'P3',
+};
+
+const HELP: NavItem = {
+  href: '/help',
+  label: 'Help',
+  icon: '?',
+  blurb: 'Step-by-step guides, screenshots, and FAQs for every module.',
+};
+
+/** Role-scoped help centre; each persona has its own walkthroughs. */
+const HELP_STUDENT: NavItem = {
+  href: '/help/student',
+  label: 'Help & Guides',
+  icon: '?',
+  blurb: 'Step-by-step student guides with screenshots for every feature.',
+};
+
+const HELP_INSTRUCTOR: NavItem = {
+  href: '/help/instructor',
+  label: 'Help & Guides',
+  icon: '?',
+  blurb: 'Step-by-step instructor guides with screenshots for every feature.',
 };
 
 const RESUMES: NavItem = {
@@ -156,21 +222,36 @@ const ORGS: NavItem = {
 };
 
 /**
- * The student layout mirrors ByteXL's: the daily destinations are primary, and
- * Labs (plus the rest) live under "More".
+ * The student layout mirrors ByteXL's left panel: Home (Dashboard, Feed),
+ * Learning (AI Mentor, Courses, Classes), Practice (Editor, Labs, Assessments),
+ * Nimbus (build, submissions, apps), Insights (reports, resumes, mock
+ * interviews), and Community (social, help). Instructor and admin keep their
+ * own teaching/administration layouts.
  */
 const STUDENT: NavSection[] = [
   {
     title: 'Home',
-    items: [DASHBOARD, LEARN, CATALOG],
+    items: [DASHBOARD, FEED],
+  },
+  {
+    title: 'Learning',
+    items: [AI_MENTOR, LEARN, CATALOG, CLASSES],
   },
   {
     title: 'Practice',
-    items: [EDITOR, ASSESSMENTS, NIMBUS],
+    items: [EDITOR, LABS, ASSESSMENTS],
   },
   {
-    title: 'More',
-    items: [LABS, AI_MENTOR, AI_INTERVIEWER, REPORTS, RESUMES],
+    title: 'Nimbus',
+    items: [NIMBUS, NIMBUS_SUBMISSIONS, NIMBUS_APPS],
+  },
+  {
+    title: 'Insights',
+    items: [REPORTS, RESUMES, AI_INTERVIEWER],
+  },
+  {
+    title: 'Community',
+    items: [SOCIAL, HELP_STUDENT],
   },
 ];
 
@@ -181,15 +262,15 @@ const INSTRUCTOR: NavSection[] = [
   },
   {
     title: 'Teaching',
-    items: [BATCHES, GRADING, PROCTORING],
+    items: [BATCHES, GRADING, PROCTORING, CLASSES],
   },
   {
     title: 'Authoring',
-    items: [QUESTION_BANK, ASSESSMENTS, LABS],
+    items: [AUTHORING, QUESTION_BANK, ASSESSMENTS, LABS],
   },
   {
     title: 'More',
-    items: [REPORTS, NIMBUS],
+    items: [REPORTS, NIMBUS, HELP_INSTRUCTOR],
   },
 ];
 
@@ -204,7 +285,7 @@ const ADMIN: NavSection[] = [
   },
   {
     title: 'Insight',
-    items: [REPORTS, PROCTORING],
+    items: [REPORTS, PROCTORING, HELP_INSTRUCTOR],
   },
 ];
 
@@ -238,10 +319,24 @@ export function navItemByHref(href: string): NavItem | undefined {
 }
 
 /**
+ * The help centre for a role: instructors and admins get the instructor guides,
+ * everyone else the student guides. Used by the sidebar and top-bar shortcuts.
+ */
+export function helpHref(role: Role | undefined): string {
+  return role === 'instructor' || role === 'admin'
+    ? '/help/instructor'
+    : '/help/student';
+}
+
+/**
  * The nav item whose href best matches a pathname, so the sidebar can highlight
  * the current page. Longest prefix wins, so `/admin/users` beats `/`.
  */
 export function activeHref(pathname: string, role: Role | undefined): string | null {
+  // The hub at /help is shared; keep the role's own guide item lit there too.
+  if (pathname === '/help' || pathname === '/help/') {
+    return helpHref(role);
+  }
   const items = navItems(role);
   let best: string | null = null;
   for (const item of items) {

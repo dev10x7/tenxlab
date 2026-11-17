@@ -46,6 +46,14 @@ function service(runner: CodeExecutionProvider | null = null) {
   });
 }
 
+/** Start an attempt and return it, unwrapping the result union. */
+async function start(svc: AssessmentService, userId: string, id: string, clock?: ReturnType<typeof stepClock>) {
+  const result = await svc.startAttempt(userId, id, clock, DEMO_ASSESSMENTS.find((a) => a.id === id)?.passcode);
+  assert.ok(result.ok, `expected to start ${id}`);
+  if (!result.ok) throw new Error('unreachable');
+  return result.attempt;
+}
+
 test('listByCourse returns only that course’s assessments', () => {
   const list = service().listByCourse('kubernetes-foundations');
   assert.equal(list.length, 2);
@@ -76,13 +84,13 @@ test('the student view hides the answer key and hidden tests', () => {
 test('startAttempt stamps a server deadline and is idempotent while open', async () => {
   const svc = service();
   const clock = stepClock('2026-11-11T09:00:00Z');
-  const a1 = await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  const a1 = await start(svc, 'u1', 'k8s-quiz-1', clock);
   assert.ok(a1);
   assert.equal(a1.endsAt, '2026-11-11T09:30:00.000Z');
   assert.equal(a1.remainingSeconds, 1800);
 
   clock.advance(60);
-  const again = await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  const again = await start(svc, 'u1', 'k8s-quiz-1', clock);
   // Same attempt, same deadline: refreshing does not restart the clock.
   assert.equal(again?.id, a1.id);
   assert.equal(again?.endsAt, '2026-11-11T09:30:00.000Z');
@@ -90,25 +98,28 @@ test('startAttempt stamps a server deadline and is idempotent while open', async
 });
 
 test('an untimed practice assessment has no deadline', async () => {
-  const attempt = await service().startAttempt('u1', 'k8s-practice-1');
+  const attempt = await start(service(), 'u1', 'k8s-practice-1');
   assert.equal(attempt?.endsAt, null);
   assert.equal(attempt?.remainingSeconds, null);
 });
 
 test('startAttempt on an unknown assessment is null', async () => {
-  assert.equal(await service().startAttempt('u1', 'nope'), null);
+  assert.deepEqual(await service().startAttempt('u1', 'nope'), {
+    ok: false,
+    reason: 'not_found',
+  });
 });
 
 test('getAttempt is scoped to its owner', async () => {
   const svc = service();
-  const attempt = await svc.startAttempt('u1', 'k8s-quiz-1');
+  const attempt = await start(svc, 'u1', 'k8s-quiz-1');
   assert.equal(await svc.getAttempt(attempt!.id, 'u2'), null);
   assert.equal((await svc.getAttempt(attempt!.id, 'u1'))?.id, attempt!.id);
 });
 
 test('submitting grades objective questions without a runner', async () => {
   const svc = service(null);
-  const attempt = await svc.startAttempt('u1', 'k8s-quiz-1');
+  const attempt = await start(svc, 'u1', 'k8s-quiz-1');
   const result = await svc.submit(attempt!.id, 'u1', {
     'q-pod': 0, // correct MCQ (20)
     'q-mean': 'def average(nums): return 0', // coding, no runner → 0
@@ -124,7 +135,7 @@ test('submitting grades objective questions without a runner', async () => {
 test('a coding question runs on the pool and enforces the read-only region', async () => {
   const { calls, provider } = fakeRunner({ '[1, 2, 3]': '2.0\n', '[4, 8]': '6.0\n' });
   const svc = service(provider);
-  const attempt = await svc.startAttempt('u1', 'k8s-quiz-1');
+  const attempt = await start(svc, 'u1', 'k8s-quiz-1');
   const stub = DEMO_ASSESSMENTS[0]!.questions.find((q) => q.id === 'q-mean')!.stubCode!;
   const answer = stub.replace('# Write your code here', 'return sum(nums) / len(nums)');
   const result = await svc.submit(attempt!.id, 'u1', { 'q-mean': answer });
@@ -140,7 +151,7 @@ test('a coding question runs on the pool and enforces the read-only region', asy
 test('a tampered read-only region scores zero and never runs', async () => {
   const { calls, provider } = fakeRunner();
   const svc = service(provider);
-  const attempt = await svc.startAttempt('u1', 'k8s-quiz-1');
+  const attempt = await start(svc, 'u1', 'k8s-quiz-1');
   const tampered = 'def average(nums, extra):\n    # start your solution\n    pass\n    # end your solution\n';
   const result = await svc.submit(attempt!.id, 'u1', { 'q-mean': tampered });
   assert.ok(!('reason' in result));
@@ -154,7 +165,7 @@ test('a tampered read-only region scores zero and never runs', async () => {
 test('a submission past the deadline is recorded as expired with zero score', async () => {
   const svc = service(null);
   const clock = stepClock('2026-11-11T09:00:00Z');
-  const attempt = await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  const attempt = await start(svc, 'u1', 'k8s-quiz-1', clock);
   clock.advance(1800 + 60); // 60s past the deadline, beyond the grace window
   const result = await svc.submit(attempt!.id, 'u1', { 'q-pod': 0 }, clock);
   assert.ok(!('reason' in result));
@@ -165,7 +176,7 @@ test('a submission past the deadline is recorded as expired with zero score', as
 
 test('submitting twice is rejected the second time', async () => {
   const svc = service(null);
-  const attempt = await svc.startAttempt('u1', 'k8s-practice-1');
+  const attempt = await start(svc, 'u1', 'k8s-practice-1');
   await svc.submit(attempt!.id, 'u1', {});
   const again = await svc.submit(attempt!.id, 'u1', {});
   assert.deepEqual(again, { reason: 'already_submitted' });
@@ -173,16 +184,16 @@ test('submitting twice is rejected the second time', async () => {
 
 test('submitting another user’s attempt is not found', async () => {
   const svc = service(null);
-  const attempt = await svc.startAttempt('u1', 'k8s-practice-1');
+  const attempt = await start(svc, 'u1', 'k8s-practice-1');
   assert.deepEqual(await svc.submit(attempt!.id, 'u2', {}), { reason: 'not_found' });
 });
 
 test('history lists a student’s attempts, newest first', async () => {
   const svc = service(null);
   const clock = stepClock('2026-11-11T09:00:00Z');
-  await svc.startAttempt('u1', 'k8s-practice-1', clock);
+  await start(svc, 'u1', 'k8s-practice-1', clock);
   clock.advance(5);
-  await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  await start(svc, 'u1', 'k8s-quiz-1', clock);
   const history = await svc.history('u1');
   assert.equal(history.length, 2);
   assert.equal(history[0]!.assessmentId, 'k8s-quiz-1');
@@ -196,11 +207,11 @@ test('tenant review lists proctored attempts only, newest first', async () => {
   const svc = new AssessmentService({ attempts, memberships, assessments: DEMO_ASSESSMENTS });
   const clock = stepClock('2026-11-11T09:00:00Z');
   // Practice (ungraded) first, then graded; a second tenant's attempt is excluded.
-  await svc.startAttempt('u1', 'k8s-practice-1', clock);
+  await start(svc, 'u1', 'k8s-practice-1', clock);
   clock.advance(5);
-  await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  await start(svc, 'u1', 'k8s-quiz-1', clock);
   clock.advance(5);
-  await svc.startAttempt('u2', 'k8s-quiz-1', clock);
+  await start(svc, 'u2', 'k8s-quiz-1', clock);
 
   const review = await svc.reviewForTenant('t1');
   assert.equal(review.length, 1);
@@ -208,3 +219,45 @@ test('tenant review lists proctored attempts only, newest first', async () => {
   assert.equal(review[0]!.userId, 'u1');
 });
 
+
+test('a fresh attempt on a passcode-protected test is refused without the code', async () => {
+  const svc = service(null);
+  const result = await svc.startAttempt('u1', 'k8s-quiz-1', undefined, undefined);
+  assert.deepEqual(result, { ok: false, reason: 'passcode_required' });
+});
+
+test('a fresh attempt starts with the correct passcode', async () => {
+  const svc = service(null);
+  const result = await svc.startAttempt('u1', 'k8s-quiz-1', undefined, 'K8S-2026');
+  assert.ok(result.ok);
+  if (!result.ok) return;
+  assert.equal(result.attempt.assessment.requiresPasscode, true);
+});
+
+test('a wrong passcode is refused', async () => {
+  const svc = service(null);
+  const result = await svc.startAttempt('u1', 'k8s-quiz-1', undefined, 'nope');
+  assert.deepEqual(result, { ok: false, reason: 'passcode_required' });
+});
+
+test('resuming an open attempt never re-checks the passcode', async () => {
+  const svc = service(null);
+  const clock = stepClock('2026-11-11T09:00:00Z');
+  const first = await svc.startAttempt('u1', 'k8s-quiz-1', clock, 'K8S-2026');
+  assert.ok(first.ok);
+  if (!first.ok) return;
+  clock.advance(60);
+  // A refresh mid-exam omits the passcode and still resumes the same attempt.
+  const again = await svc.startAttempt('u1', 'k8s-quiz-1', clock);
+  assert.ok(again.ok);
+  if (!again.ok) return;
+  assert.equal(again.attempt.id, first.attempt.id);
+});
+
+test('an assessment without a passcode starts without one', async () => {
+  const svc = service(null);
+  const result = await svc.startAttempt('u1', 'k8s-practice-1');
+  assert.ok(result.ok);
+  if (!result.ok) return;
+  assert.equal(result.attempt.assessment.requiresPasscode, false);
+});

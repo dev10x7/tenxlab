@@ -60,28 +60,44 @@ test('demo users are seeded into the shared state', () => {
 
 // -------------------------------------------------------------------- catalog
 
+/** A catalog over the demo state's repositories, with its own progress store. */
+function buildCatalog(progress = new InMemoryProgressRepository()) {
+  const state = createDemoState();
+  const catalog = new CatalogService(
+    state.courses,
+    state.modules,
+    state.lessons,
+    progress,
+  );
+  return { catalog, progress };
+}
+
 test('catalog lists courses with per-lesson progress', async () => {
-  const progress = new InMemoryProgressRepository();
-  const catalog = new CatalogService(progress);
-  const before = await catalog.listCourses('u1');
+  const { catalog, progress } = buildCatalog();
+  const before = await catalog.listCourses('demo-tenant', 'u1');
   assert.equal(before.length, 1);
   assert.equal(before[0]?.lessons.every((l) => l.status === 'not_started'), true);
 
   await progress.upsert('u1', 'k8s-l2', { status: 'complete', score: 100 });
-  const after = await catalog.getCourse('kubernetes-foundations', 'u1');
+  const after = await catalog.getCourse('demo-tenant', 'kubernetes-foundations', 'u1');
   const lab = after?.lessons.find((l) => l.id === 'k8s-l2');
   assert.equal(lab?.status, 'complete');
   assert.equal(lab?.score, 100);
 });
 
 test('catalog returns null for an unknown course', async () => {
-  const catalog = new CatalogService(new InMemoryProgressRepository());
-  assert.equal(await catalog.getCourse('nope', 'u1'), null);
+  const { catalog } = buildCatalog();
+  assert.equal(await catalog.getCourse('demo-tenant', 'nope', 'u1'), null);
 });
 
 test('lesson detail returns the reading body and the owning course', async () => {
-  const catalog = new CatalogService(new InMemoryProgressRepository());
-  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l1', 'u1');
+  const { catalog } = buildCatalog();
+  const lesson = await catalog.getLesson(
+    'demo-tenant',
+    'kubernetes-foundations',
+    'k8s-l1',
+    'u1',
+  );
   assert.equal(lesson?.title, 'What is Kubernetes?');
   assert.equal(lesson?.kind, 'reading');
   assert.equal(lesson?.courseSlug, 'kubernetes-foundations');
@@ -89,8 +105,13 @@ test('lesson detail returns the reading body and the owning course', async () =>
 });
 
 test('lesson detail carries the assessment id for a quiz lesson', async () => {
-  const catalog = new CatalogService(new InMemoryProgressRepository());
-  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l3', 'u1');
+  const { catalog } = buildCatalog();
+  const lesson = await catalog.getLesson(
+    'demo-tenant',
+    'kubernetes-foundations',
+    'k8s-l3',
+    'u1',
+  );
   assert.equal(lesson?.kind, 'quiz');
   assert.equal(lesson?.assessmentId, 'k8s-quiz-1');
 });
@@ -98,22 +119,79 @@ test('lesson detail carries the assessment id for a quiz lesson', async () => {
 test('lesson detail reflects the student progress record', async () => {
   const progress = new InMemoryProgressRepository();
   await progress.upsert('u1', 'k8s-l2', { status: 'complete', score: 90 });
-  const catalog = new CatalogService(progress);
-  const lesson = await catalog.getLesson('kubernetes-foundations', 'k8s-l2', 'u1');
+  const { catalog } = buildCatalog(progress);
+  const lesson = await catalog.getLesson(
+    'demo-tenant',
+    'kubernetes-foundations',
+    'k8s-l2',
+    'u1',
+  );
   assert.equal(lesson?.status, 'complete');
   assert.equal(lesson?.score, 90);
 });
 
 test('lesson detail returns null for a lesson the course does not own', async () => {
-  const catalog = new CatalogService(new InMemoryProgressRepository());
-  assert.equal(await catalog.getLesson('kubernetes-foundations', 'nope', 'u1'), null);
-  assert.equal(await catalog.getLesson('nope', 'k8s-l1', 'u1'), null);
+  const { catalog } = buildCatalog();
+  assert.equal(
+    await catalog.getLesson('demo-tenant', 'kubernetes-foundations', 'nope', 'u1'),
+    null,
+  );
+  assert.equal(await catalog.getLesson('demo-tenant', 'nope', 'k8s-l1', 'u1'), null);
+});
+
+test('catalog hides a draft course from students', async () => {
+  const state = createDemoState();
+  await state.courses.update('course-kubernetes-foundations', { status: 'draft' });
+  const catalog = new CatalogService(
+    state.courses,
+    state.modules,
+    state.lessons,
+    new InMemoryProgressRepository(),
+  );
+  assert.equal((await catalog.listCourses('demo-tenant', 'u1')).length, 0);
+  assert.equal(
+    await catalog.getCourse('demo-tenant', 'kubernetes-foundations', 'u1'),
+    null,
+  );
 });
 
 test('demo course exposes exactly one launchable lab', () => {
   const labs = DEMO_COURSES.flatMap((c) => c.lessons).filter((l) => l.kind === 'lab');
   assert.equal(labs.length, 1);
   assert.equal(labs[0]?.exerciseSlug, 'create-simple-pod');
+});
+
+test('a lab lesson with an exercise slug is launchable in the summary and detail', async () => {
+  const { catalog } = buildCatalog();
+  const summary = await catalog.getCourse('demo-tenant', 'kubernetes-foundations', 'u1');
+  assert.equal(summary?.lessons.find((l) => l.id === 'k8s-l2')?.launchable, true);
+  const detail = await catalog.getLesson(
+    'demo-tenant',
+    'kubernetes-foundations',
+    'k8s-l2',
+    'u1',
+  );
+  assert.equal(detail?.launchable, true);
+});
+
+test('a lab lesson without an exercise slug is not launchable', async () => {
+  const state = createDemoState();
+  await state.lessons.update('k8s-l2', { exerciseSlug: null });
+  const catalog = new CatalogService(
+    state.courses,
+    state.modules,
+    state.lessons,
+    new InMemoryProgressRepository(),
+  );
+  const summary = await catalog.getCourse('demo-tenant', 'kubernetes-foundations', 'u1');
+  assert.equal(summary?.lessons.find((l) => l.id === 'k8s-l2')?.launchable, false);
+  const detail = await catalog.getLesson(
+    'demo-tenant',
+    'kubernetes-foundations',
+    'k8s-l2',
+    'u1',
+  );
+  assert.equal(detail?.launchable, false);
 });
 
 // ------------------------------------------------------- exercise descriptor

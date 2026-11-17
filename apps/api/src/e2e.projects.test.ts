@@ -305,3 +305,66 @@ test('auto-evaluation is ownership-gated and requires a running workspace', asyn
   );
   assert.equal(foreign.status, 404);
 });
+
+test('deleting a workspace removes it and makes the component forkable again', async () => {
+  const student = await signIn('student@tenxlab.local');
+
+  const list = await call('/api/projects', { cookie: student });
+  const demo = (list.body as Array<{
+    project: { id: string };
+    components: Array<{ id: string; fork: unknown }>;
+  }>).find((p) => p.project.id === 'project-demo-spring-api');
+  assert.ok(demo, 'the demo project is listed');
+  const component = demo.components[0]!;
+  const forked = await call(
+    `/api/projects/project-demo-spring-api/components/${component.id}/fork`,
+    { method: 'POST', cookie: student },
+  );
+  assert.equal(forked.status, 201);
+  const workspaceId = (forked.body as { workspaceId: string }).workspaceId;
+
+  const deleted = await call(`/api/projects/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+    cookie: student,
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal((deleted.body as { deleted: boolean }).deleted, true);
+
+  // The component no longer carries a fork, so it can be forked afresh.
+  const after = await call('/api/projects', { cookie: student });
+  const refreshed = (after.body as Array<{
+    project: { id: string };
+    components: Array<{ id: string; fork: unknown }>;
+  }>).find((p) => p.project.id === 'project-demo-spring-api');
+  assert.equal(refreshed?.components[0]?.fork, null);
+
+  // Deleting again is a not-found.
+  const again = await call(`/api/projects/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+    cookie: student,
+  });
+  assert.equal(again.status, 404);
+});
+
+test('a student cannot delete another user\'s workspace', async () => {
+  const student = await signIn('student@tenxlab.local');
+  const instructor = await signIn('instructor@tenxlab.local');
+
+  const list = await call('/api/projects', { cookie: student });
+  const demo = (list.body as Array<{
+    project: { id: string };
+    components: Array<{ id: string; fork: unknown }>;
+  }>).find((p) => p.project.id === 'project-demo-spring-api');
+  const component = demo!.components[0]!;
+  const forked = await call(
+    `/api/projects/project-demo-spring-api/components/${component.id}/fork`,
+    { method: 'POST', cookie: student },
+  );
+  const workspaceId = (forked.body as { workspaceId: string }).workspaceId;
+
+  const foreign = await call(`/api/projects/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+    cookie: instructor,
+  });
+  assert.equal(foreign.status, 404);
+});

@@ -3,15 +3,48 @@ import assert from 'node:assert/strict';
 import { BatchService } from './batch.service';
 import {
   InMemoryBatchRepository,
+  InMemoryCourseRepository,
   InMemoryEnrollmentRepository,
+  InMemoryLessonRepository,
   InMemoryMembershipRepository,
+  InMemoryModuleRepository,
   InMemoryProgressRepository,
   InMemoryUserRepository,
 } from '../common/in-memory';
+import { courseCatalogFrom } from '../catalog/course-catalog';
 import { createDemoState } from '../demo/state';
 import { DEMO_BATCH, DEMO_COURSES } from '../catalog/demo-data';
 
 const LESSONS = DEMO_COURSES[0]?.lessons.map((l) => ({ id: l.id, title: l.title })) ?? [];
+
+/** A catalog whose course `c1` holds the demo course's lessons. */
+function demoCatalog() {
+  const courses = new InMemoryCourseRepository([
+    {
+      id: 'c1',
+      tenantId: 't1',
+      slug: 'c1',
+      title: 'Course One',
+      description: '',
+      status: 'published',
+      createdAt: new Date('2026-01-01'),
+    },
+  ]);
+  const modules = new InMemoryModuleRepository([
+    { id: 'cm1', courseId: 'c1', title: 'Module', position: 0 },
+  ]);
+  const lessons = new InMemoryLessonRepository(
+    (DEMO_COURSES[0]?.lessons ?? []).map((l, i) => ({
+      id: l.id,
+      moduleId: 'cm1',
+      title: l.title,
+      type: l.type,
+      maxScore: l.maxScore,
+      position: i,
+    })),
+  );
+  return courseCatalogFrom(courses, modules, lessons);
+}
 
 function buildService() {
   const batches = new InMemoryBatchRepository();
@@ -25,7 +58,14 @@ function buildService() {
     { id: 'i1', email: 'i1@x.dev', fullName: 'Instructor One' },
   ]);
   const progress = new InMemoryProgressRepository();
-  const service = new BatchService(batches, enrollments, memberships, users, progress, LESSONS);
+  const service = new BatchService(
+    batches,
+    enrollments,
+    memberships,
+    users,
+    progress,
+    demoCatalog(),
+  );
   return { service, batches, enrollments, progress };
 }
 
@@ -155,4 +195,53 @@ test('the seeded demo state has a batch with the demo student enrolled', async (
   assert.equal(batches[0]?.id, DEMO_BATCH.id);
   const roster = await state.enrollments.listByBatch(DEMO_BATCH.id);
   assert.deepEqual(roster.map((e) => e.userId), ['demo-student']);
+});
+
+test('gradebook columns come from the enrolled course, not a fixed list', async () => {
+  // A course authored after the demo corpus still contributes its lessons.
+  const courses = new InMemoryCourseRepository([
+    {
+      id: 'authored',
+      tenantId: 't1',
+      slug: 'docker-deep-dive',
+      title: 'Docker Deep Dive',
+      description: '',
+      status: 'published',
+      createdAt: new Date('2026-06-01'),
+    },
+  ]);
+  const modules = new InMemoryModuleRepository([
+    { id: 'dm1', courseId: 'authored', title: 'Containers', position: 0 },
+  ]);
+  const lessons = new InMemoryLessonRepository([
+    { id: 'dl1', moduleId: 'dm1', title: 'Images', type: 'reading', maxScore: 0, position: 0 },
+    { id: 'dl2', moduleId: 'dm1', title: 'Compose', type: 'interactive_lab', maxScore: 100, position: 1 },
+  ]);
+  const progress = new InMemoryProgressRepository();
+  const enrollments = new InMemoryEnrollmentRepository();
+  const batches = new InMemoryBatchRepository();
+  const service = new BatchService(
+    batches,
+    enrollments,
+    new InMemoryMembershipRepository([
+      { id: 'm1', userId: 's1', tenantId: 't1', role: 'student', status: 'active' },
+    ]),
+    new InMemoryUserRepository([
+      { id: 's1', email: 's1@x.dev', fullName: 'Student One' },
+    ]),
+    progress,
+    courseCatalogFrom(courses, modules, lessons),
+  );
+
+  const batch = await service.createBatch({ tenantId: 't1', name: 'Batch A' });
+  await service.assign({ batchId: batch.id, userId: 's1', courseId: 'authored', tenantId: 't1' });
+  await progress.upsert('s1', 'dl2', { status: 'complete', score: 88 });
+
+  const gb = await service.gradebook(batch.id, 't1');
+  assert.deepEqual(gb?.lessons.map((l) => l.id), ['dl1', 'dl2']);
+  const row = gb?.rows[0];
+  assert.equal(row?.total, 2);
+  assert.equal(row?.completed, 1);
+  assert.equal(row?.averageScore, 88);
+  assert.equal(row?.cells.find((c) => c.lessonId === 'dl2')?.score, 88);
 });

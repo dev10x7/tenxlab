@@ -27,6 +27,15 @@ export function ssoErrorMessage(reason: string | null | undefined): string | nul
 }
 
 /**
+ * Whether a request method carries a body the proxy must forward. GET and HEAD
+ * have none; every other verb (POST/PATCH/PUT/DELETE) must pass its body
+ * through, or the upstream API sees an empty payload and rejects the write.
+ */
+export function methodHasBody(method: string): boolean {
+  return method !== 'GET' && method !== 'HEAD';
+}
+
+/**
  * Init for the web proxy's upstream fetch to the LMS API.
  *
  * Next.js patches global fetch and caches route-handler responses by URL. Lab
@@ -250,5 +259,72 @@ export function formatUsd(cents: number): string {
   const sign = cents < 0 ? '-' : '';
   const abs = Math.abs(Math.round(cents));
   return `${sign}$${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
+}
+
+/** A rank's standing as a percentile label, e.g. "Top 10%" or "Bottom half". */
+export function rankPercentileLabel(percentile: number): string {
+  const pct = Math.min(Math.max(Math.round(percentile), 0), 100);
+  if (pct >= 50) {
+    const top = 100 - pct;
+    return top <= 0 ? 'Top of the cohort' : `Top ${top}%`;
+  }
+  return 'Bottom half';
+}
+
+/** Display label for a template's picker category (Nov'25 §1.5). */
+export function templateCategoryLabel(category: string): string {
+  switch (category) {
+    case 'front_end':
+      return 'Front end';
+    case 'back_end':
+      return 'Backend';
+    case 'full_stack':
+      return 'Full stack';
+    case 'database':
+      return 'Database';
+    default:
+      return 'Other templates';
+  }
+}
+
+/** Display label for an attendance status, including the unmarked state. */
+export function attendanceStatusLabel(status: string): string {
+  switch (status) {
+    case 'present':
+      return 'Present';
+    case 'absent':
+      return 'Absent';
+    case 'late':
+      return 'Late';
+    case 'excused':
+      return 'Excused';
+    default:
+      return 'Not marked';
+  }
+}
+
+/** A short CSS class for an attendance status cell (drives the colour). */
+export function attendanceStatusClass(status: string): string {
+  switch (status) {
+    case 'present':
+      return 'present';
+    case 'absent':
+      return 'absent';
+    case 'late':
+      return 'late';
+    case 'excused':
+      return 'excused';
+    default:
+      return 'not_marked';
+  }
+}
+
+/**
+ * The attendance standing as a short label, flagging a shortfall. ByteXL flags
+ * students under the typical 75% threshold, so the label calls that out.
+ */
+export function attendancePercentLabel(percent: number): string {
+  const pct = Math.min(Math.max(Math.round(percent), 0), 100);
+  return pct < 75 ? `${pct}% — below 75%` : `${pct}%`;
 }
 

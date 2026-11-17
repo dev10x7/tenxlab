@@ -1,6 +1,7 @@
 import type { LabSpec, SessionHandle } from '@tenxlab/contracts';
 import {
   LabProviderError,
+  type ArchiveWorkspaceFilesInput,
   type ExposedService,
   type ExposeInput,
   type GitPublisher,
@@ -9,6 +10,8 @@ import {
   type LabProvider,
   type ReadWorkspaceFilesInput,
   type ServiceExposer,
+  type Suspendable,
+  type WorkspaceArchiver,
   type WorkspaceFile,
   type WorkspaceReader,
 } from './types';
@@ -31,7 +34,15 @@ import {
  * deploy and a git push are tier-2 (pod) concerns today, so the tier-2 provider
  * answers.
  */
-export class RoutingProvider implements LabProvider, ServiceExposer, GitPublisher, WorkspaceReader {
+export class RoutingProvider
+  implements
+    LabProvider,
+    ServiceExposer,
+    GitPublisher,
+    WorkspaceReader,
+    WorkspaceArchiver,
+    Suspendable
+{
   readonly name = 'routing';
 
   constructor(
@@ -152,6 +163,52 @@ export class RoutingProvider implements LabProvider, ServiceExposer, GitPublishe
     }
     return reader.readWorkspaceFiles(input);
   }
+
+  /** The first configured provider that can archive a workspace, if any. */
+  private archiver(): WorkspaceArchiver | null {
+    for (const provider of this.all()) {
+      if (isArchiver(provider)) return provider;
+    }
+    return null;
+  }
+
+  async archiveWorkspaceFiles(
+    input: ArchiveWorkspaceFilesInput,
+  ): Promise<Uint8Array | null> {
+    const archiver = this.archiver();
+    if (!archiver) {
+      throw new LabProviderError('No lab provider can archive a workspace', 503);
+    }
+    return archiver.archiveWorkspaceFiles(input);
+  }
+
+  /**
+   * Suspend/resume reach the first provider that can suspend. Like
+   * `expose`/`publish`, only the tier-2 pod provider can today: a fork's compute
+   * is a Deployment that scales to zero while its volume survives.
+   */
+  private suspender(): Suspendable | null {
+    for (const provider of this.all()) {
+      if (isSuspendable(provider)) return provider;
+    }
+    return null;
+  }
+
+  async suspend(sessionId: string): Promise<void> {
+    const suspender = this.suspender();
+    if (!suspender) {
+      throw new LabProviderError('No lab provider can suspend a workspace', 503);
+    }
+    await suspender.suspend(sessionId);
+  }
+
+  async resume(sessionId: string): Promise<void> {
+    const suspender = this.suspender();
+    if (!suspender) {
+      throw new LabProviderError('No lab provider can resume a workspace', 503);
+    }
+    await suspender.resume(sessionId);
+  }
 }
 
 /** Structural check: does this provider implement `ServiceExposer`? */
@@ -168,4 +225,15 @@ function isPublisher(provider: LabProvider): provider is LabProvider & GitPublis
 /** Structural check: does this provider implement `WorkspaceReader`? */
 function isReader(provider: LabProvider): provider is LabProvider & WorkspaceReader {
   return typeof (provider as Partial<WorkspaceReader>).readWorkspaceFiles === 'function';
+}
+
+/** Structural check: does this provider implement `WorkspaceArchiver`? */
+function isArchiver(provider: LabProvider): provider is LabProvider & WorkspaceArchiver {
+  return typeof (provider as Partial<WorkspaceArchiver>).archiveWorkspaceFiles === 'function';
+}
+
+/** Structural check: does this provider implement `Suspendable`? */
+function isSuspendable(provider: LabProvider): provider is LabProvider & Suspendable {
+  const candidate = provider as Partial<Suspendable>;
+  return typeof candidate.suspend === 'function' && typeof candidate.resume === 'function';
 }

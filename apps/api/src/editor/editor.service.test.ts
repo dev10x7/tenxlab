@@ -167,7 +167,7 @@ test('the catalog offers more than the original six languages', () => {
   const ids = service(null)
     .languages()
     .map((l) => l.id);
-  for (const id of ['python', 'javascript', 'java', 'c', 'cpp', 'sql', 'go', 'rust', 'php', 'ruby', 'kotlin', 'bash', 'csharp']) {
+  for (const id of ['python', 'javascript', 'typescript', 'java', 'c', 'cpp', 'sql', 'go', 'rust', 'php', 'ruby', 'kotlin', 'bash', 'csharp']) {
     assert.ok(ids.includes(id), `missing language: ${id}`);
   }
 });

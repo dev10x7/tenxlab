@@ -14,10 +14,12 @@
     "test": "npm run test --workspaces --if-present && node --test --test-reporter=spec \"deploy/**/*.test.mjs\"",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run build -w @tenxlab/contracts -w @tenxlab/runtime-policy -w @tenxlab/lab-provider && npm run typecheck --workspaces --if-present",
-    "license:check": "node scripts/check-licenses.mjs"
+    "license:check": "node scripts/check-licenses.mjs",
+    "shots:help": "node scripts/shots/capture-help.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0"
+    "@types/node": "^22.9.0",
+    "playwright-core": "^1.65.1"
   },
   "engines": {
     "node": ">=22.6.0"
