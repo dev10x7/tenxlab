@@ -35,6 +35,11 @@ import {
   questionKindLabel,
   feedKindLabel,
   communicationLabel,
+  contestPhaseLabel,
+  contestIsLive,
+  durationLabel,
+  withQuery,
+  similarityLabel,
 } from '../src/lib/lms.ts';
 
 test('ssoErrorMessage maps every known reason', () => {
@@ -425,4 +430,43 @@ test('communicationLabel bands a communication score', () => {
   assert.equal(communicationLabel(85), '85% \u2014 strong');
   assert.equal(communicationLabel(65), '65% \u2014 solid');
   assert.equal(communicationLabel(30), '30% \u2014 needs practice');
+});
+
+test('contestPhaseLabel names each phase and falls back', () => {
+  assert.equal(contestPhaseLabel('draft'), 'Draft');
+  assert.equal(contestPhaseLabel('scheduled'), 'Scheduled');
+  assert.equal(contestPhaseLabel('live'), 'Live now');
+  assert.equal(contestPhaseLabel('ended'), 'Ended');
+  assert.equal(contestPhaseLabel('mystery'), 'Contest');
+});
+
+test('contestIsLive is true only while a contest is live', () => {
+  assert.equal(contestIsLive('live'), true);
+  for (const phase of ['draft', 'scheduled', 'ended']) {
+    assert.equal(contestIsLive(phase), false, `${phase} is not live`);
+  }
+});
+
+test('durationLabel renders minutes and seconds compactly', () => {
+  assert.equal(durationLabel(0), '0s');
+  assert.equal(durationLabel(1500), '2s');
+  assert.equal(durationLabel(95_000), '1m 35s');
+  assert.equal(durationLabel(120_000), '2m 0s');
+  assert.equal(durationLabel(-50), '0s');
+});
+
+test('withQuery appends a search string and leaves a bare path alone', () => {
+  assert.equal(withQuery('/api/passport/recruiter', ''), '/api/passport/recruiter');
+  assert.equal(
+    withQuery('/api/passport/recruiter', '?minLabScore=70'),
+    '/api/passport/recruiter?minLabScore=70',
+  );
+});
+
+test('similarityLabel renders a ratio as a clamped percentage', () => {
+  assert.equal(similarityLabel(0), '0%');
+  assert.equal(similarityLabel(0.93), '93%');
+  assert.equal(similarityLabel(1), '100%');
+  assert.equal(similarityLabel(1.5), '100%');
+  assert.equal(similarityLabel(-0.2), '0%');
 });

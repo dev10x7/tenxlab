@@ -81,6 +81,10 @@ function MyPassport() {
           label="Communication"
           value={communicationLabel(passport.communicationScore)}
         />
+        <Stat
+          label="Best contest rank"
+          value={passport.bestContestRank != null ? `#${passport.bestContestRank}` : '—'}
+        />
       </div>
 
       <h4 style={{ marginTop: 24 }}>Badges</h4>
@@ -112,19 +116,34 @@ function MyPassport() {
 
 function RecruiterShortlist() {
   const [rows, setRows] = useState<RecruiterRow[] | null>(null);
-  const [query, setQuery] = useState('');
-  const [minLabScore, setMinLabScore] = useState('');
+  const [filters, setFilters] = useState({
+    query: '',
+    institution: '',
+    graduationYear: '',
+    minLabScore: '',
+    minCommunicationScore: '',
+    minBadges: '',
+  });
   const [error, setError] = useState<string | null>(null);
+
+  const active = () => ({
+    query: filters.query.trim() || undefined,
+    institution: filters.institution.trim() || undefined,
+    graduationYear: filters.graduationYear ? Number(filters.graduationYear) : undefined,
+    minLabScore: filters.minLabScore ? Number(filters.minLabScore) : undefined,
+    minCommunicationScore: filters.minCommunicationScore
+      ? Number(filters.minCommunicationScore)
+      : undefined,
+    minBadges: filters.minBadges ? Number(filters.minBadges) : undefined,
+  });
+
+  const set = (key: keyof typeof filters) => (value: string) =>
+    setFilters((f) => ({ ...f, [key]: value }));
 
   const load = async () => {
     setError(null);
     try {
-      setRows(
-        await api.recruiterPassports({
-          query: query.trim() || undefined,
-          minLabScore: minLabScore ? Number(minLabScore) : undefined,
-        }),
-      );
+      setRows(await api.recruiterPassports(active()));
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 403
@@ -141,29 +160,48 @@ function RecruiterShortlist() {
 
   return (
     <section style={{ marginTop: 32 }}>
-      <h2>Recruiter shortlist</h2>
+      <div className="row" style={{ alignItems: 'baseline' }}>
+        <h2>Recruiter shortlist</h2>
+        <a
+          className="pill"
+          style={{ marginLeft: 'auto' }}
+          href={api.recruiterCsvUrl(active())}
+        >
+          Export CSV
+        </a>
+      </div>
       <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <label>
-          <div className="muted" style={{ fontSize: 12 }}>
-            Name or email
-          </div>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-          />
-        </label>
-        <label>
-          <div className="muted" style={{ fontSize: 12 }}>
-            Min lab score
-          </div>
-          <input
-            value={minLabScore}
-            onChange={(e) => setMinLabScore(e.target.value)}
-            placeholder="e.g. 70"
-            inputMode="numeric"
-          />
-        </label>
+        <Field label="Name or email" value={filters.query} onChange={set('query')} placeholder="Search" />
+        <Field
+          label="Institution"
+          value={filters.institution}
+          onChange={set('institution')}
+          placeholder="e.g. Acme"
+        />
+        <Field
+          label="Graduation year"
+          value={filters.graduationYear}
+          onChange={set('graduationYear')}
+          placeholder="e.g. 2026"
+        />
+        <Field
+          label="Min lab score"
+          value={filters.minLabScore}
+          onChange={set('minLabScore')}
+          placeholder="e.g. 70"
+        />
+        <Field
+          label="Min communication"
+          value={filters.minCommunicationScore}
+          onChange={set('minCommunicationScore')}
+          placeholder="e.g. 60"
+        />
+        <Field
+          label="Min badges"
+          value={filters.minBadges}
+          onChange={set('minBadges')}
+          placeholder="e.g. 2"
+        />
         <button onClick={() => void load()}>Filter</button>
       </div>
 
@@ -175,9 +213,12 @@ function RecruiterShortlist() {
           <thead>
             <tr>
               <th>Candidate</th>
+              <th>Institution</th>
+              <th>Grad year</th>
               <th>Badges</th>
               <th>Avg lab</th>
               <th>Communication</th>
+              <th>Best rank</th>
               <th>Readiness</th>
             </tr>
           </thead>
@@ -190,9 +231,12 @@ function RecruiterShortlist() {
                     {row.email}
                   </div>
                 </td>
+                <td>{row.institution || '—'}</td>
+                <td>{row.graduationYear ?? '—'}</td>
                 <td>{row.verifiedBadges}</td>
                 <td>{scoreLabel(row.avgLabScore)}</td>
                 <td>{communicationLabel(row.communicationScore)}</td>
+                <td>{row.bestContestRank != null ? `#${row.bestContestRank}` : '—'}</td>
                 <td>{readinessLabel(row.readiness)}</td>
               </tr>
             ))}
@@ -200,6 +244,32 @@ function RecruiterShortlist() {
         </table>
       ) : null}
     </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label>
+      <div className="muted" style={{ fontSize: 12 }}>
+        {label}
+      </div>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        inputMode={label.includes('Name') || label.includes('Institution') ? undefined : 'numeric'}
+      />
+    </label>
   );
 }
 

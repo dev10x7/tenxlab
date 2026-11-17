@@ -833,3 +833,70 @@ export interface DepartmentRepository {
   listByTenant(tenantId: string): Promise<DepartmentRecord[]>;
   delete(id: string): Promise<void>;
 }
+
+// ---------------------------------------------------------------- Phase G: Contests
+
+/**
+ * A timed contest (ByteXL parity §2.8). `status` is the authoring lifecycle
+ * (draft/published); the *phase* a student sees (scheduled/live/ended) is
+ * derived from the window on read, so a contest cannot be left open past its
+ * end time by a missed job.
+ */
+export interface ContestRecord {
+  id: string;
+  tenantId: string;
+  title: string;
+  description: string;
+  status: string;
+  startAt: Date | null;
+  endAt: Date | null;
+  maxScore: number;
+  /**
+   * Optional exercise scope: a completion of this lab slug credits the contest.
+   * Null means "open" — any lab completion in the tenant during the window
+   * credits it.
+   */
+  exerciseSlug: string | null;
+  createdBy: string;
+  createdAt: Date;
+}
+
+export interface ContestRepository {
+  create(input: Omit<ContestRecord, 'id' | 'createdAt'>): Promise<ContestRecord>;
+  findById(id: string): Promise<ContestRecord | null>;
+  /** A tenant's contests, newest first. */
+  listByTenant(tenantId: string): Promise<ContestRecord[]>;
+  update(id: string, patch: Partial<ContestRecord>): Promise<ContestRecord>;
+  delete(id: string): Promise<void>;
+}
+
+/**
+ * One student's standing in a contest: their best score and the time it took.
+ * The durable source of truth for a leaderboard; the ranking index is rebuilt
+ * from these rows if it is ever lost.
+ */
+export interface ContestEntryRecord {
+  id: string;
+  contestId: string;
+  tenantId: string;
+  userId: string;
+  score: number;
+  durationMs: number;
+  submittedAt: Date;
+}
+
+export interface ContestEntryRepository {
+  /**
+   * Record a student's entry, keeping only their best (highest score, then
+   * fastest). Idempotent per (contest, user): a worse re-submission is ignored.
+   */
+  upsertBest(
+    input: Omit<ContestEntryRecord, 'id' | 'submittedAt'> & { submittedAt: Date },
+  ): Promise<ContestEntryRecord>;
+  /** Every entry in a contest; the service ranks these for the fallback path. */
+  listByContest(contestId: string): Promise<ContestEntryRecord[]>;
+  /** One student's best entry in a contest, or null. */
+  find(contestId: string, userId: string): Promise<ContestEntryRecord | null>;
+  /** A user's best entries across contests; backs the passport's contest rank. */
+  listByUser(userId: string): Promise<ContestEntryRecord[]>;
+}

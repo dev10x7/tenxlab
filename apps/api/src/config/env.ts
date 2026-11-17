@@ -130,6 +130,14 @@ const EnvSchema = z.object({
   // analysis_unavailable.
   AI_PLANE_URL: z.string().default(''),
   AI_PLANE_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+
+  // Contest leaderboard backend (Phase G). When true the live standings are
+  // served from a Redis sorted set (ADR-G1); otherwise an in-process index is
+  // used. Off by default so unit tests never need a Redis.
+  LEADERBOARD_REDIS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s === 'true' || s === '1'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

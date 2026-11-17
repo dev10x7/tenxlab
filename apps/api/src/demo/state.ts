@@ -33,6 +33,8 @@ import {
   InMemorySocialPostRepository,
   InMemorySocialFollowRepository,
   InMemoryDepartmentRepository,
+  InMemoryContestRepository,
+  InMemoryContestEntryRepository,
 } from '../common/in-memory';
 import {
   PrismaAttendanceRepository,
@@ -59,6 +61,8 @@ import {
   PrismaReplayGuard,
   PrismaSnippetRepository,
   PrismaSupportIssueRepository,
+  PrismaContestRepository,
+  PrismaContestEntryRepository,
   PrismaTenantRepository,
   PrismaUserRepository,
   PrismaSkillPassportRepository,
@@ -73,6 +77,7 @@ import type { Repositories } from '../common/repositories';
 import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from '../catalog/demo-data';
 import { DEMO_USERS } from '../identity/demo-users';
 import { DEMO_PROJECT, DEMO_PROJECT_COMPONENT } from '../projects/demo-project';
+import { DEMO_CONTEST } from '../contests/demo-contest';
 
 /**
  * In-memory repository set, seeded from the demo catalog. Used by unit tests and
@@ -110,6 +115,8 @@ export interface DemoState extends Repositories {
   socialPosts: InMemorySocialPostRepository;
   socialFollows: InMemorySocialFollowRepository;
   departments: InMemoryDepartmentRepository;
+  contests: InMemoryContestRepository;
+  contestEntries: InMemoryContestEntryRepository;
   ledger: InMemoryEventLedger;
   replay: InMemoryReplayGuard;
 }
@@ -239,6 +246,8 @@ export function createDemoState(): DemoState {
     socialPosts: new InMemorySocialPostRepository(),
     socialFollows: new InMemorySocialFollowRepository(),
     departments: new InMemoryDepartmentRepository(),
+    contests: new InMemoryContestRepository([DEMO_CONTEST]),
+    contestEntries: new InMemoryContestEntryRepository(),
     ledger: new InMemoryEventLedger(),
     replay: new InMemoryReplayGuard(),
   };
@@ -278,6 +287,8 @@ export function createPrismaState(db: PrismaClient): Repositories {
     socialPosts: new PrismaSocialPostRepository(db),
     socialFollows: new PrismaSocialFollowRepository(db),
     departments: new PrismaDepartmentRepository(db),
+    contests: new PrismaContestRepository(db),
+    contestEntries: new PrismaContestEntryRepository(db),
     ledger: new PrismaEventLedger(db),
     replay: new PrismaReplayGuard(db),
   };

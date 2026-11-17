@@ -3,6 +3,8 @@ import type {
   AttemptRepository,
   BatchRepository,
   ClassSessionRepository,
+  ContestEntryRepository,
+  ContestRepository,
   CourseRepository,
   EnrollmentRepository,
   EventLedger,
@@ -72,6 +74,8 @@ export interface Repositories {
   socialPosts: SocialPostRepository;
   socialFollows: SocialFollowRepository;
   departments: DepartmentRepository;
+  contests: ContestRepository;
+  contestEntries: ContestEntryRepository;
   ledger: EventLedger;
   replay: ReplayGuard;
 }

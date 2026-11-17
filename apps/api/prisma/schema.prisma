@@ -690,3 +690,50 @@ model SocialFollow {
   @@index([tenantId, followeeId])
   @@map("social_follows")
 }
+
+// ---------------------------------------------------------------- Phase G: Contests
+
+// A timed contest a student enters to climb a leaderboard (§2.8). `status` is
+// the authoring lifecycle; the phase a student sees (scheduled/live/ended) is
+// derived from the window on read, so a contest cannot be left open past its
+// end time by a missed job. The ranking index lives in Redis, rebuilt from
+// contest_entries when lost.
+model Contest {
+  id          String    @id @default(uuid())
+  tenantId    String
+  title       String
+  description String    @default("")
+  status      String    @default("draft") // draft | published
+  startAt     DateTime?
+  endAt       DateTime?
+  maxScore    Int       @default(100)
+  // Optional exercise scope: a completion of this slug credits the contest.
+  // Null means "open" — any exercise completion in the tenant credits it.
+  exerciseSlug String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+
+  entries ContestEntry[]
+
+  @@index([tenantId, createdAt])
+  @@map("contests")
+}
+
+// One student's best standing in a contest: the durable source of truth for a
+// leaderboard (Redis is only the index). One row per (contest, student).
+model ContestEntry {
+  id          String   @id @default(uuid())
+  contestId   String
+  tenantId    String
+  userId      String
+  score       Int      @default(0)
+  durationMs  Int      @default(0)
+  submittedAt DateTime @default(now())
+
+  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+
+  @@unique([contestId, userId])
+  @@index([contestId, score])
+  @@index([userId])
+  @@map("contest_entries")
+}

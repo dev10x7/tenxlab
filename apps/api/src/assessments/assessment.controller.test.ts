@@ -6,9 +6,11 @@ import {
   InMemoryAttemptRepository,
   InMemoryMembershipRepository,
   InMemoryProctorEventRepository,
+  InMemoryUserRepository,
 } from '../common/in-memory';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService } from '../proctoring/proctoring.service';
+import { IntegrityService } from '../proctoring/integrity.service';
 import { AssessmentController, ProctoringController } from '../http/controllers';
 
 const sessions = new SessionService('test-secret');
@@ -39,11 +41,22 @@ function wiring() {
   const proctorEvents = new InMemoryProctorEventRepository();
   const assessments = new AssessmentService({ attempts, memberships, runner: null });
   const proctoring = new ProctoringService(proctorEvents);
+  const integrity = new IntegrityService({
+    assessments,
+    memberships,
+    users: new InMemoryUserRepository(),
+    scanner: null,
+  });
   return {
     attempts,
     assessments,
     assessmentController: new AssessmentController(assessments, sessions),
-    proctoringController: new ProctoringController(proctoring, assessments, sessions),
+    proctoringController: new ProctoringController(
+      proctoring,
+      integrity,
+      assessments,
+      sessions,
+    ),
   };
 }
 

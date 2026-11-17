@@ -73,6 +73,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Build a `?...` query string for the recruiter shortlist filters. */
+function recruiterQuery(filters: RecruiterFilters): string {
+  const qs = new URLSearchParams();
+  if (filters.minLabScore != null) qs.set('minLabScore', String(filters.minLabScore));
+  if (filters.minCommunicationScore != null) {
+    qs.set('minCommunicationScore', String(filters.minCommunicationScore));
+  }
+  if (filters.minBadges != null) qs.set('minBadges', String(filters.minBadges));
+  if (filters.graduationYear != null) {
+    qs.set('graduationYear', String(filters.graduationYear));
+  }
+  if (filters.institution) qs.set('institution', filters.institution);
+  if (filters.query) qs.set('query', filters.query);
+  return qs.toString() ? `?${qs}` : '';
+}
+
 export interface LabSession {
   sessionId: string;
   status: 'WARM' | 'ACTIVE' | 'IDLE' | 'TERMINATED' | 'FAILED';
@@ -253,6 +269,31 @@ export interface ProctoredAttemptRow {
   score: number | null;
   startedAt: string;
   risk: ProctorSummary;
+}
+
+/** One peer a submission resembles, with the similarity ratio (0-1). */
+export interface IntegrityMatch {
+  userId: string;
+  studentName: string;
+  similarity: number;
+}
+
+/** One student's batch-scope similarity result for a graded assessment. */
+export interface IntegrityResult {
+  userId: string;
+  studentName: string;
+  maxSimilarity: number;
+  flagged: boolean;
+  matches: IntegrityMatch[];
+}
+
+/** The similarity scan for a graded assessment (§4.2 anti-cheat). */
+export interface IntegrityScan {
+  assessmentId: string;
+  compared: number;
+  threshold: number;
+  flaggedCount: number;
+  results: IntegrityResult[];
 }
 
 export type ProjectTemplateKind = 'framework' | 'base_image';
@@ -608,6 +649,7 @@ export interface SkillPassport {
   avgLabScore: number | null;
   avgAssessmentScore: number | null;
   communicationScore: number | null;
+  bestContestRank: number | null;
   badges: PassportBadge[];
   updatedAt: string;
 }
@@ -617,11 +659,53 @@ export interface RecruiterRow {
   userId: string;
   fullName: string;
   email: string;
+  institution: string;
+  graduationYear: number | null;
   verifiedBadges: number;
   avgLabScore: number | null;
   communicationScore: number | null;
+  bestContestRank: number | null;
   /** 0-100 blended readiness, or null when there is no evidence yet. */
   readiness: number | null;
+}
+
+/** Filters a recruiter may apply to the shortlist. */
+export interface RecruiterFilters {
+  minLabScore?: number;
+  minCommunicationScore?: number;
+  minBadges?: number;
+  graduationYear?: number;
+  institution?: string;
+  query?: string;
+}
+
+// --------------------------------------------------------------- Phase G: Contests
+
+/** A contest's lifecycle state, derived from its window on read. */
+export type ContestPhase = 'draft' | 'scheduled' | 'live' | 'ended';
+
+/** A timed contest a student enters and climbs the leaderboard for (§2.8). */
+export interface Contest {
+  id: string;
+  title: string;
+  description: string;
+  status: 'draft' | 'published';
+  phase: ContestPhase;
+  startAt: string | null;
+  endAt: string | null;
+  maxScore: number;
+  exerciseSlug: string | null;
+  entrants: number;
+}
+
+/** One row of a contest leaderboard. */
+export interface LeaderboardRow {
+  rank: number;
+  userId: string;
+  displayName: string;
+  score: number;
+  durationMs: number;
+  isSelf: boolean;
 }
 
 // ------------------------------------------------------- P3: AI Interviewer
@@ -994,6 +1078,12 @@ export const api = {
       `/api/proctoring/attempts/${encodeURIComponent(attemptId)}/summary`,
     ),
   proctoredAttempts: () => request<ProctoredAttemptRow[]>('/api/proctoring/attempts'),
+  /** Batch-scope code-similarity scan for one graded assessment (§4.2). */
+  assessmentSimilarity: (assessmentId: string, threshold?: number) =>
+    request<IntegrityScan>(
+      `/api/proctoring/assessments/${encodeURIComponent(assessmentId)}/similarity` +
+        (threshold != null ? `?threshold=${encodeURIComponent(String(threshold))}` : ''),
+    ),
   projectTemplates: () => request<ProjectTemplate[]>('/api/projects/templates'),
   /** AI-suggested project copy (§2.11); 503 when the AI plane is unconfigured. */
   suggestProjectCopy: (input: {
@@ -1130,20 +1220,47 @@ export const api = {
   /** Skill Passport: the caller's own passport. */
   passport: () => request<SkillPassport>('/api/passport/me'),
   /** Skill Passport: the recruiter shortlist (instructor/admin only). */
-  recruiterPassports: (filters: {
-    minLabScore?: number;
-    minCommunicationScore?: number;
-    query?: string;
-  } = {}) => {
-    const qs = new URLSearchParams();
-    if (filters.minLabScore != null) qs.set('minLabScore', String(filters.minLabScore));
-    if (filters.minCommunicationScore != null) {
-      qs.set('minCommunicationScore', String(filters.minCommunicationScore));
+  recruiterPassports: (filters: RecruiterFilters = {}) =>
+    request<RecruiterRow[]>(`/api/passport/recruiter${recruiterQuery(filters)}`),
+  /** Skill Passport: the shortlist as a CSV download URL (instructor/admin). */
+  recruiterCsvUrl: (filters: RecruiterFilters = {}) =>
+    `/api/passport/recruiter.csv${recruiterQuery(filters)}`,
+  // ------------------------------------------------------- Phase G: Contests
+  /** Contests visible to the caller (published for students, all for staff). */
+  contests: () => request<Contest[]>('/api/contests'),
+  /** One contest's detail. */
+  contest: (id: string) => request<Contest>(`/api/contests/${encodeURIComponent(id)}`),
+  /** Author a contest (instructor/admin). */
+  createContest: (input: {
+    title: string;
+    description?: string;
+    startAt?: string | null;
+    endAt?: string | null;
+    maxScore?: number;
+    exerciseSlug?: string | null;
+  }) =>
+    request<Contest>('/api/contests', { method: 'POST', body: JSON.stringify(input) }),
+  /** Publish a draft contest (instructor/admin). */
+  publishContest: (id: string) =>
+    request<Contest>(`/api/contests/${encodeURIComponent(id)}/publish`, { method: 'POST' }),
+  /** A contest's live standings. */
+  contestLeaderboard: (id: string) =>
+    request<LeaderboardRow[]>(`/api/contests/${encodeURIComponent(id)}/leaderboard`),
+  /** The caller's own standing in a contest, or null when not entered. */
+  myContestStanding: async (id: string): Promise<LeaderboardRow | null> => {
+    try {
+      return await request<LeaderboardRow>(`/api/contests/${encodeURIComponent(id)}/me`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
     }
-    if (filters.query) qs.set('query', filters.query);
-    const suffix = qs.toString() ? `?${qs}` : '';
-    return request<RecruiterRow[]>(`/api/passport/recruiter${suffix}`);
   },
+  /** Enter a contest, or file a score for it. */
+  submitContestEntry: (id: string, input: { score?: number; durationMs?: number }) =>
+    request<LeaderboardRow>(`/api/contests/${encodeURIComponent(id)}/entries`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   /** AI Interviewer: the prompt bank. */
   interviewPrompts: () => request<InterviewPrompt[]>('/api/interviews/prompts'),
   /** AI Interviewer: the caller's sittings. */

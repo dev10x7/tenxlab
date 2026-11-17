@@ -92,6 +92,13 @@ const ASSESSMENTS: NavItem = {
   blurb: 'Graded tests with proctoring, timers, and auto-grading.',
 };
 
+const CONTESTS: NavItem = {
+  href: '/contests',
+  label: 'Contests',
+  icon: '⚑',
+  blurb: 'Timed sprints with a live leaderboard — climb the ranks.',
+};
+
 const NIMBUS: NavItem = {
   href: '/nimbus',
   label: 'Nimbus',
@@ -238,7 +245,7 @@ const STUDENT: NavSection[] = [
   },
   {
     title: 'Practice',
-    items: [EDITOR, LABS, ASSESSMENTS],
+    items: [EDITOR, LABS, ASSESSMENTS, CONTESTS],
   },
   {
     title: 'Nimbus',
@@ -261,7 +268,7 @@ const INSTRUCTOR: NavSection[] = [
   },
   {
     title: 'Teaching',
-    items: [BATCHES, GRADING, PROCTORING, CLASSES],
+    items: [BATCHES, GRADING, PROCTORING, CONTESTS, CLASSES],
   },
   {
     title: 'Authoring',

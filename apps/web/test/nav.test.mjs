@@ -42,8 +42,18 @@ test('learning and practice hold the daily destinations', () => {
   );
   assert.deepEqual(
     practice?.items.map((i) => i.href),
-    ['/editor', '/labs', '/assessments'],
+    ['/editor', '/labs', '/assessments', '/contests'],
   );
+});
+
+test('contests is a live student and instructor surface (no phase badge)', () => {
+  const student = navItems('student').find((i) => i.href === '/contests');
+  assert.ok(student, 'student nav has /contests');
+  assert.equal(student.phase, undefined, '/contests is wired to the API');
+
+  const instructor = navItems('instructor').find((i) => i.href === '/contests');
+  assert.ok(instructor, 'instructor nav has /contests');
+  assert.equal(instructor.phase, undefined, '/contests is wired to the API');
 });
 
 test('community holds social, support, and the student help centre', () => {

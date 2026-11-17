@@ -8,6 +8,10 @@ import type {
   BatchRepository,
   ClassSessionRecord,
   ClassSessionRepository,
+  ContestEntryRecord,
+  ContestEntryRepository,
+  ContestRecord,
+  ContestRepository,
   CourseRecord,
   CourseRepository,
   EnrollmentRecord,
@@ -1092,5 +1096,74 @@ export class InMemoryDepartmentRepository implements DepartmentRepository {
   async delete(id: string) {
     const index = this.rows.findIndex((r) => r.id === id);
     if (index >= 0) this.rows.splice(index, 1);
+  }
+}
+
+// ---------------------------------------------------------------- Phase G: Contests
+
+export class InMemoryContestRepository implements ContestRepository {
+  constructor(private readonly rows: ContestRecord[] = []) {}
+  async create(input: Omit<ContestRecord, 'id' | 'createdAt'>) {
+    const row: ContestRecord = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async findById(id: string) {
+    return this.rows.find((r) => r.id === id) ?? null;
+  }
+  async listByTenant(tenantId: string) {
+    return this.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.tenantId === tenantId)
+      .sort(
+        (a, b) =>
+          b.row.createdAt.getTime() - a.row.createdAt.getTime() || b.index - a.index,
+      )
+      .map(({ row }) => row);
+  }
+  async update(id: string, patch: Partial<ContestRecord>) {
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) throw new Error(`contest ${id} not found`);
+    Object.assign(row, patch);
+    return row;
+  }
+  async delete(id: string) {
+    const index = this.rows.findIndex((r) => r.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
+  }
+}
+
+export class InMemoryContestEntryRepository implements ContestEntryRepository {
+  constructor(private readonly rows: ContestEntryRecord[] = []) {}
+  async upsertBest(
+    input: Omit<ContestEntryRecord, 'id' | 'submittedAt'> & { submittedAt: Date },
+  ) {
+    const existing = this.rows.find(
+      (r) => r.contestId === input.contestId && r.userId === input.userId,
+    );
+    if (existing) {
+      // Keep the best: higher score, then faster; an exact tie keeps the first.
+      const better =
+        input.score > existing.score ||
+        (input.score === existing.score && input.durationMs < existing.durationMs);
+      if (better) Object.assign(existing, input);
+      return existing;
+    }
+    const row: ContestEntryRecord = { id: randomUUID(), ...input };
+    this.rows.push(row);
+    return row;
+  }
+  async listByContest(contestId: string) {
+    return this.rows
+      .filter((r) => r.contestId === contestId)
+      .sort((a, b) => b.score - a.score || a.durationMs - b.durationMs);
+  }
+  async find(contestId: string, userId: string) {
+    return (
+      this.rows.find((r) => r.contestId === contestId && r.userId === userId) ?? null
+    );
+  }
+  async listByUser(userId: string) {
+    return this.rows.filter((r) => r.userId === userId);
   }
 }

@@ -492,3 +492,44 @@ export function communicationLabel(score: number | null): string {
   if (pct >= 60) return `${pct}% — solid`;
   return `${pct}% — needs practice`;
 }
+
+/** The contest phase as a title-cased label, e.g. "live" -> "Live". */
+export function contestPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    draft: 'Draft',
+    scheduled: 'Scheduled',
+    live: 'Live now',
+    ended: 'Ended',
+  };
+  return labels[phase] ?? 'Contest';
+}
+
+/** Whether a contest is open to enter and score right now. */
+export function contestIsLive(phase: string): boolean {
+  return phase === 'live';
+}
+
+/** A completion duration in ms as a compact label, e.g. 95000 -> "1m 35s". */
+export function durationLabel(ms: number): string {
+  const totalSeconds = Math.max(Math.round(ms / 1000), 0);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Append a browser request's query string to an upstream path. Route handlers
+ * build the path from the catch-all segments, so the query is the one thing
+ * they cannot reconstruct — filters and pagination would be silently dropped
+ * without this.
+ */
+export function withQuery(path: string, search: string): string {
+  return search ? `${path}${search}` : path;
+}
+
+/** A similarity ratio (0-1) as a percentage label, e.g. 0.93 -> "93%". */
+export function similarityLabel(ratio: number): string {
+  const pct = Math.min(Math.max(Math.round(ratio * 100), 0), 100);
+  return `${pct}%`;
+}

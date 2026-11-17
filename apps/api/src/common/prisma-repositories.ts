@@ -8,6 +8,10 @@ import type {
   BatchRepository,
   ClassSessionRecord,
   ClassSessionRepository,
+  ContestEntryRecord,
+  ContestEntryRepository,
+  ContestRecord,
+  ContestRepository,
   CourseRecord,
   CourseRepository,
   EnrollmentRecord,
@@ -1164,6 +1168,81 @@ export class PrismaDepartmentRepository implements DepartmentRepository {
   }
 }
 
+// ---------------------------------------------------------------- Phase G adapters
+
+export class PrismaContestRepository implements ContestRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async create(
+    input: Omit<ContestRecord, 'id' | 'createdAt'>,
+  ): Promise<ContestRecord> {
+    const row = await this.db.contest.create({ data: input });
+    return toContest(row);
+  }
+  async findById(id: string): Promise<ContestRecord | null> {
+    const row = await this.db.contest.findUnique({ where: { id } });
+    return row ? toContest(row) : null;
+  }
+  async listByTenant(tenantId: string): Promise<ContestRecord[]> {
+    const rows = await this.db.contest.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toContest);
+  }
+  async update(id: string, patch: Partial<ContestRecord>): Promise<ContestRecord> {
+    const row = await this.db.contest.update({ where: { id }, data: patch });
+    return toContest(row);
+  }
+  async delete(id: string): Promise<void> {
+    await this.db.contest.delete({ where: { id } });
+  }
+}
+
+export class PrismaContestEntryRepository implements ContestEntryRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async upsertBest(
+    input: Omit<ContestEntryRecord, 'id' | 'submittedAt'> & { submittedAt: Date },
+  ): Promise<ContestEntryRecord> {
+    const existing = await this.db.contestEntry.findUnique({
+      where: { contestId_userId: { contestId: input.contestId, userId: input.userId } },
+    });
+    // Keep the best: higher score, then faster. An exact tie keeps the first.
+    if (existing) {
+      const better =
+        input.score > existing.score ||
+        (input.score === existing.score && input.durationMs < existing.durationMs);
+      if (!better) return toContestEntry(existing);
+    }
+    const row = await this.db.contestEntry.upsert({
+      where: { contestId_userId: { contestId: input.contestId, userId: input.userId } },
+      update: {
+        score: input.score,
+        durationMs: input.durationMs,
+        submittedAt: input.submittedAt,
+      },
+      create: input,
+    });
+    return toContestEntry(row);
+  }
+  async listByContest(contestId: string): Promise<ContestEntryRecord[]> {
+    const rows = await this.db.contestEntry.findMany({
+      where: { contestId },
+      orderBy: [{ score: 'desc' }, { durationMs: 'asc' }],
+    });
+    return rows.map(toContestEntry);
+  }
+  async find(contestId: string, userId: string): Promise<ContestEntryRecord | null> {
+    const row = await this.db.contestEntry.findUnique({
+      where: { contestId_userId: { contestId, userId } },
+    });
+    return row ? toContestEntry(row) : null;
+  }
+  async listByUser(userId: string): Promise<ContestEntryRecord[]> {
+    const rows = await this.db.contestEntry.findMany({ where: { userId } });
+    return rows.map(toContestEntry);
+  }
+}
+
 type TenantRow = Awaited<ReturnType<PrismaClient['tenant']['findUniqueOrThrow']>>;
 type UserRow = Awaited<ReturnType<PrismaClient['user']['findUniqueOrThrow']>>;
 type MembershipRow = Awaited<
@@ -1243,6 +1322,10 @@ type SocialFollowRow = Awaited<
 >;
 type DepartmentRow = Awaited<
   ReturnType<PrismaClient['department']['findUniqueOrThrow']>
+>;
+type ContestRow = Awaited<ReturnType<PrismaClient['contest']['findUniqueOrThrow']>>;
+type ContestEntryRow = Awaited<
+  ReturnType<PrismaClient['contestEntry']['findUniqueOrThrow']>
 >;
 
 function toTenant(t: TenantRow): TenantRecord {
@@ -1608,5 +1691,33 @@ function toDepartment(d: DepartmentRow): DepartmentRecord {
     tenantId: d.tenantId,
     name: d.name,
     createdAt: d.createdAt,
+  };
+}
+
+function toContest(c: ContestRow): ContestRecord {
+  return {
+    id: c.id,
+    tenantId: c.tenantId,
+    title: c.title,
+    description: c.description,
+    status: c.status,
+    startAt: c.startAt ?? null,
+    endAt: c.endAt ?? null,
+    maxScore: c.maxScore,
+    exerciseSlug: c.exerciseSlug ?? null,
+    createdBy: c.createdBy,
+    createdAt: c.createdAt,
+  };
+}
+
+function toContestEntry(e: ContestEntryRow): ContestEntryRecord {
+  return {
+    id: e.id,
+    contestId: e.contestId,
+    tenantId: e.tenantId,
+    userId: e.userId,
+    score: e.score,
+    durationMs: e.durationMs,
+    submittedAt: e.submittedAt,
   };
 }

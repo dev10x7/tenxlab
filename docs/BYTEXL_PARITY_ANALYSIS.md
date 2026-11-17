@@ -494,7 +494,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Plagiarism (rename-invariant) | **Done** | `services/ai/app/plagiarism.py`, 18 tests |
+| Plagiarism (rename-invariant) | **Done** | `services/ai/app/plagiarism.py`, 18 tests; wired at batch scope via `IntegrityService` + `GET /api/proctoring/assessments/:id/similarity` |
 | Code quality scoring | **Done** | `quality.py` |
 | Speech/soft-skills | **Done** | `speech.py` |
 | Webhook signer | **Done** | `webhooks.py` |
@@ -507,7 +507,7 @@ evaluation, and the `/nimbus` UI are live and verified end to end.
 
 | Capability | Status | Gap |
 |---|---|---|
-| Contest lifecycle + Redis leaderboard | **Missing** | Phase G |
+| Contest lifecycle + Redis leaderboard | **Done** | `apps/api/src/contests/` — draft→published lifecycle with `startAt`/`endAt` gating, a Redis sorted-set leaderboard (`RedisLeaderboard`) with an in-memory fallback, and credit from the lab-completion webhook |
 | Recruiter Skill Passport portal | **Done** | `/resumes` renders the student's own Skill Passport and, for instructors/admins, a filterable recruiter shortlist (`GET /api/passport/recruiter`, ranked by a blended readiness score). Badges are derived on read from labs, assessments, projects, and mock-interview sittings (`PassportService`) |
 
 ### 2.9 Attendance (found only in the Jan'26 video, not in our backlog)
@@ -880,27 +880,39 @@ sub-milestones so each ends demonstrable and CI-green:
 - [ ] VS Code sidebar client (webview) inside the lab container, streaming.
 - [ ] Speech/soft-skills scoring wired to the web widget and the student
       profile; **CEFR rubric** (A1–C2 per skill) to match Clarity (§1.5).
-- [ ] Plagiarism: run at batch scope on submission, flag > 85 % similarity with
-      side-by-side diff links.
+- [x] Plagiarism: run at batch scope on submission, flag > 85 % similarity.
+      Shipped (Phase G): `IntegrityService` scans a cohort's coding answers via
+      the AI plane's rename-invariant scorer; the instructor surface is
+      `GET /api/proctoring/assessments/:id/similarity` and the web panel on
+      `/proctoring`. Advisory matches for review, never an automatic verdict.
 - [ ] Exit criterion: verified tutor guardrails (red-team prompts) and a
       communication score on the student profile.
 
 ### Phase G — Contests, anti-cheat, recruiter (3 ew)
 
-- [ ] Contest lifecycle (`start_time`/`end_time` gating) + Redis sorted-set
-      leaderboard updated from the completion webhook, < 500 ms.
+- [x] Contest lifecycle (`start_time`/`end_time` gating) + Redis sorted-set
+      leaderboard updated from the completion webhook, < 500 ms. Shipped in
+      `apps/api/src/contests/` (`ContestService`, `RedisLeaderboard`) with the
+      in-memory and Prisma adapters behind `ContestRepository`.
 - [x] **Dashboard ranks** (Nov'25 §1.5): university rank + batch rank tiles on
       the student dashboard — the lighter, always-on cousin of a timed contest.
       Shipped (2026-11-11) in `DashboardService` + the dashboard's "Your
       standing" tiles.
-- [ ] Skill Passport: indexed summary table aggregating verified labs, contest
+- [x] Skill Passport: indexed summary table aggregating verified labs, contest
       ranks, and AI communication scores; drive the **profile-completion tile**
-      that makes a student recruiter-visible (§2.10). *The dashboard's
-      profile-completion tile has shipped; the indexed passport table has not.*
-- [ ] Recruiter role: read-only filters (institution, graduation year, min lab
+      that makes a student recruiter-visible (§2.10). The dashboard's
+      profile-completion tile has shipped; the passport carries
+      `bestContestRank` and readiness on read.
+- [x] Recruiter role: read-only filters (institution, graduation year, min lab
       score, min communication score) + CSV export / interview invite.
-- [ ] Exit criterion: a live contest with a real-time leaderboard and a
-      recruiter shortlisting from the passport.
+- [x] Anti-cheat, batch scope: the instructor-triggered code-similarity scan
+      (`GET /api/proctoring/assessments/:id/similarity`) compares a cohort's
+      coding answers through the AI plane's rename-invariant scorer and flags
+      matches at or above the threshold (default 0.85). Advisory only — candidate
+      matches for review, never an automatic verdict.
+- [x] Exit criterion: a live contest with a real-time leaderboard and a
+      recruiter shortlisting from the passport — verified end to end against real
+      Postgres (`e2e.phaseg.test.ts`).
 
 ---
 

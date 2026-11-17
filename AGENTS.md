@@ -238,6 +238,15 @@ login → list → start → report signals → submit → instructor review ove
   `REVIEW_THRESHOLD = 30`). The UI shows signals for a human to judge — do not
   auto-fail a student on a score. Video/webcam and full SEB are out of v1
   (ADR-15/ADR-17); `buildSebConfig` stays in the codebase for later.
+- **Batch-scope anti-cheat is separate from browser proctoring.** Browser
+  proctoring sees the exam room; `IntegrityService`
+  (`proctoring/integrity.service.ts`) sees the *submission*. It hands one
+  assessment's coding answers to the AI plane's rename-invariant scorer
+  (`compareSubmissions`) and reports candidate matches at or above a threshold
+  (default 0.85). It is instructor-triggered (`GET
+  /api/proctoring/assessments/:id/similarity`) because the comparison is O(n²)
+  in the cohort, and it is advisory — candidate matches for review, never a
+  verdict. A null scanner (AI plane unconfigured) answers 503, not a crash.
 - Assessment list/get/start/submit and proctoring summary are **instructor/tenant
   scoped**: a student gets 403 on another attempt's summary, and review reads
   filter through the reviewer's tenant memberships.
@@ -634,6 +643,36 @@ G.
   `POST /api/projects/workspaces/:workspaceId/analyze` and
   `GET .../evaluations`; `AutoEvaluateControl` lives on each fork card.
 
+## Phase G — Contests, anti-cheat, recruiter (2026-11-17)
+
+- **Contests** live in `apps/api/src/contests/`: `ContestService` over a
+  `ContestRepository` port (in-memory + Prisma adapters), a draft→published
+  lifecycle gated by `startAt`/`endAt`, and per-student entries that keep the
+  best score (a worse resubmission is ignored). A score above `maxScore` is
+  refused. Students see only published contests; staff author and publish.
+- **The leaderboard is a Redis sorted set** (`RedisLeaderboard`, `ioredis`) with
+  an in-memory fallback when Redis is absent. The durable `contest_entries` rows
+  are the source of truth — the index is rebuilt from them if it is lost, so
+  ranking is deterministic (`rankEntries`: score desc, then faster `durationMs`,
+  then `userId`) and never trusts insertion order.
+- **The lab-completion webhook credits a contest** when the completion's
+  `exercise_id` matches the contest's `exerciseSlug` (null scope = open). This
+  rides the existing gradebook hook, so a contest and the gradebook see one
+  event, not two.
+- **The passport carries `bestContestRank`** and a blended readiness score;
+  `GET /api/passport/recruiter` (instructor/admin only) filters by institution,
+  graduation year, min lab score, and min communication score, and
+  `GET /api/passport/recruiter.csv` exports the same rows. The `/resumes` page
+  is the surface.
+- **Batch-scope anti-cheat** (`proctoring/integrity.service.ts`) is separate
+  from browser proctoring — see the note under P2 above. It is instructor-gated
+  (`GET /api/proctoring/assessments/:id/similarity`), advisory, and answers 503
+  (not a crash) when the AI plane is unconfigured.
+- The seeded demo contest (`contests/demo-contest.ts`, `demo-contest-k8s-sprint`)
+  is **open-ended so it is always live**, giving the surface content on first
+  boot. It is written by the in-memory demo state *and* the Postgres seed — keep
+  both in step, or the contests page is empty against real Postgres.
+
 ## Gotchas
 
 - Clean `dist/` before trusting a test count; stale compiled tests inflate it.
@@ -666,6 +705,12 @@ G.
   rendered empty) until it was added. The `e2e.*.test.ts` suite boots the real
   `AppModule`, so a route-level assertion there catches this — unit-testing the
   controller class directly does not.
+- **Demo seed data must exist in two places: the in-memory state and the Prisma
+  seed.** The API picks its repositories by whether Postgres is configured
+  (`demo/state.ts`); the in-memory branch seeds fixtures inline while the Prisma
+  branch reads rows the container entrypoint writes via `seed.ts`. A fixture
+  added to only one branch works in tests (in-memory) and is invisible against
+  real Postgres — the seeded demo contest had exactly this gap.
 - Next.js patches global `fetch` and caches route-handler responses by URL. The
   proxy must pass `cache: 'no-store'` (see `proxyFetchInit`), or a lab session
   poll replays the first `WARM` response forever and the launch never completes.

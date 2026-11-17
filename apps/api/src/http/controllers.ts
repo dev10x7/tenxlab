@@ -19,6 +19,7 @@ import {
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -44,10 +45,12 @@ import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService, isProctorEventType, buildSebConfig } from '../proctoring/proctoring.service';
+import { IntegrityService, DEFAULT_SIMILARITY_THRESHOLD } from '../proctoring/integrity.service';
 import { ProjectService } from '../projects/project.service';
 import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { PassportService } from '../hiring/passport.service';
+import { ContestService } from '../contests/contest.service';
 import { InterviewerService } from '../hiring/interviewer.service';
 import { ReportsService } from '../insights/reports.service';
 import { MentorService } from '../mentor/mentor.service';
@@ -93,6 +96,8 @@ import {
   SOCIAL,
   QUESTION_BANK,
   ORGS,
+  CONTEST,
+  INTEGRITY,
 } from './tokens';
 
 @Controller()
@@ -952,6 +957,7 @@ export class AssessmentController {
 export class ProctoringController {
   constructor(
     @Inject(PROCTOR) private readonly proctoring: ProctoringService,
+    @Inject(INTEGRITY) private readonly integrity: IntegrityService,
     @Inject(ASSESSMENT) private readonly assessments: AssessmentService,
     @Inject(SESSION) private readonly sessions: SessionService,
   ) {}
@@ -1005,6 +1011,30 @@ export class ProctoringController {
     );
     if (!attempt) throw new NotFoundException('Attempt not found');
     return this.proctoring.summarize(attemptId);
+  }
+
+  /**
+   * Batch-scope code-similarity scan for one graded assessment (§4.2). Advisory:
+   * it reports candidate matches, never a verdict. Instructor-triggered because
+   * the comparison is O(n²) in the cohort.
+   */
+  @Get('assessments/:assessmentId/similarity')
+  async similarity(
+    @Param('assessmentId') assessmentId: string,
+    @Query('threshold') threshold: string | undefined,
+    @Req() req: Request,
+  ) {
+    const session = this.requireInstructor(req);
+    if (!this.integrity.available) {
+      throw new ServiceUnavailableException(
+        'Code-similarity scanning is not configured (AI plane unavailable)',
+      );
+    }
+    return this.integrity.scanAssessment(
+      assessmentId,
+      session.tenantId,
+      numberOrUndefined(threshold) ?? DEFAULT_SIMILARITY_THRESHOLD,
+    );
   }
 
   private requireSession(req: Request): SessionPayload {
@@ -1727,14 +1757,48 @@ export class PassportController {
     @Req() req: Request,
     @Query('minLabScore') minLabScore?: string,
     @Query('minCommunicationScore') minCommunicationScore?: string,
+    @Query('minBadges') minBadges?: string,
+    @Query('graduationYear') graduationYear?: string,
+    @Query('institution') institution?: string,
     @Query('query') query?: string,
   ) {
     const session = this.requireInstructor(req);
     return this.passports.recruiter(session.tenantId, {
       minLabScore: numberOrUndefined(minLabScore),
       minCommunicationScore: numberOrUndefined(minCommunicationScore),
+      minBadges: numberOrUndefined(minBadges),
+      graduationYear: numberOrUndefined(graduationYear),
+      institution: institution?.trim() || undefined,
       query: query?.trim() || undefined,
     });
+  }
+
+  /** The same shortlist as a CSV download a recruiter can take away. */
+  @Get('recruiter.csv')
+  async recruiterCsv(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('minLabScore') minLabScore?: string,
+    @Query('minCommunicationScore') minCommunicationScore?: string,
+    @Query('minBadges') minBadges?: string,
+    @Query('graduationYear') graduationYear?: string,
+    @Query('institution') institution?: string,
+    @Query('query') query?: string,
+  ) {
+    const session = this.requireInstructor(req);
+    const csv = await this.passports.recruiterCsv(session.tenantId, {
+      minLabScore: numberOrUndefined(minLabScore),
+      minCommunicationScore: numberOrUndefined(minCommunicationScore),
+      minBadges: numberOrUndefined(minBadges),
+      graduationYear: numberOrUndefined(graduationYear),
+      institution: institution?.trim() || undefined,
+      query: query?.trim() || undefined,
+    });
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/csv; charset=utf-8')
+      .setHeader('Content-Disposition', 'attachment; filename="recruiter-shortlist.csv"')
+      .send(csv);
   }
 
   private requireSession(req: Request): SessionPayload {
@@ -1750,6 +1814,142 @@ export class PassportController {
     }
     return session;
   }
+}
+
+/**
+ * Contests (parity §2.8, Phase G). A timed contest with a live leaderboard.
+ * Instructors author and publish; students see published contests, read the
+ * standings, and file an entry. The phase (scheduled/live/ended) is derived from
+ * the window on read, so a contest closes on time without a scheduler.
+ */
+@Controller('api/contests')
+export class ContestController {
+  constructor(
+    @Inject(CONTEST) private readonly contests: ContestService,
+    @Inject(SESSION) private readonly sessions: SessionService,
+  ) {}
+
+  /** Contests visible to the caller: published for students, all for staff. */
+  @Get()
+  async list(@Req() req: Request) {
+    const session = this.requireSession(req);
+    const isStaff = session.role === 'instructor' || session.role === 'admin';
+    return this.contests.list(session.tenantId, { includeDrafts: isStaff });
+  }
+
+  /** Author a contest (instructor/admin only). Starts as a draft. */
+  @Post()
+  async create(@Req() req: Request, @Body() body: CreateContestBody) {
+    const session = this.requireInstructor(req);
+    const result = await this.contests.create({
+      tenantId: session.tenantId,
+      createdBy: session.userId,
+      title: body.title ?? '',
+      description: body.description,
+      startAt: parseDate(body.startAt),
+      endAt: parseDate(body.endAt),
+      maxScore: body.maxScore,
+      exerciseSlug: body.exerciseSlug ?? null,
+    });
+    if (!result.ok) throw new BadRequestException(result.reason);
+    return this.contests.get(result.contest.id, session.tenantId);
+  }
+
+  /** One contest's detail. */
+  @Get(':id')
+  async get(@Req() req: Request, @Param('id') id: string) {
+    const session = this.requireSession(req);
+    const contest = await this.contests.get(id, session.tenantId);
+    if (!contest) throw new NotFoundException('Contest not found');
+    return contest;
+  }
+
+  /** Publish a draft (instructor/admin only). */
+  @Post(':id/publish')
+  async publish(@Req() req: Request, @Param('id') id: string) {
+    const session = this.requireInstructor(req);
+    const result = await this.contests.publish(id, session.tenantId);
+    if (!result.ok) throw new NotFoundException('Contest not found');
+    return this.contests.get(id, session.tenantId);
+  }
+
+  /** The live standings, with the caller's own row flagged. */
+  @Get(':id/leaderboard')
+  async leaderboard(@Req() req: Request, @Param('id') id: string) {
+    const session = this.requireSession(req);
+    const rows = await this.contests.leaderboard(id, session.tenantId, session.userId);
+    if (!rows) throw new NotFoundException('Contest not found');
+    return rows;
+  }
+
+  /** The caller's own standing in a contest, or null when not entered. */
+  @Get(':id/me')
+  async me(@Req() req: Request, @Param('id') id: string) {
+    const session = this.requireSession(req);
+    const row = await this.contests.myStanding(id, session.tenantId, session.userId);
+    if (!row) throw new NotFoundException('No entry for this contest');
+    return row;
+  }
+
+  /** Enter a contest, or file a score for it. Refused unless the contest is live. */
+  @Post(':id/entries')
+  async submit(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: SubmitEntryBody,
+  ) {
+    const session = this.requireSession(req);
+    const result = await this.contests.submitEntry({
+      contestId: id,
+      tenantId: session.tenantId,
+      userId: session.userId,
+      score: Number(body.score ?? 0),
+      durationMs: body.durationMs,
+    });
+    if (!result.ok) {
+      if (result.reason === 'not_found') throw new NotFoundException('Contest not found');
+      throw new BadRequestException(result.reason);
+    }
+    return result.row;
+  }
+
+  private requireSession(req: Request): SessionPayload {
+    const session = this.sessions.fromCookieHeader(req.headers.cookie);
+    if (!session) throw new UnauthorizedException('Sign in required');
+    return session;
+  }
+
+  private requireInstructor(req: Request): SessionPayload {
+    const session = this.requireSession(req);
+    if (session.role !== 'instructor' && session.role !== 'admin') {
+      throw new ForbiddenException('Instructor or admin role required');
+    }
+    return session;
+  }
+}
+
+interface CreateContestBody {
+  title?: string;
+  description?: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  maxScore?: number;
+  exerciseSlug?: string | null;
+}
+
+interface SubmitEntryBody {
+  score?: number;
+  durationMs?: number;
+}
+
+/** Parse an ISO date string, tolerating null/blank. Throws on a bad value. */
+function parseDate(value: string | null | undefined): Date | null {
+  if (value == null || value === '') return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`Invalid date: ${value}`);
+  }
+  return date;
 }
 
 /**

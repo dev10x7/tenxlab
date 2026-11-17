@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { methodHasBody, proxyFetchInit } from './lms';
+import { methodHasBody, proxyFetchInit, withQuery } from './lms';
 
 const API_BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 
 /**
  * Proxy a browser request to the NestJS API, forwarding the session cookie and
  * the raw body. Keeping this server-side avoids CORS and keeps the session
- * cookie same-origin.
+ * cookie same-origin. The browser request's query string is preserved so
+ * filters and pagination reach the API.
  */
 export async function proxy(
   req: NextRequest,
@@ -24,7 +25,7 @@ export async function proxy(
   const body = methodHasBody(method) ? await req.text() : undefined;
 
   const upstream = await fetch(
-    `${API_BASE}${path}`,
+    `${API_BASE}${withQuery(path, req.nextUrl.search)}`,
     proxyFetchInit({
       method,
       headers,
@@ -66,7 +67,10 @@ export async function proxyBinary(
 
   const method = init.method ?? req.method;
 
-  const upstream = await fetch(`${API_BASE}${path}`, { method, headers });
+  const upstream = await fetch(`${API_BASE}${withQuery(path, req.nextUrl.search)}`, {
+    method,
+    headers,
+  });
 
   const responseHeaders = new Headers();
   const setCookie = upstream.headers.get('set-cookie');

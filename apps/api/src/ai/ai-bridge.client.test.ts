@@ -64,3 +64,77 @@ test('suggestProjectCopy throws AiBridgeError on a rejected request', async () =
     (err: unknown) => err instanceof AiBridgeError && err.status === 500,
   );
 });
+
+test('compareSubmissions maps the snake_case cohort reply to camelCase', async () => {
+  const { fetchImpl, calls } = fakeFetch({
+    scored_at: '2026-11-11T09:04:00Z',
+    results: [
+      {
+        student_id: 'u1',
+        max_similarity: 0.93,
+        flagged: true,
+        matches: [{ student_id: 'u2', similarity: 0.93 }],
+      },
+      { student_id: 'u2', max_similarity: 0, flagged: false, matches: [] },
+    ],
+  });
+  const client = new AiBridgeClient({ baseUrl: 'http://ai:8000', fetchImpl });
+
+  const reports = await client.compareSubmissions({
+    tenantId: 't1',
+    exerciseId: 'k8s-quiz-1:q-mean',
+    submissions: [
+      { studentId: 'u1', code: 'print(1)' },
+      { studentId: 'u2', code: 'print(1)' },
+    ],
+    threshold: 0.85,
+  });
+
+  const call = calls[0]!;
+  assert.equal(call.url, 'http://ai:8000/v1/plagiarism/score');
+  assert.deepEqual(call.body, {
+    tenant_id: 't1',
+    exercise_id: 'k8s-quiz-1:q-mean',
+    submissions: [
+      { student_id: 'u1', code: 'print(1)' },
+      { student_id: 'u2', code: 'print(1)' },
+    ],
+    threshold: 0.85,
+  });
+  assert.equal(reports.length, 2);
+  assert.equal(reports[0]!.studentId, 'u1');
+  assert.equal(reports[0]!.maxSimilarity, 0.93);
+  assert.equal(reports[0]!.flagged, true);
+  assert.deepEqual(reports[0]!.matches, [{ studentId: 'u2', similarity: 0.93 }]);
+});
+
+test('compareSubmissions clamps a stray ratio and tolerates a missing list', async () => {
+  const { fetchImpl } = fakeFetch({
+    results: [{ student_id: 'u1', max_similarity: 5, flagged: true }],
+  });
+  const client = new AiBridgeClient({ baseUrl: 'http://ai:8000', fetchImpl });
+
+  const reports = await client.compareSubmissions({
+    tenantId: 't1',
+    exerciseId: 'x',
+    submissions: [{ studentId: 'u1', code: 'a' }],
+  });
+
+  assert.equal(reports[0]!.maxSimilarity, 1);
+  assert.deepEqual(reports[0]!.matches, []);
+});
+
+test('compareSubmissions throws AiBridgeError when the AI plane rejects', async () => {
+  const { fetchImpl } = fakeFetch({ detail: 'nope' }, { status: 503 });
+  const client = new AiBridgeClient({ baseUrl: 'http://ai:8000', fetchImpl });
+
+  await assert.rejects(
+    () =>
+      client.compareSubmissions({
+        tenantId: 't1',
+        exerciseId: 'x',
+        submissions: [{ studentId: 'u1', code: 'a' }],
+      }),
+    (err: unknown) => err instanceof AiBridgeError && err.status === 503,
+  );
+});

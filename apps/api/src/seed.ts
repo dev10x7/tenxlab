@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import { courseIdForSlug, DEMO_BATCH, DEMO_COURSES } from './catalog/demo-data';
 import { DEMO_USERS } from './identity/demo-users';
 import { DEMO_PROJECT, DEMO_PROJECT_COMPONENT } from './projects/demo-project';
+import { DEMO_CONTEST } from './contests/demo-contest';
 
 export async function seed(db: PrismaClient): Promise<void> {
   await db.tenant.upsert({
@@ -164,6 +165,31 @@ export async function seed(db: PrismaClient): Promise<void> {
       templateSlug: DEMO_PROJECT_COMPONENT.templateSlug,
       templateWorkspaceId: DEMO_PROJECT_COMPONENT.templateWorkspaceId,
       position: DEMO_PROJECT_COMPONENT.position,
+    },
+  });
+
+  // A live contest so the contests surface has content on first boot (Phase G).
+  await db.contest.upsert({
+    where: { id: DEMO_CONTEST.id },
+    update: {
+      title: DEMO_CONTEST.title,
+      description: DEMO_CONTEST.description,
+      status: DEMO_CONTEST.status,
+      maxScore: DEMO_CONTEST.maxScore,
+      exerciseSlug: DEMO_CONTEST.exerciseSlug,
+    },
+    create: {
+      id: DEMO_CONTEST.id,
+      tenantId: DEMO_CONTEST.tenantId,
+      title: DEMO_CONTEST.title,
+      description: DEMO_CONTEST.description,
+      status: DEMO_CONTEST.status,
+      startAt: DEMO_CONTEST.startAt,
+      endAt: DEMO_CONTEST.endAt,
+      maxScore: DEMO_CONTEST.maxScore,
+      exerciseSlug: DEMO_CONTEST.exerciseSlug,
+      createdBy: DEMO_CONTEST.createdBy,
+      createdAt: DEMO_CONTEST.createdAt,
     },
   });
 }

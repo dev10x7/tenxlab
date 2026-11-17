@@ -808,3 +808,24 @@ textarea.stdin {
     position: static;
   }
 }
+
+/* ---- Contest phase pills (ByteXL parity §2.8, Phase G) ---- */
+.pill.phase-draft {
+  background: #eef2f7;
+  color: #5b6b7c;
+}
+
+.pill.phase-scheduled {
+  background: #e7f0ff;
+  color: #1d4ed8;
+}
+
+.pill.phase-live {
+  background: #e6f6ec;
+  color: #15803d;
+}
+
+.pill.phase-ended {
+  background: #f3f4f6;
+  color: #6b7280;
+}

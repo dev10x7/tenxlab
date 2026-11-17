@@ -27,6 +27,7 @@ import { DashboardService } from '../dashboard/dashboard.service';
 import { EditorService } from '../editor/editor.service';
 import { AssessmentService } from '../assessments/assessment.service';
 import { ProctoringService } from '../proctoring/proctoring.service';
+import { IntegrityService } from '../proctoring/integrity.service';
 import { buildExerciseDescriptor } from '../catalog/demo-data';
 import type { CourseCatalog } from '../catalog/course-catalog';
 import { findDemoUserById } from '../identity/demo-users';
@@ -37,6 +38,9 @@ import { ProjectCopyService } from '../projects/copy.service';
 import { ProjectSubmissionService } from '../projects/project-submission.service';
 import { QualityEvaluationService } from '../projects/quality-evaluation.service';
 import { PassportService } from '../hiring/passport.service';
+import { ContestService } from '../contests/contest.service';
+import { InMemoryLeaderboard, type LeaderboardPort } from '../contests/leaderboard';
+import { RedisLeaderboard } from '../contests/redis-leaderboard';
 import { InterviewerService } from '../hiring/interviewer.service';
 import { ReportsService } from '../insights/reports.service';
 import { MentorService } from '../mentor/mentor.service';
@@ -70,6 +74,7 @@ import {
   SupportController,
   WebhookController,
   PassportController,
+  ContestController,
   InterviewerController,
   MentorController,
   FeedController,
@@ -78,9 +83,9 @@ import {
   QuestionBankController,
   OrganizationsController,
 } from './controllers';
-import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS } from './tokens';
+import { ASSESSMENT, ATTENDANCE, BATCH, CATALOG, COURSE_AUTHORING, COURSE_CATALOG, DASHBOARD, EDITOR, ENV, FORK_PROVIDER, GIT, GITHUB, GRADEBOOK, JWT, LAUNCH, PROCTOR, INTEGRITY, PROJECT, PROJECT_COPY, PROJECT_SUBMISSION, PROVIDER, QUALITY, RUNNER, SECRET_BOX, SESSION, SSO, STORE, SUPPORT, USAGE, AI_BRIDGE, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD } from './tokens';
 
-export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS };
+export { ENV, GRADEBOOK, JWT, LAUNCH, SSO, SESSION, CATALOG, PROVIDER, FORK_PROVIDER, STORE, BATCH, ATTENDANCE, GIT, GITHUB, SECRET_BOX, USAGE, QUALITY, PROJECT_COPY, DASHBOARD, SUPPORT, PASSPORT, REPORTS, MENTOR, INTERVIEWER, FEED, SOCIAL, QUESTION_BANK, ORGS, CONTEST, LEADERBOARD, INTEGRITY };
 
 const DEMO_STATE = createDemoState();
 
@@ -125,6 +130,7 @@ const STORE_PROVIDER = {
     DashboardController,
     SupportController,
     PassportController,
+    ContestController,
     InterviewerController,
     MentorController,
     FeedController,
@@ -220,15 +226,45 @@ const STORE_PROVIDER = {
       useFactory: (store: Repositories) => new SupportService(store.supportIssues),
     },
     {
+      // The ranking index behind a contest leaderboard (ADR-G1). Redis when
+      // enabled and reachable; otherwise the in-process index. Redis is an
+      // index only — the durable entries remain the source of truth and the
+      // service rebuilds the index from them if it is ever lost.
+      provide: LEADERBOARD,
+      inject: [ENV],
+      useFactory: (env: Env): LeaderboardPort =>
+        env.LEADERBOARD_REDIS_ENABLED
+          ? new RedisLeaderboard(env.REDIS_URL)
+          : new InMemoryLeaderboard(),
+    },
+    {
+      provide: CONTEST,
+      inject: [STORE, LEADERBOARD],
+      useFactory: (store: Repositories, leaderboard: LeaderboardPort) =>
+        new ContestService({
+          contests: store.contests,
+          entries: store.contestEntries,
+          leaderboard,
+          users: store.users,
+        }),
+    },
+    {
       provide: PASSPORT,
-      inject: [STORE],
-      useFactory: (store: Repositories) =>
+      inject: [STORE, CONTEST],
+      useFactory: (store: Repositories, contests: ContestService) =>
         new PassportService({
           passports: store.passports,
           progress: store.progress,
+          attempts: store.attempts,
           interviews: store.interviews,
+          submissions: store.projectSubmissions,
+          lessons: store.lessons,
           memberships: store.memberships,
           users: store.users,
+          tenants: store.tenants,
+          batches: store.batches,
+          enrollments: store.enrollments,
+          contests,
         }),
     },
     {
@@ -368,8 +404,8 @@ const STORE_PROVIDER = {
     },
     {
       provide: GRADEBOOK,
-      inject: [ENV, STORE],
-      useFactory: (env: Env, store: Repositories) =>
+      inject: [ENV, STORE, CONTEST],
+      useFactory: (env: Env, store: Repositories, contests: ContestService) =>
         new GradebookWebhookService({
           webhookSecret: env.WEBHOOK_SECRET,
           ledger: store.ledger,
@@ -377,6 +413,22 @@ const STORE_PROVIDER = {
           progress: store.progress,
           resolveLessonId: async (slug, tenantId) =>
             resolveLessonForSlug(store, slug, tenantId),
+          // A graded lab completion also credits any live contest it qualifies
+          // for (Phase G). Fire-and-forget: a contest write must never fail the
+          // webhook, so a rejection is swallowed after being logged.
+          onGraded: (event) => {
+            void contests
+              .recordCompletion({
+                tenantId: event.tenantId,
+                userId: event.userId,
+                exerciseSlug: event.exerciseSlug,
+                score: event.score,
+                completedAt: event.at,
+              })
+              .catch((err: unknown) => {
+                console.error('contest scoring failed', err);
+              });
+          },
         }),
     },
     {
@@ -417,6 +469,23 @@ const STORE_PROVIDER = {
       inject: [STORE],
       useFactory: (store: Repositories) =>
         new ProctoringService(store.proctorEvents),
+    },
+    {
+      // Batch-scope anti-cheat (§4.2): a null scanner disables the similarity
+      // scan; the controller then reports analysis_unavailable.
+      provide: INTEGRITY,
+      inject: [ASSESSMENT, STORE, AI_BRIDGE],
+      useFactory: (
+        assessments: AssessmentService,
+        store: Repositories,
+        scanner: AiBridgeClient | null,
+      ) =>
+        new IntegrityService({
+          assessments,
+          memberships: store.memberships,
+          users: store.users,
+          scanner,
+        }),
     },
     {
       provide: PROJECT,

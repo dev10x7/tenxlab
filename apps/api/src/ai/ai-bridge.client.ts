@@ -131,10 +131,45 @@ export interface SpeechEvaluator {
   }): Promise<SpeechReport>;
 }
 
+/** One student's similarity result in a cohort scan (parity §4.2). */
+export interface PlagiarismMatch {
+  studentId: string;
+  similarity: number;
+}
+
+/** A student's plagiarism report: their worst match plus every match found. */
+export interface PlagiarismReport {
+  studentId: string;
+  maxSimilarity: number;
+  flagged: boolean;
+  matches: PlagiarismMatch[];
+}
+
+/** What the batch-scope anti-cheat scan needs from the AI plane (fakeable). */
+export interface PlagiarismScanner {
+  /**
+   * Compare every submission in a cohort against the rest and return a report
+   * per student. The AI plane is rename-invariant (winnowing fingerprints), so
+   * a renamed copy is still caught.
+   */
+  compareSubmissions(input: {
+    tenantId: string;
+    exerciseId: string;
+    submissions: Array<{ studentId: string; code: string }>;
+    threshold?: number;
+  }): Promise<PlagiarismReport[]>;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class AiBridgeClient
-  implements QualityAnalyzer, CodeReviewer, CopySuggester, MentorAssistant, SpeechEvaluator
+  implements
+    QualityAnalyzer,
+    CodeReviewer,
+    CopySuggester,
+    MentorAssistant,
+    SpeechEvaluator,
+    PlagiarismScanner
 {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -296,6 +331,41 @@ export class AiBridgeClient
     };
   }
 
+  /** Compare a cohort's submissions for similarity (batch-scope anti-cheat). */
+  async compareSubmissions(input: {
+    tenantId: string;
+    exerciseId: string;
+    submissions: Array<{ studentId: string; code: string }>;
+    threshold?: number;
+  }): Promise<PlagiarismReport[]> {
+    const json = await this.postJson('/v1/plagiarism/score', {
+      tenant_id: input.tenantId,
+      exercise_id: input.exerciseId,
+      submissions: input.submissions.map((s) => ({
+        student_id: s.studentId,
+        code: s.code,
+      })),
+      ...(input.threshold != null ? { threshold: input.threshold } : {}),
+    });
+    const results = Array.isArray(json.results) ? json.results : [];
+    return results.map((raw) => {
+      const r = (raw ?? {}) as Record<string, unknown>;
+      const matches = Array.isArray(r.matches) ? r.matches : [];
+      return {
+        studentId: String(r.student_id ?? ''),
+        maxSimilarity: clampRatio(r.max_similarity),
+        flagged: r.flagged === true,
+        matches: matches.map((m) => {
+          const match = (m ?? {}) as Record<string, unknown>;
+          return {
+            studentId: String(match.student_id ?? ''),
+            similarity: clampRatio(match.similarity),
+          };
+        }),
+      };
+    });
+  }
+
   /** POST a JSON body and parse the JSON response, mapping errors uniformly. */
   private async postJson(
     path: string,
@@ -328,6 +398,13 @@ function clampScore(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+/** Clamp a similarity ratio to [0, 1] and round to four decimals. */
+function clampRatio(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(Math.min(1, Math.max(0, n)) * 10_000) / 10_000;
 }
 
 function normaliseIssues(value: unknown): QualityIssue[] {

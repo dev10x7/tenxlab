@@ -793,3 +793,60 @@ export const ProjectSubmissionInput = z.object({
   demoUrl: z.string().url().nullable().default(null),
 });
 export type ProjectSubmissionInput = z.infer<typeof ProjectSubmissionInput>;
+
+// ---------------------------------------------------------------- Contests
+
+/**
+ * A contest's lifecycle state, derived from its window and status rather than
+ * stored, so a contest cannot be left "open" past its end time by a missed job.
+ */
+export const ContestPhase = z.enum(['draft', 'scheduled', 'live', 'ended']);
+export type ContestPhase = z.infer<typeof ContestPhase>;
+
+export const ContestStatus = z.enum(['draft', 'published']);
+export type ContestStatus = z.infer<typeof ContestStatus>;
+
+/** A timed contest a student enters and climbs the leaderboard for (§2.8). */
+export const Contest = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().default(''),
+  status: ContestStatus,
+  /** ISO start; null means "starts as soon as it is published". */
+  startAt: z.string().datetime().nullable().default(null),
+  /** ISO end; null means "open-ended" (no timed gating). */
+  endAt: z.string().datetime().nullable().default(null),
+  maxScore: z.number().int().positive().default(100),
+  /** Optional lab-slug scope; null means any lab completion credits the contest. */
+  exerciseSlug: z.string().nullable().default(null),
+  createdBy: z.string().min(1),
+  createdAt: z.string().datetime(),
+});
+export type Contest = z.infer<typeof Contest>;
+
+/** One student's entry in a contest: their best score and when they set it. */
+export const ContestEntry = z.object({
+  id: z.string().min(1),
+  contestId: z.string().min(1),
+  tenantId: z.string().min(1),
+  userId: z.string().min(1),
+  /** Best score the student has achieved in this contest (0..maxScore). */
+  score: z.number().int().nonnegative(),
+  /** Milliseconds taken to reach that score; the tie-break (faster wins). */
+  durationMs: z.number().int().nonnegative(),
+  submittedAt: z.string().datetime(),
+});
+export type ContestEntry = z.infer<typeof ContestEntry>;
+
+/** One row of a contest leaderboard, as the web client renders it. */
+export const LeaderboardRow = z.object({
+  rank: z.number().int().positive(),
+  userId: z.string().min(1),
+  displayName: z.string(),
+  score: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+  /** True for the caller's own row, so the UI can highlight it. */
+  isSelf: z.boolean().default(false),
+});
+export type LeaderboardRow = z.infer<typeof LeaderboardRow>;

@@ -16,7 +16,19 @@ export interface GradebookDeps {
   progress: ProgressRepository;
   /** Resolve the lesson id from a lab exercise slug within a tenant. */
   resolveLessonId(exerciseSlug: string, tenantId: string): Promise<string | null>;
-  onGraded?: (userId: string, lessonId: string, score: number) => void;
+  /**
+   * Called after a completion is graded, so a listener (contest scoring) can
+   * react without this service depending on it. `exerciseSlug` is the lab slug
+   * the contest scopes on; `at` is the completion time from the payload.
+   */
+  onGraded?: (event: {
+    userId: string;
+    tenantId: string;
+    lessonId: string;
+    exerciseSlug: string;
+    score: number;
+    at: Date;
+  }) => void;
 }
 
 /**
@@ -72,7 +84,14 @@ export class GradebookWebhookService {
       });
     }
 
-    this.deps.onGraded?.(payload.student_id, lessonId, payload.score);
+    this.deps.onGraded?.({
+      userId: payload.student_id,
+      tenantId: payload.tenant_id,
+      lessonId,
+      exerciseSlug: payload.exercise_id,
+      score: payload.score,
+      at: new Date(payload.timestamp),
+    });
 
     return { ok: true, duplicate: false, lessonId };
   }
